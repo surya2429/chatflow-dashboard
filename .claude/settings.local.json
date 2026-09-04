@@ -62,7 +62,10 @@
       "Bash(cp \"C:\\\\Users\\\\Deepak\\\\Downloads\\\\Group 199686.png\" \"C:\\\\Users\\\\Deepak\\\\Music\\\\claude\\\\public\\\\logos\\\\clientele-row2-b.png\")",
       "Bash(node \"C:/Users/Deepak/AppData/Local/Temp/claude/C--Users-Deepak-Music-claude/a2b07976-61e1-4477-a937-eb6cbc4fa6cc/scratchpad/build-clientele-html.cjs\")",
       "Bash(start \"\" \"C:/Users/Deepak/Music/claude/clientele-section.html\")",
-      "Bash(node \"C:/Users/Deepak/AppData/Local/Temp/claude/C--Users-Deepak-Music-claude/a2b07976-61e1-4477-a937-eb6cbc4fa6cc/scratchpad/build-clientele-jsx.cjs\")"
+      "Bash(node \"C:/Users/Deepak/AppData/Local/Temp/claude/C--Users-Deepak-Music-claude/a2b07976-61e1-4477-a937-eb6cbc4fa6cc/scratchpad/build-clientele-jsx.cjs\")",
+      "Bash(mv \"C:/Users/Deepak/Music/claude\" \"C:/Users/Deepak/Music/whatsapp-dashboard\")",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }
