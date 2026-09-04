@@ -11,7 +11,7 @@ import {
   AlignLeft, LocateFixed,
   Pencil, Smile, Bell, Volume2, Sun, Moon, Sparkles,
   Search, Package, LifeBuoy, MessageCircleMore,
-  Minus, VolumeX, Mic, Download, MoreVertical, HelpCircle,
+  Minus, VolumeX, Mic, Download, MoreVertical, MoreHorizontal, HelpCircle,
   CalendarDays, ShoppingBag, Layers, Maximize2, Minimize2, Type as TypeIcon,
   ChevronLeft, RefreshCw, CheckCheck, Wand2, Rows3,
   Copy, Trash2, ImagePlus, Globe, QrCode, Link as LinkIcon, Droplet, Type,
@@ -105,6 +105,17 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
   const [pickedChip, setPickedChip] = useState(null)
   const [draft, setDraft] = useState('')
   const draftRef = useRef(null)
+  const moreRef = useRef(null)
+  /* Close the overflow menu when clicking anywhere outside it — the menu is
+     positioned absolutely inside the header, so we check clicks against the
+     nearest `moreRef` ancestor. */
+  useEffect(() => {
+    function onDocClick(e) {
+      if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [])
   /* Runs after React has actually committed the new value to the DOM, not inside
      onChange itself — for a controlled textarea, the DOM's own text (and so its
      scrollHeight) hasn't updated yet at the point onChange fires, so measuring
@@ -133,7 +144,8 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
   /* Which past conversation (if any) is open — null means "fresh chat" (the seeded
      THREAD below); 'ended' opens the resolved one from the Messages list instead. */
   const [openConvo, setOpenConvo] = useState(null)
-  const tabsEnabled = cfg.showFaqTab || cfg.showBookingTab || cfg.showMessagesTab
+  const tabsCount = [cfg.showHomeTab, cfg.showChatTab, cfg.showMessagesTab, cfg.showFaqTab, cfg.showBookingTab].filter(Boolean).length
+  const tabsEnabled = tabsCount >= 2
   const currentScreenKey = tabsEnabled ? activeTab : (screen === 'chat' ? 'chat' : 'home')
 
   const isOpen = screen !== 'closed'
@@ -411,81 +423,109 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
   const ChatScreen = () => (
     <div className="flex flex-col h-full" style={{ fontFamily: fontFamilyCss }}>
       {/* ── Header ── */}
-      <div className="flex-shrink-0 px-3 py-2.5 flex items-center gap-3 relative z-20"
-        style={{ background: headerBg,
+      <div className="flex-shrink-0 relative z-20"
+        style={{
+          background: headerBg,
           boxShadow: headerLight ? '0 1px 0 rgba(15,23,42,0.07), 0 4px 12px -8px rgba(15,23,42,0.20)'
-                                 : '0 4px 14px -8px rgba(15,23,42,0.45)' }}>
-        <div className="relative flex-shrink-0">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden"
-            style={{ background: dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
-              border: headerLight ? 'none' : '1.5px solid rgba(255,255,255,0.35)' }}>
-            <Lock size={18} className="text-white"/>
-          </div>
-        </div>
-        <div className="flex-1 min-w-0">
-          <p style={{fontSize: fs(12.5), color: onHeader}} className="font-bold leading-tight truncate">
-            {cfg.botName || 'ChatBot'}
-          </p>
-          <p style={{fontSize: fs(9.5), color: onHeaderMuted}} className="leading-tight mt-0.5 flex items-center gap-1 truncate">
-            <span className="w-1 h-1 rounded-full bg-emerald-400 inline-block flex-shrink-0"/>
-            {cfg.tagline || 'We reply instantly'}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-0.5 flex-shrink-0">
-          <button title="Minimize" className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
-            style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+                                 : '0 4px 14px -8px rgba(15,23,42,0.45)',
+        }}>
+        {/* Compact top bar — back arrow + bot info + actions */}
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
+          {/* Back button — subtle ghost pill */}
+          <button
+            onClick={() => setActiveTab('home')}
+            className="flex items-center justify-center w-7 h-7 rounded-full flex-shrink-0 transition-all"
+            style={{
+              color: onHeaderMuted,
+              background: 'transparent',
+              ['--wc-hover']: headerHoverBg,
+            }}
             onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-            <Minus size={14}/>
+            <ChevronLeft size={17} strokeWidth={2.2}/>
           </button>
-          <div className="relative">
-            <button title="More options" active={moreOpen} onClick={()=>setMoreOpen(o=>!o)}
-              className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
-              style={{ color: onHeaderMuted, background: moreOpen ? headerHoverBg : 'transparent', ['--wc-hover']: headerHoverBg }}
+
+          {/* Bot avatar */}
+          <div className="relative flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden"
+              style={{
+                background: dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
+                border: headerLight ? 'none' : '1.5px solid rgba(255,255,255,0.35)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+              }}>
+              <AvatarFace px={36}/>
+            </div>
+            {/* Online indicator */}
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2"
+              style={{ borderColor: dark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.9)' }}/>
+          </div>
+
+          {/* Bot name + tagline */}
+          <div className="flex-1 min-w-0">
+            <p style={{fontSize: fs(12.5), color: onHeader}} className="font-bold leading-tight truncate">
+              {cfg.botName || 'ChatBot'}
+            </p>
+            <p style={{fontSize: fs(9.5), color: onHeaderMuted}} className="leading-tight mt-0.5 truncate">
+              {cfg.tagline || 'We reply instantly'}
+            </p>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-0.5 flex-shrink-0 relative">
+            <button title="Minimize" onClick={()=>setMaximized(m=>!m)} className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+              style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
               onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
-              onMouseLeave={e => e.currentTarget.style.background = moreOpen ? headerHoverBg : 'transparent'}>
-              <MoreVertical size={14}/>
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <Minimize2 size={15}/>
             </button>
-            {moreOpen && (
-              <div className={clsx('absolute right-0 top-9 w-48 rounded-2xl overflow-hidden z-30 text-left border',
-                dark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200')}
-                style={{ boxShadow:'0 18px 40px -12px rgba(15,23,42,0.35)', animation:'wcMenuIn 0.18s cubic-bezier(0.16,1,0.3,1) both', transformOrigin:'top right' }}>
-                {device !== 'mobile' && (
-                  <button onClick={()=>{ setMaximized(m=>!m); setMoreOpen(false) }}
-                    className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors',
-                      dark ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50')}>
-                    {maximized ? <Minimize2 size={13} className="text-slate-400"/> : <Maximize2 size={13} className="text-slate-400"/>}
-                    {maximized ? 'Restore size' : 'Expand window'}
-                  </button>
-                )}
-                <button onClick={()=>{ setMuted(m=>!m); setMoreOpen(false) }}
-                  className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t',
-                    dark ? 'text-slate-200 hover:bg-slate-700 border-slate-700' : 'text-slate-700 hover:bg-slate-50 border-slate-100')}>
-                  {muted ? <VolumeX size={13} className="text-slate-400"/> : <Volume2 size={13} className="text-slate-400"/>}
-                  {muted ? 'Unmute sounds' : 'Mute sounds'}
-                </button>
-                {cfg.saveChat && (
-                  <button onClick={()=>{ setSavedFlash(true); setMoreOpen(false); setTimeout(()=>setSavedFlash(false), 2200) }}
+            <div className="relative" ref={moreRef}>
+              <button title="More options" active={moreOpen} onClick={()=>setMoreOpen(o=>!o)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                style={{ color: onHeaderMuted, background: moreOpen ? headerHoverBg : 'transparent', ['--wc-hover']: headerHoverBg }}
+                onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+                onMouseLeave={e => e.currentTarget.style.background = moreOpen ? headerHoverBg : 'transparent'}>
+                <MoreHorizontal size={15}/>
+              </button>
+              {moreOpen && (
+                <div className={clsx('absolute right-0 top-9 w-48 rounded-2xl overflow-hidden z-30 text-left border',
+                  dark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200')}
+                  style={{ boxShadow:'0 18px 40px -12px rgba(15,23,42,0.35)', animation:'wcMenuIn 0.18s cubic-bezier(0.16,1,0.3,1) both', transformOrigin:'top right' }}>
+                  {device !== 'mobile' && (
+                    <button onClick={()=>{ setMaximized(m=>!m); setMoreOpen(false) }}
+                      className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors',
+                        dark ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50')}>
+                      {maximized ? <Minimize2 size={13} className="text-slate-400"/> : <Maximize2 size={13} className="text-slate-400"/>}
+                      {maximized ? 'Restore size' : 'Expand window'}
+                    </button>
+                  )}
+                  <button onClick={()=>{ setMuted(m=>!m); setMoreOpen(false) }}
                     className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t',
                       dark ? 'text-slate-200 hover:bg-slate-700 border-slate-700' : 'text-slate-700 hover:bg-slate-50 border-slate-100')}>
-                    <Download size={13} className="text-slate-400"/> Save transcript
+                    {muted ? <VolumeX size={13} className="text-slate-400"/> : <Volume2 size={13} className="text-slate-400"/>}
+                    {muted ? 'Unmute sounds' : 'Mute sounds'}
                   </button>
-                )}
-                <button onClick={()=>setMoreOpen(false)}
-                  className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t',
-                    dark ? 'text-slate-200 hover:bg-slate-700 border-slate-700' : 'text-slate-700 hover:bg-slate-50 border-slate-100')}>
-                  <RefreshCw size={13} className="text-slate-400"/> Start new chat
-                </button>
-              </div>
-            )}
+                  {cfg.saveChat && (
+                    <button onClick={()=>{ setSavedFlash(true); setMoreOpen(false); setTimeout(()=>setSavedFlash(false), 2200) }}
+                      className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t',
+                        dark ? 'text-slate-200 hover:bg-slate-700 border-slate-700' : 'text-slate-700 hover:bg-slate-50 border-slate-100')}>
+                      <Download size={13} className="text-slate-400"/> Save transcript
+                    </button>
+                  )}
+                  <button onClick={()=>{ setScreen('closed'); setMoreOpen(false) }}
+                    className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t',
+                      dark ? 'text-slate-200 hover:bg-slate-700 border-slate-700' : 'text-slate-700 hover:bg-slate-50 border-slate-100')}>
+                    <X size={13} className="text-slate-400"/> Close chat
+                  </button>
+                </div>
+              )}
+            </div>
+            <button title="Close chat" onClick={()=>setScreen('closed')} className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+              style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+              onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <X size={15}/>
+            </button>
           </div>
-          <button title="Close" className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
-            style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
-            onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-            <X size={14}/>
-          </button>
         </div>
 
         {savedFlash && (
@@ -741,8 +781,81 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
   ]
   const MessagesScreen = () => (
     <div className="flex flex-col h-full" style={{ fontFamily: fontFamilyCss, background: dark ? '#0b1220' : '#f7f8fb' }}>
-      <div className="flex-shrink-0 px-4 py-3.5 flex items-center justify-between" style={{background: headerBg}}>
-        <p style={{ color: onHeader }} className="text-[13px] font-bold">Messages</p>
+      <div className="flex-shrink-0 relative z-20"
+        style={{
+          background: headerBg,
+          boxShadow: headerLight ? '0 1px 0 rgba(15,23,42,0.07), 0 4px 12px -8px rgba(15,23,42,0.20)'
+                                 : '0 4px 14px -8px rgba(15,23,42,0.45)',
+        }}>
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
+          <button onClick={() => setActiveTab('chat')} className="flex items-center justify-center w-7 h-7 rounded-full flex-shrink-0 transition-all"
+            style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+            onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <ChevronLeft size={17} strokeWidth={2.2}/>
+          </button>
+          <div className="relative flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden"
+              style={{
+                background: dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
+                border: headerLight ? 'none' : '1.5px solid rgba(255,255,255,0.35)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+              }}>
+              <AvatarFace px={36}/>
+            </div>
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2"
+              style={{ borderColor: dark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.9)' }}/>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p style={{fontSize: fs(12.5), color: onHeader}} className="font-bold leading-tight truncate">
+              {cfg.botName || 'ChatBot'}
+            </p>
+            <p style={{fontSize: fs(9.5), color: onHeaderMuted}} className="leading-tight mt-0.5 truncate">
+              {cfg.tagline || 'We reply instantly'}
+            </p>
+          </div>
+          <div className="flex items-center gap-0.5 flex-shrink-0 relative">
+            <button title="Minimize" onClick={()=>setMaximized(m=>!m)} className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+              style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+              onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <Minimize2 size={15}/>
+            </button>
+            <div className="relative" ref={moreRef}>
+              <button title="More options" active={moreOpen} onClick={()=>setMoreOpen(o=>!o)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                style={{ color: onHeaderMuted, background: moreOpen ? headerHoverBg : 'transparent', ['--wc-hover']: headerHoverBg }}
+                onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+                onMouseLeave={e => e.currentTarget.style.background = moreOpen ? headerHoverBg : 'transparent'}>
+                <MoreHorizontal size={15}/>
+              </button>
+              {moreOpen && (
+                <div className={clsx('absolute right-0 top-9 w-48 rounded-2xl overflow-hidden z-30 text-left border',
+                  dark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200')}
+                  style={{ boxShadow:'0 18px 40px -12px rgba(15,23,42,0.35)', animation:'wcMenuIn 0.18s cubic-bezier(0.16,1,0.3,1) both', transformOrigin:'top right' }}>
+                  {device !== 'mobile' && (
+                    <button onClick={()=>{ setMaximized(m=>!m); setMoreOpen(false) }}
+                      className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors', dark ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50')}>
+                      <Maximize2 size={13}/>{maximized ? 'Restore' : 'Expand'}
+                    </button>
+                  )}
+                  <button onClick={()=>{ setMoreOpen(false) }}
+                    className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors', dark ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50')}>
+                    <Volume2 size={13}/>Unmute
+                  </button>
+                  <button onClick={()=>{ setMoreOpen(false) }}
+                    className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t', dark ? 'text-slate-200 hover:bg-slate-700 border-slate-700' : 'text-slate-700 hover:bg-slate-50 border-slate-100')}>
+                    <Save size={13}/>Save Transcript
+                  </button>
+                  <button onClick={()=>{ setScreen('closed'); setMoreOpen(false) }}
+                    className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t text-red-500', dark ? 'hover:bg-slate-700 border-slate-700' : 'hover:bg-red-50 border-slate-100')}>
+                    <X size={13}/>Close Chat
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto wc-scroll p-2.5 space-y-1.5">
         {MOCK_CONVERSATIONS.map((c,i)=>(
@@ -793,9 +906,81 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
     const [openIdx, setOpenIdx] = useState(0)
     return (
       <div className="flex flex-col h-full">
-        <div className="flex-shrink-0 px-4 py-3.5 flex items-center justify-between" style={{background: headerBg}}>
-          <p className="text-white text-[13px] font-bold">Help Center</p>
-          <button className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center"><X size={10} className="text-white"/></button>
+        <div className="flex-shrink-0 relative z-20"
+          style={{
+            background: headerBg,
+            boxShadow: headerLight ? '0 1px 0 rgba(15,23,42,0.07), 0 4px 12px -8px rgba(15,23,42,0.20)'
+                                   : '0 4px 14px -8px rgba(15,23,42,0.45)',
+          }}>
+          <div className="flex items-center gap-2.5 px-3 py-2.5">
+            <button onClick={() => setActiveTab('home')} className="flex items-center justify-center w-7 h-7 rounded-full flex-shrink-0 transition-all"
+              style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+              onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <ChevronLeft size={17} strokeWidth={2.2}/>
+            </button>
+            <div className="relative flex-shrink-0">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden"
+                style={{
+                  background: dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
+                  border: headerLight ? 'none' : '1.5px solid rgba(255,255,255,0.35)',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                }}>
+                <AvatarFace px={36}/>
+              </div>
+              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2"
+                style={{ borderColor: dark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.9)' }}/>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p style={{fontSize: fs(12.5), color: onHeader}} className="font-bold leading-tight truncate">
+                {cfg.botName || 'ChatBot'}
+              </p>
+              <p style={{fontSize: fs(9.5), color: onHeaderMuted}} className="leading-tight mt-0.5 truncate">
+                {cfg.tagline || 'We reply instantly'}
+              </p>
+            </div>
+            <div className="flex items-center gap-0.5 flex-shrink-0 relative">
+              <button title="Minimize" onClick={()=>setMaximized(m=>!m)} className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+                onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <Minimize2 size={15}/>
+              </button>
+              <div className="relative" ref={moreRef}>
+                <button title="More options" active={moreOpen} onClick={()=>setMoreOpen(o=>!o)}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                  style={{ color: onHeaderMuted, background: moreOpen ? headerHoverBg : 'transparent', ['--wc-hover']: headerHoverBg }}
+                  onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+                  onMouseLeave={e => e.currentTarget.style.background = moreOpen ? headerHoverBg : 'transparent'}>
+                  <MoreHorizontal size={15}/>
+                </button>
+                {moreOpen && (
+                  <div className={clsx('absolute right-0 top-9 w-48 rounded-2xl overflow-hidden z-30 text-left border',
+                    dark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200')}
+                    style={{ boxShadow:'0 18px 40px -12px rgba(15,23,42,0.35)', animation:'wcMenuIn 0.18s cubic-bezier(0.16,1,0.3,1) both', transformOrigin:'top right' }}>
+                    {device !== 'mobile' && (
+                      <button onClick={()=>{ setMaximized(m=>!m); setMoreOpen(false) }}
+                        className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors', dark ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50')}>
+                        <Maximize2 size={13}/>{maximized ? 'Restore' : 'Expand'}
+                      </button>
+                    )}
+                    <button onClick={()=>{ setMoreOpen(false) }}
+                      className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors', dark ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50')}>
+                      <Volume2 size={13}/>Unmute
+                    </button>
+                    <button onClick={()=>{ setMoreOpen(false) }}
+                      className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t', dark ? 'text-slate-200 hover:bg-slate-700 border-slate-700' : 'text-slate-700 hover:bg-slate-50 border-slate-100')}>
+                      <Save size={13}/>Save Transcript
+                    </button>
+                    <button onClick={()=>{ setScreen('closed'); setMoreOpen(false) }}
+                      className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t text-red-500', dark ? 'hover:bg-slate-700 border-slate-700' : 'hover:bg-red-50 border-slate-100')}>
+                      <X size={13}/>Close Chat
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
         <div className={clsx('flex-1 overflow-y-auto p-3 space-y-2', dark ? 'bg-slate-900' : 'bg-white')} style={{fontFamily: fontFamilyCss}}>
           {FAQ_ITEMS.map((item,i)=>(
@@ -818,9 +1003,81 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
   /* ── Booking screen (optional tab) — same realtime date+slot picker ── */
   const BookingScreen = () => (
     <div className="flex flex-col h-full">
-      <div className="flex-shrink-0 px-4 py-3.5" style={{background: headerBg}}>
-        <p className="text-white text-[13px] font-bold">Book an Appointment</p>
-        <p className="text-white/80 text-[10.5px] mt-0.5">Pick a date — available times update instantly</p>
+      <div className="flex-shrink-0 relative z-20"
+        style={{
+          background: headerBg,
+          boxShadow: headerLight ? '0 1px 0 rgba(15,23,42,0.07), 0 4px 12px -8px rgba(15,23,42,0.20)'
+                                 : '0 4px 14px -8px rgba(15,23,42,0.45)',
+        }}>
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
+          <button onClick={() => setActiveTab('home')} className="flex items-center justify-center w-7 h-7 rounded-full flex-shrink-0 transition-all"
+            style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+            onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <ChevronLeft size={17} strokeWidth={2.2}/>
+          </button>
+          <div className="relative flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden"
+              style={{
+                background: dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
+                border: headerLight ? 'none' : '1.5px solid rgba(255,255,255,0.35)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+              }}>
+              <AvatarFace px={36}/>
+            </div>
+            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2"
+              style={{ borderColor: dark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.9)' }}/>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p style={{fontSize: fs(12.5), color: onHeader}} className="font-bold leading-tight truncate">
+              {cfg.botName || 'ChatBot'}
+            </p>
+            <p style={{fontSize: fs(9.5), color: onHeaderMuted}} className="leading-tight mt-0.5 truncate">
+              Pick a date — available times update instantly
+            </p>
+          </div>
+          <div className="flex items-center gap-0.5 flex-shrink-0 relative">
+            <button title="Minimize" onClick={()=>setMaximized(m=>!m)} className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+              style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+              onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <Minimize2 size={15}/>
+            </button>
+            <div className="relative" ref={moreRef}>
+              <button title="More options" active={moreOpen} onClick={()=>setMoreOpen(o=>!o)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                style={{ color: onHeaderMuted, background: moreOpen ? headerHoverBg : 'transparent', ['--wc-hover']: headerHoverBg }}
+                onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+                onMouseLeave={e => e.currentTarget.style.background = moreOpen ? headerHoverBg : 'transparent'}>
+                <MoreHorizontal size={15}/>
+              </button>
+              {moreOpen && (
+                <div className={clsx('absolute right-0 top-9 w-48 rounded-2xl overflow-hidden z-30 text-left border',
+                  dark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200')}
+                  style={{ boxShadow:'0 18px 40px -12px rgba(15,23,42,0.35)', animation:'wcMenuIn 0.18s cubic-bezier(0.16,1,0.3,1) both', transformOrigin:'top right' }}>
+                  {device !== 'mobile' && (
+                    <button onClick={()=>{ setMaximized(m=>!m); setMoreOpen(false) }}
+                      className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors', dark ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50')}>
+                      <Maximize2 size={13}/>{maximized ? 'Restore' : 'Expand'}
+                    </button>
+                  )}
+                  <button onClick={()=>{ setMoreOpen(false) }}
+                    className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors', dark ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-50')}>
+                    <Volume2 size={13}/>Unmute
+                  </button>
+                  <button onClick={()=>{ setMoreOpen(false) }}
+                    className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t', dark ? 'text-slate-200 hover:bg-slate-700 border-slate-700' : 'text-slate-700 hover:bg-slate-50 border-slate-100')}>
+                    <Save size={13}/>Save Transcript
+                  </button>
+                  <button onClick={()=>{ setScreen('closed'); setMoreOpen(false) }}
+                    className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t text-red-500', dark ? 'hover:bg-slate-700 border-slate-700' : 'hover:bg-red-50 border-slate-100')}>
+                    <X size={13}/>Close Chat
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
       <div className={clsx('flex-1 overflow-y-auto p-3', dark ? 'bg-slate-900' : 'bg-white')} style={{fontFamily: fontFamilyCss}}>
         <AppointmentPicker/>
@@ -831,8 +1088,8 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
   /* ── Bottom tab bar — only when FAQ/Booking tabs are enabled ── */
   const TabBar = () => {
     const TABS = [
-      { k:'home', l:'Home', icon: Home },
-      { k:'chat', l:'Chat', icon: MessageCircle, badge: 1 },
+      ...(cfg.showHomeTab ? [{ k:'home', l:'Home', icon: Home }] : []),
+      ...(cfg.showChatTab ? [{ k:'chat', l:'Chat', icon: MessageCircle, badge: 1 }] : []),
       ...(cfg.showMessagesTab ? [{ k:'messages', l:'Inbox', icon: Inbox }] : []),
       ...(cfg.showFaqTab ? [{ k:'faq', l:'Help', icon: HelpCircle }] : []),
       ...(cfg.showBookingTab ? [{ k:'book', l:'Book', icon: CalendarCheck2 }] : []),
@@ -1812,22 +2069,24 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                 onChange={e=>set('autoOpenDelay', Math.max(0, +e.target.value))}/>
             </div>
             <div className="p-4 border-t border-surface-border space-y-1">
-              <label className="label">Extra Widget Tabs <span className="text-slate-400 font-normal">(optional)</span></label>
-              <p className="text-[10px] text-slate-400 mb-2">Adds a bottom tab bar to the widget window</p>
+              <label className="label">Widget Tabs</label>
+              <p className="text-[10px] text-slate-400 mb-2">Choose which tabs appear in the bottom tab bar. Chat must always be enabled.</p>
               {[
-                {k:'showMessagesTab', l:'Messages tab',        sub:'Conversation history, so visitors can resume a past chat', icon:MessageCircle},
-                {k:'showFaqTab',     l:'FAQs tab',            sub:'Searchable help articles as their own tab', icon:HelpCircle},
-                {k:'showBookingTab', l:'Book Appointment tab', sub:'Dedicated tab for the date/slot picker',    icon:CalendarDays},
+                {k:'showHomeTab',     l:'Home tab',            sub:'Welcome / landing page',      icon:Home, always:false},
+                {k:'showChatTab',     l:'Chat tab',            sub:'Main conversation area',      icon:MessageCircle, always:true},
+                {k:'showMessagesTab', l:'Messages tab',        sub:'Conversation history',        icon:MessageCircle, always:false},
+                {k:'showFaqTab',      l:'Help tab',            sub:'Searchable help articles',    icon:HelpCircle, always:false},
+                {k:'showBookingTab',  l:'Book tab',            sub:'Date/slot appointment picker',icon:CalendarDays, always:false},
               ].map(item=>(
                 <div key={item.k} className="flex items-center justify-between py-1.5">
                   <div className="flex items-center gap-2">
                     <item.icon size={13} className="text-slate-400 flex-shrink-0"/>
                     <div>
-                      <p className="text-xs font-medium text-slate-800">{item.l}</p>
+                      <p className="text-xs font-medium text-slate-800">{item.l} {item.always && <span className="text-[9px] text-slate-400 font-normal">(required)</span>}</p>
                       <p className="text-[10px] text-slate-400">{item.sub}</p>
                     </div>
                   </div>
-                  <Toggle checked={cfg[item.k]} onChange={v=>set(item.k,v)}/>
+                  <Toggle checked={cfg[item.k]} onChange={item.always ? ()=>{} : v=>set(item.k,v)} disabled={item.always}/>
                 </div>
               ))}
             </div>
@@ -2522,8 +2781,8 @@ export default function WebChatAppearance() {
     sound: true, emoji: true, attach: true, rating: true,
     typingIndicator: true, readReceipts: true, autoOpenDelay: 0,
     gifPicker: true, voiceInput: true, saveChat: true,
-    // Optional widget tabs
-    showMessagesTab: true, showFaqTab: false, showBookingTab: false,
+    // Widget tabs — Chat is always on by default
+    showHomeTab: false, showChatTab: true, showMessagesTab: false, showFaqTab: false, showBookingTab: false,
     // Lead capture
     leadName: true, leadEmail: true, leadPhone: false, leadTiming: 'before',
   })

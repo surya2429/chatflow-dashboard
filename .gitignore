@@ -1,10 +1,15 @@
 # Dependencies
 node_modules/
-__pycache__/
 
 # Build output
 dist/
 build/
+
+# Vite cache
+node_modules/.vite/
+
+# Claude configs (workspace-specific)
+.claude/
 
 # Environment
 .env
