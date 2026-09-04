@@ -1,0 +1,17 @@
+{
+  "name": "wa-calling-server",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "WhatsApp Business Calling API — Production Node.js Backend",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "uuid": "^9.0.1"
+  }
+}

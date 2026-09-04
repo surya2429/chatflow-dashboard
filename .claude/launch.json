@@ -1,0 +1,30 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Vite Dev Server",
+      "runtimeExecutable": "C:/Program Files/nodejs/node.exe",
+      "runtimeArgs": ["C:/Users/Deepak/Music/claude/node_modules/vite/bin/vite.js"],
+      "port": 5173
+    },
+    {
+      "name": "Vite Preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview"],
+      "port": 4173
+    },
+    {
+      "name": "SmatBot Revamp",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "3456", "smatbot-revamp"],
+      "port": 3456
+    },
+    {
+      "name": "ChatFlow Agent App",
+      "runtimeExecutable": "C:/Program Files/nodejs/node.exe",
+      "runtimeArgs": ["C:/Users/Deepak/Music/claude/start-agent-app.cjs"],
+      "port": 8082,
+      "autoPort": false
+    }
+  ]
+}

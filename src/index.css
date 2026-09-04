@@ -1,0 +1,192 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Accent color tokens — RGB triples so Tailwind's <alpha-value> opacity modifiers work.
+       Default matches the app's WhatsApp-era blue; .theme-instagram below re-points these
+       to Instagram's brand pink so every bg-primary / text-primary / border-primary usage
+       (buttons, focus rings, active nav state, toggles, badges…) re-themes automatically
+       while browsing the Instagram product, with zero per-component changes needed. */
+    --accent:        0 102 255;   /* #0066ff */
+    --accent-hover:  0 82 204;    /* #0052cc */
+    --accent-deep:   0 61 153;    /* #003d99 */
+    --accent-tint:   239 244 255; /* #eff4ff */
+    --accent-tint-2: 220 232 255; /* #dce8ff */
+    --accent-mid:    185 208 255; /* #b9d0ff */
+  }
+  .theme-instagram {
+    --accent:        225 48 108;  /* #E1306C — Instagram pink */
+    --accent-hover:  193 30 90;   /* #C11E5A */
+    --accent-deep:   145 22 68;   /* #911644 */
+    --accent-tint:   253 242 248; /* #FDF2F8 */
+    --accent-tint-2: 252 226 238; /* #FCE2EE */
+    --accent-mid:    247 175 205; /* #F7AFCD */
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { @apply font-sans bg-surface text-slate-800 antialiased; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-slate-200 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-slate-300; }
+}
+
+@layer components {
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center gap-1.5 px-3 py-2 bg-primary hover:bg-primary-hover
+           text-white text-[11px] font-semibold rounded-lg border border-transparent
+           transition-all duration-150 shadow-btn active:scale-95
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-surface-hover
+           text-slate-600 text-[11px] font-semibold rounded-lg border border-surface-border
+           hover:border-primary/30 hover:text-primary transition-all duration-150 active:scale-95;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-1.5 px-3 py-2 hover:bg-surface-hover
+           text-slate-600 hover:text-slate-900 text-[11px] font-semibold rounded-lg
+           border border-transparent transition-all duration-150;
+  }
+  .btn-danger {
+    @apply inline-flex items-center gap-1.5 px-3 py-2 bg-red-500 hover:bg-red-600
+           text-white text-[11px] font-semibold rounded-lg border border-transparent
+           transition-all duration-150 active:scale-95;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-white rounded-xl border border-surface-border;
+  }
+  .card-hover {
+    @apply card hover:border-primary/30 transition-all duration-150 cursor-pointer;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full px-3 py-2 text-xs bg-white border border-surface-border rounded-lg
+           text-slate-800 placeholder-slate-400 focus:outline-none focus:border-primary
+           focus:ring-2 focus:ring-primary/10 transition-all;
+  }
+  .input-sm {
+    @apply input py-1.5 text-[11px];
+  }
+  .select {
+    @apply input appearance-none cursor-pointer;
+  }
+  .textarea {
+    @apply input resize-none;
+  }
+  .label {
+    @apply block text-xs font-medium text-slate-600 mb-1;
+  }
+
+  /* Badges */
+  .badge { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium; }
+  .badge-green { @apply badge bg-emerald-50 text-emerald-700 border border-emerald-200; }
+  .badge-blue  { @apply badge bg-primary-50 text-primary border border-primary-100; }
+  .badge-amber { @apply badge bg-amber-50 text-amber-700 border border-amber-200; }
+  .badge-red   { @apply badge bg-red-50 text-red-700 border border-red-200; }
+  .badge-gray  { @apply badge bg-slate-100 text-slate-600 border border-slate-200; }
+  .badge-purple{ @apply badge bg-purple-50 text-purple-700 border border-purple-200; }
+
+  /* Sidebar nav */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium
+           text-sidebar-text hover:bg-sidebar-hover hover:text-slate-800
+           transition-all duration-150 cursor-pointer relative;
+  }
+  .nav-item.active {
+    @apply bg-sidebar-active text-primary font-semibold;
+  }
+
+  /* Stat card */
+  .stat-card {
+    @apply card p-5;
+  }
+
+  /* Table */
+  .table-header {
+    @apply text-xs font-semibold text-slate-500 uppercase tracking-wide text-left px-4 py-3 bg-slate-50 border-b border-surface-border;
+  }
+  .table-cell {
+    @apply px-4 py-3 text-sm text-slate-700;
+  }
+  .table-row {
+    @apply border-b border-surface-border hover:bg-surface-hover transition-colors;
+  }
+
+  /* Section title */
+  .section-title { @apply text-sm font-semibold text-slate-800; }
+  .section-sub   { @apply text-xs text-slate-500 mt-0.5; }
+
+  /* Tab styles */
+  .tab {
+    @apply px-4 py-2 text-sm font-medium rounded-lg cursor-pointer transition-colors;
+  }
+  .tab.active   { @apply bg-primary text-white; }
+  .tab:not(.active) { @apply text-slate-600 hover:bg-surface-hover hover:text-slate-800; }
+
+  /* Page layout */
+  .page-header {
+    @apply flex items-center justify-between mb-5;
+  }
+  .page-title {
+    @apply text-[15px] font-bold text-slate-900;
+  }
+
+  /* Node palette item */
+  .node-pill {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-lg border border-surface-border
+           text-xs font-medium text-slate-700 cursor-grab hover:border-primary/40
+           hover:bg-primary-50 hover:text-primary transition-all select-none bg-white;
+  }
+
+  /* Flow node */
+  .flow-node {
+    @apply absolute bg-white rounded-xl border-2 border-surface-border shadow-card
+           cursor-pointer select-none w-56 transition-all;
+  }
+  .flow-node:hover { @apply border-primary/40 shadow-md; }
+  .flow-node.selected { @apply border-primary shadow-md; }
+
+  /* Form group */
+  .form-group { @apply space-y-1; }
+
+  /* Divider */
+  .divider { @apply border-t border-surface-border; }
+
+  /* Side panel header typography */
+  .sp-title { @apply text-[13px] font-semibold text-slate-900 leading-snug; }
+  .sp-sub   { @apply text-[11px] text-slate-400 mt-0.5 leading-snug; }
+
+  /* Side panel — always rendered via createPortal to escape overflow containers */
+  .side-panel {
+    @apply fixed inset-y-0 right-0 flex flex-col bg-white;
+    z-index: 9999;
+    border-left: 1px solid rgba(0,0,0,0.10);
+    box-shadow: -8px 0 40px rgba(15,23,42,0.18);
+    animation: slide-in-right 0.22s cubic-bezier(0.32,0.72,0,1);
+  }
+
+  /* Overlay: solid dark tint — full viewport coverage, no gap, no blur */
+  .side-panel-overlay {
+    @apply fixed inset-0;
+    z-index: 9998;
+    background: rgba(10, 14, 30, 0.55);
+    animation: overlay-fade-in 0.18s ease-out;
+  }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0.7; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Google Fonts API Tester</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      margin-bottom: 0.25rem;
+      color: #1a1a2e;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .card h2 {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #888;
+      margin-bottom: 1rem;
+    }
+
+    /* API Key Input */
+    .api-row {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .api-row input {
+      flex: 1;
+      padding: 0.6rem 0.9rem;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .api-row input:focus { border-color: #4f46e5; }
+
+    button {
+      padding: 0.6rem 1.2rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: opacity 0.2s;
+    }
+
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary { background: #4f46e5; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #4338ca; }
+
+    /* Status badge */
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.85rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 20px;
+      margin-top: 0.75rem;
+      font-weight: 500;
+    }
+
+    .status.success { background: #d1fae5; color: #065f46; }
+    .status.error   { background: #fee2e2; color: #991b1b; }
+    .status.loading { background: #e0e7ff; color: #3730a3; }
+
+    /* Search + dropdown */
+    .controls {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .search-wrap {
+      flex: 1;
+      min-width: 180px;
+      position: relative;
+    }
+
+    .search-wrap input {
+      width: 100%;
+      padding: 0.6rem 0.9rem 0.6rem 2.2rem;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-wrap input:focus { border-color: #4f46e5; }
+
+    .search-icon {
+      position: absolute;
+      left: 0.65rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #aaa;
+      font-size: 0.95rem;
+      pointer-events: none;
+    }
+
+    select {
+      padding: 0.6rem 0.9rem;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      outline: none;
+      background: #fff;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    select:focus { border-color: #4f46e5; }
+
+    /* Font list */
+    .font-list {
+      max-height: 260px;
+      overflow-y: auto;
+      border: 1.5px solid #eee;
+      border-radius: 8px;
+      margin-top: 1rem;
+    }
+
+    .font-item {
+      padding: 0.65rem 1rem;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #f3f3f3;
+      transition: background 0.15s;
+      font-size: 0.9rem;
+    }
+
+    .font-item:last-child { border-bottom: none; }
+    .font-item:hover { background: #f5f3ff; }
+    .font-item.selected { background: #eef2ff; font-weight: 600; color: #4f46e5; }
+
+    .font-category {
+      font-size: 0.75rem;
+      color: #aaa;
+    }
+
+    .font-count {
+      font-size: 0.8rem;
+      color: #888;
+      margin-top: 0.5rem;
+      text-align: right;
+    }
+
+    /* Preview */
+    .preview-controls {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    .preview-controls label {
+      font-size: 0.85rem;
+      color: #555;
+    }
+
+    .preview-controls input[type=range] {
+      width: 120px;
+    }
+
+    .preview-controls input[type=text] {
+      flex: 1;
+      min-width: 200px;
+      padding: 0.5rem 0.75rem;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+
+    .preview-controls input[type=text]:focus { border-color: #4f46e5; }
+
+    .preview-box {
+      border: 1.5px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 1.5rem;
+      min-height: 100px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      background: #fafafa;
+      transition: font-family 0.3s;
+      word-break: break-word;
+    }
+
+    .preview-selected-label {
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+      color: #888;
+      text-align: center;
+    }
+
+    /* Chatbot mock */
+    .chatbot-mock {
+      border: 1.5px solid #e5e7eb;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .chatbot-header {
+      background: #4f46e5;
+      color: #fff;
+      padding: 0.75rem 1rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .chatbot-body {
+      padding: 1rem;
+      background: #f9fafb;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .chat-bubble {
+      max-width: 80%;
+      padding: 0.65rem 1rem;
+      border-radius: 14px;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    .chat-bubble.bot {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      align-self: flex-start;
+    }
+
+    .chat-bubble.user {
+      background: #4f46e5;
+      color: #fff;
+      align-self: flex-end;
+    }
+
+    /* Utilities */
+    .empty-state {
+      text-align: center;
+      padding: 2rem;
+      color: #aaa;
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 500px) {
+      body { padding: 1rem; }
+      .api-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Google Fonts API Tester</h1>
+  <p class="subtitle">Test your API key, browse fonts, and preview them for your chatbot.</p>
+
+  <!-- Step 1: API Key -->
+  <div class="card">
+    <h2>Step 1 — Enter API Key</h2>
+    <div class="api-row">
+      <input type="text" id="apiKey" placeholder="AIzaSy..." />
+      <button class="btn-primary" id="loadBtn" onclick="loadFonts()">Load Fonts</button>
+    </div>
+    <div id="apiStatus"></div>
+  </div>
+
+  <!-- Step 2: Browse & Search -->
+  <div class="card" id="browseCard" style="display:none">
+    <h2>Step 2 — Browse &amp; Search Fonts</h2>
+    <div class="controls">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="searchInput" placeholder="Search fonts…" oninput="filterFonts()" />
+      </div>
+      <select id="categoryFilter" onchange="filterFonts()">
+        <option value="">All categories</option>
+        <option value="serif">Serif</option>
+        <option value="sans-serif">Sans Serif</option>
+        <option value="display">Display</option>
+        <option value="handwriting">Handwriting</option>
+        <option value="monospace">Monospace</option>
+      </select>
+      <select id="sortFilter" onchange="filterFonts()">
+        <option value="alpha">A → Z</option>
+        <option value="popularity">Most Popular</option>
+      </select>
+    </div>
+
+    <div class="font-count" id="fontCount"></div>
+    <div class="font-list" id="fontList">
+      <div class="empty-state">Load fonts to browse.</div>
+    </div>
+  </div>
+
+  <!-- Step 3: Preview -->
+  <div class="card" id="previewCard" style="display:none">
+    <h2>Step 3 — Preview Font</h2>
+    <div class="preview-controls">
+      <label>Text:</label>
+      <input type="text" id="previewText" value="Hello! How can I help you today?" oninput="updatePreview()" />
+      <label>Size: <span id="sizeLabel">20</span>px</label>
+      <input type="range" min="12" max="60" value="20" id="fontSize" oninput="updateFontSize()" />
+    </div>
+    <div class="preview-box" id="previewBox">Select a font to preview</div>
+    <div class="preview-selected-label" id="previewLabel"></div>
+
+    <!-- Chatbot mock preview -->
+    <div style="margin-top:1.25rem;">
+      <div class="chatbot-header">💬 Chatbot Preview</div>
+      <div class="chatbot-body" id="chatbotBody">
+        <div class="chat-bubble bot" id="botBubble">Hello! How can I help you today?</div>
+        <div class="chat-bubble user" id="userBubble">Tell me more about your product.</div>
+        <div class="chat-bubble bot" id="botBubble2">Sure! I'm your AI assistant. Ask me anything.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let allFonts = [];
+  let selectedFont = null;
+  const loadedFontFamilies = new Set();
+
+  async function loadFonts() {
+    const key = document.getElementById('apiKey').value.trim();
+    if (!key) { showStatus('Please enter an API key.', 'error'); return; }
+
+    const btn = document.getElementById('loadBtn');
+    btn.disabled = true;
+    showStatus('Fetching fonts…', 'loading');
+
+    try {
+      const res = await fetch(
+        `https://www.googleapis.com/webfonts/v1/webfonts?key=${encodeURIComponent(key)}&sort=popularity`
+      );
+      const data = await res.json();
+
+      if (!res.ok) {
+        const msg = data.error?.message || 'API error';
+        showStatus(`❌ Error: ${msg}`, 'error');
+        btn.disabled = false;
+        return;
+      }
+
+      allFonts = data.items || [];
+      showStatus(`✅ API working! ${allFonts.length} fonts loaded.`, 'success');
+      document.getElementById('browseCard').style.display = 'block';
+      renderFontList(allFonts);
+    } catch (e) {
+      showStatus(`❌ Network error: ${e.message}`, 'error');
+    }
+
+    btn.disabled = false;
+  }
+
+  function showStatus(msg, type) {
+    const el = document.getElementById('apiStatus');
+    el.innerHTML = `<div class="status ${type}">${msg}</div>`;
+  }
+
+  function filterFonts() {
+    const query = document.getElementById('searchInput').value.toLowerCase();
+    const cat   = document.getElementById('categoryFilter').value;
+    const sort  = document.getElementById('sortFilter').value;
+
+    let filtered = allFonts.filter(f => {
+      const matchName = f.family.toLowerCase().includes(query);
+      const matchCat  = cat ? f.category === cat : true;
+      return matchName && matchCat;
+    });
+
+    if (sort === 'alpha') {
+      filtered.sort((a, b) => a.family.localeCompare(b.family));
+    }
+    // popularity order is already from API
+
+    renderFontList(filtered);
+  }
+
+  function renderFontList(fonts) {
+    const list = document.getElementById('fontList');
+    document.getElementById('fontCount').textContent = `${fonts.length} font${fonts.length !== 1 ? 's' : ''}`;
+
+    if (!fonts.length) {
+      list.innerHTML = '<div class="empty-state">No fonts match your search.</div>';
+      return;
+    }
+
+    list.innerHTML = fonts.map(f => `
+      <div class="font-item ${selectedFont?.family === f.family ? 'selected' : ''}"
+           data-family="${f.family}" data-category="${f.category}">
+        <span>${f.family}</span>
+        <span class="font-category">${f.category}</span>
+      </div>
+    `).join('');
+  }
+
+  function selectFont(family, category) {
+    selectedFont = { family, category };
+
+    // Reload list to update selection highlight
+    filterFonts();
+
+    // Load font via Google Fonts CSS if not already loaded
+    if (!loadedFontFamilies.has(family)) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}&display=swap`;
+      document.head.appendChild(link);
+      loadedFontFamilies.add(family);
+    }
+
+    document.getElementById('previewCard').style.display = 'block';
+    updatePreview();
+    document.getElementById('previewCard').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function updatePreview() {
+    if (!selectedFont) return;
+    const text = document.getElementById('previewText').value || 'Hello! How can I help you today?';
+    const size = document.getElementById('fontSize').value;
+    const family = selectedFont.family;
+
+    document.getElementById('previewBox').style.fontFamily = `'${family}', sans-serif`;
+    document.getElementById('previewBox').style.fontSize = `${size}px`;
+    document.getElementById('previewBox').textContent = text;
+    document.getElementById('previewLabel').textContent = `Font: ${family} (${selectedFont.category})`;
+
+    // Apply to chatbot mock
+    ['botBubble', 'userBubble', 'botBubble2'].forEach(id => {
+      document.getElementById(id).style.fontFamily = `'${family}', sans-serif`;
+    });
+    document.getElementById('botBubble').textContent = text;
+  }
+
+  function updateFontSize() {
+    const size = document.getElementById('fontSize').value;
+    document.getElementById('sizeLabel').textContent = size;
+    updatePreview();
+  }
+
+  // Font list click via event delegation (avoids onclick/JSON issues)
+  document.getElementById('fontList').addEventListener('click', e => {
+    const item = e.target.closest('.font-item');
+    if (!item) return;
+    selectFont(item.dataset.family, item.dataset.category);
+  });
+
+  // Allow pressing Enter to load fonts
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && document.activeElement.id === 'apiKey') loadFonts();
+  });
+</script>
+</body>
+</html>

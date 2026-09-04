@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmatBot — Let AI Boost Your Customer Engagement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   RESET & BASE
+   ============================================================ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:16px}
+body{font-family:'Plus Jakarta Sans',Inter,sans-serif;background:#ffffff;color:#0f0a1e;line-height:1.6;overflow-x:hidden}
+a{text-decoration:none;color:inherit}
+ul{list-style:none}
+img{max-width:100%;display:block}
+button{cursor:pointer;border:none;outline:none;font-family:inherit}
+
+/* ============================================================
+   CSS VARIABLES
+   ============================================================ */
+:root{
+  --bg:#ffffff;
+  --surface:#f8f5ff;
+  --card:#ffffff;
+  --primary:#6d28d9;
+  --primary-light:#7c3aed;
+  --accent:#8b5cf6;
+  --gradient:linear-gradient(135deg,#6d28d9,#06b6d4);
+  --gradient-soft:linear-gradient(135deg,#ede9fe,#cffafe);
+  --text:#0f0a1e;
+  --text-sec:#64748b;
+  --border:#e2d9f3;
+  --success:#10b981;
+  --shadow-sm:0 2px 8px rgba(109,40,217,.08);
+  --shadow-md:0 8px 30px rgba(109,40,217,.12);
+  --shadow-lg:0 20px 60px rgba(109,40,217,.18);
+  --radius-sm:8px;
+  --radius-md:16px;
+  --radius-lg:24px;
+  --nav-height:72px;
+  --transition:.3s cubic-bezier(.4,0,.2,1);
+}
+
+/* ============================================================
+   SCROLLBAR
+   ============================================================ */
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:#f8f5ff}
+::-webkit-scrollbar-thumb{background:var(--accent);border-radius:3px}
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+.container{width:100%;max-width:1200px;margin:0 auto;padding:0 24px}
+.section{padding:96px 0}
+.section-tag{display:inline-block;background:var(--gradient-soft);color:var(--primary);font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:6px 16px;border-radius:100px;margin-bottom:16px}
+.section-title{font-size:clamp(32px,4vw,48px);font-weight:700;color:var(--text);line-height:1.15;margin-bottom:16px}
+.section-sub{font-size:17px;color:var(--text-sec);max-width:600px;margin:0 auto 56px}
+.text-center{text-align:center}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 28px;border-radius:100px;font-size:15px;font-weight:600;transition:var(--transition);position:relative;overflow:hidden}
+.btn::after{content:'';position:absolute;inset:0;background:transparent;border-radius:inherit;transition:background .2s}
+.btn:active::after{background:rgba(0,0,0,.08)}
+
+/* Ripple */
+.btn .ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.35);transform:scale(0);animation:rippleAnim .6s linear;pointer-events:none}
+@keyframes rippleAnim{to{transform:scale(4);opacity:0}}
+
+/* Pulse ring */
+.btn-pulse{animation:pulseRing 2.5s ease-out infinite}
+@keyframes pulseRing{
+  0%{box-shadow:0 0 0 0 rgba(109,40,217,.4)}
+  70%{box-shadow:0 0 0 14px rgba(109,40,217,0)}
+  100%{box-shadow:0 0 0 0 rgba(109,40,217,0)}
+}
+
+.btn-primary{background:var(--gradient);color:#fff;box-shadow:var(--shadow-sm)}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
+
+.btn-outline{background:transparent;color:var(--primary);border:2px solid var(--primary)}
+.btn-outline:hover{background:var(--primary);color:#fff;transform:translateY(-2px)}
+
+.btn-ghost{background:transparent;color:#fff;border:2px solid rgba(255,255,255,.5)}
+.btn-ghost:hover{background:rgba(255,255,255,.15);transform:translateY(-2px)}
+
+.btn-white{background:#fff;color:var(--primary);font-weight:700}
+.btn-white:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+.nav{position:fixed;top:0;left:0;right:0;height:var(--nav-height);z-index:1000;transition:background .3s,box-shadow .3s,backdrop-filter .3s}
+.nav.scrolled{background:rgba(255,255,255,.88);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 1px 0 var(--border),var(--shadow-sm)}
+.nav-inner{display:flex;align-items:center;height:var(--nav-height);gap:36px}
+.nav-logo{display:flex;align-items:center;gap:10px;font-size:22px;font-weight:800;color:var(--text);flex-shrink:0}
+.nav-logo-icon{width:36px;height:36px;background:var(--gradient);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px}
+.nav-links{display:flex;align-items:center;gap:2px;flex:1}
+.nav-link{padding:8px 14px;border-radius:8px;font-size:15px;font-weight:500;color:var(--text-sec);transition:var(--transition);position:relative;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.nav-link:hover,.nav-link.active{color:var(--primary);background:var(--surface)}
+.nav-link svg{width:13px;height:13px;transition:transform .2s;flex-shrink:0}
+
+/* Dropdown */
+.nav-dropdown{position:relative}
+.nav-dropdown:hover .dropdown-menu{opacity:1;transform:translateY(0);pointer-events:all}
+.nav-dropdown:hover .nav-link svg{transform:rotate(180deg)}
+.dropdown-menu{position:absolute;top:calc(100% + 8px);left:0;min-width:220px;background:#fff;border:1px solid var(--border);border-radius:var(--radius-md);padding:8px;box-shadow:var(--shadow-lg);opacity:0;transform:translateY(-8px);pointer-events:none;transition:opacity .2s,transform .2s}
+.dropdown-item{display:block;padding:10px 14px;border-radius:var(--radius-sm);font-size:14px;font-weight:500;color:var(--text-sec);transition:var(--transition)}
+.dropdown-item:hover{background:var(--surface);color:var(--primary)}
+
+.nav-cta{display:flex;align-items:center;gap:10px;margin-left:auto}
+.nav-cta .btn{padding:10px 22px;font-size:14px}
+
+/* Hamburger */
+.nav-hamburger{display:none;flex-direction:column;justify-content:center;gap:5px;width:40px;height:40px;padding:8px;border-radius:8px;background:transparent;transition:var(--transition);margin-left:auto}
+.nav-hamburger span{display:block;height:2px;background:var(--text);border-radius:2px;transition:var(--transition)}
+.nav-hamburger.open span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+.nav-hamburger.open span:nth-child(2){opacity:0}
+.nav-hamburger.open span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+
+/* Mobile menu */
+.mobile-menu{position:fixed;top:var(--nav-height);left:0;right:0;bottom:0;background:#fff;z-index:999;padding:24px;overflow-y:auto;transform:translateX(100%);transition:transform .35s cubic-bezier(.4,0,.2,1)}
+.mobile-menu.open{transform:translateX(0)}
+.mobile-menu-links{display:flex;flex-direction:column;gap:4px}
+.mobile-link{display:block;padding:14px 16px;border-radius:var(--radius-sm);font-size:16px;font-weight:500;color:var(--text);transition:var(--transition)}
+.mobile-link:hover{background:var(--surface);color:var(--primary)}
+.mobile-submenu{padding-left:16px;display:none}
+.mobile-submenu.open{display:block}
+.mobile-cta{display:flex;flex-direction:column;gap:10px;margin-top:24px;padding-top:24px;border-top:1px solid var(--border)}
+
+/* ============================================================
+   HERO
+   ============================================================ */
+.hero{padding-top:calc(var(--nav-height) + 72px);padding-bottom:96px;background:linear-gradient(160deg,#ffffff 0%,#f3eeff 60%,#e0f7fa 100%);position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-200px;right:-200px;width:800px;height:800px;background:radial-gradient(circle,rgba(139,92,246,.14) 0%,transparent 68%);pointer-events:none;animation:orbFloat 8s ease-in-out infinite}
+.hero::after{content:'';position:absolute;bottom:-120px;left:-120px;width:600px;height:600px;background:radial-gradient(circle,rgba(6,182,212,.1) 0%,transparent 68%);pointer-events:none;animation:orbFloat 10s ease-in-out infinite reverse}
+@keyframes orbFloat{0%,100%{transform:translate(0,0)}50%{transform:translate(24px,-20px)}}
+.hero-dot-grid{position:absolute;inset:0;background-image:radial-gradient(circle,rgba(109,40,217,.06) 1px,transparent 1px);background-size:32px 32px;pointer-events:none}
+.hero-visual{flex:0 0 420px;position:relative;padding:24px 0}
+.hero-inner{display:flex;align-items:center;gap:64px;width:100%;max-width:1200px;margin:0 auto;padding:0 24px}
+.hero-text{flex:1;min-width:0}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--border);border-radius:100px;padding:6px 16px 6px 8px;font-size:13px;font-weight:600;color:var(--primary);margin-bottom:24px;box-shadow:var(--shadow-sm)}
+.hero-badge-dot{width:22px;height:22px;background:var(--gradient);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px}
+.hero h1{font-size:clamp(42px,6vw,68px);font-weight:800;line-height:1.1;color:var(--text);margin-bottom:24px}
+.hero h1 .highlight{background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:17px;color:var(--text-sec);line-height:1.7;margin-bottom:16px;max-width:520px}
+.hero-typewriter{font-size:17px;color:var(--text-sec);margin-bottom:32px;min-height:28px}
+.hero-typewriter .tw-word{color:var(--primary);font-weight:700}
+.hero-actions{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:40px}
+.hero-social{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--text-sec)}
+.hero-social-avatars{display:flex}
+.hero-social-avatars span{width:32px;height:32px;border-radius:50%;border:2px solid #fff;background:var(--gradient);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;margin-left:-8px}
+.hero-social-avatars span:first-child{margin-left:0}
+
+/* Chat widget */
+.hero-visual{flex:0 0 400px;position:relative}
+.chat-widget{background:#fff;border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);overflow:hidden;animation:floatWidget 4s ease-in-out infinite;border:1px solid var(--border);width:360px;max-width:100%}
+@keyframes floatWidget{0%,100%{transform:translateY(0)}50%{transform:translateY(-16px)}}
+.chat-header{background:var(--gradient);padding:16px 20px;display:flex;align-items:center;gap:12px}
+.chat-avatar{width:38px;height:38px;background:rgba(255,255,255,.25);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px}
+.chat-info{color:#fff}
+.chat-info strong{display:block;font-size:15px;font-weight:700}
+.chat-info span{font-size:12px;opacity:.85}
+.chat-status{width:8px;height:8px;background:#4ade80;border-radius:50%;margin-left:auto;animation:statusPulse 2s infinite}
+@keyframes statusPulse{0%,100%{box-shadow:0 0 0 2px rgba(74,222,128,.3)}50%{box-shadow:0 0 0 5px rgba(74,222,128,.1)}}
+.chat-body{padding:16px;background:#f9fafb;min-height:190px;overflow-y:auto;max-height:220px}
+.chat-msg{display:flex;gap:8px;margin-bottom:12px;animation:msgIn .4s ease}
+@keyframes msgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.chat-msg.bot .bubble{background:#fff;border:1px solid var(--border);color:var(--text);border-radius:0 12px 12px 12px}
+.chat-msg.user{flex-direction:row-reverse}
+.chat-msg.user .bubble{background:var(--gradient);color:#fff;border-radius:12px 0 12px 12px}
+.bubble{padding:10px 14px;font-size:14px;max-width:210px;line-height:1.5}
+.chat-msg-avatar{width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;background:var(--surface)}
+.typing-indicator{display:flex;align-items:center;gap:4px;padding:10px 14px;background:#fff;border:1px solid var(--border);border-radius:0 12px 12px 12px;width:fit-content}
+.typing-dot{width:7px;height:7px;background:var(--accent);border-radius:50%;animation:typingDot 1.2s ease-in-out infinite}
+.typing-dot:nth-child(2){animation-delay:.2s}
+.typing-dot:nth-child(3){animation-delay:.4s}
+@keyframes typingDot{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-6px);opacity:1}}
+.chat-input-bar{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;background:#fff}
+.chat-input-bar input{flex:1;border:1px solid var(--border);border-radius:100px;padding:9px 14px;font-size:13px;color:var(--text);background:#f8f5ff;outline:none;font-family:inherit}
+.chat-input-bar input::placeholder{color:var(--text-sec)}
+.chat-send{width:34px;height:34px;border-radius:50%;background:var(--gradient);border:none;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .2s;flex-shrink:0}
+.chat-send:hover{transform:scale(1.1)}
+
+/* Floating tags */
+.hero-float-tag{position:absolute;background:#fff;border:1px solid var(--border);border-radius:14px;padding:10px 16px;box-shadow:0 8px 32px rgba(109,40,217,.14);display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;z-index:5}
+.hero-float-tag.tag1{top:8px;right:8px;animation:floatTag1 3s ease-in-out infinite}
+.hero-float-tag.tag2{bottom:72px;left:-16px;animation:floatTag2 3.5s ease-in-out infinite}
+@keyframes floatTag1{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-8px) rotate(1deg)}}
+@keyframes floatTag2{0%,100%{transform:translateY(0) rotate(1deg)}50%{transform:translateY(-7px) rotate(-1deg)}}
+.tag-icon{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.tag-icon.green{background:linear-gradient(135deg,#d1fae5,#a7f3d0)}
+.tag-icon.blue{background:linear-gradient(135deg,#dbeafe,#bfdbfe)}
+
+/* ============================================================
+   STATS BAR
+   ============================================================ */
+.stats-bar{background:var(--gradient);padding:52px 0}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;text-align:center}
+.stat-item{color:#fff}
+.stat-number{font-size:clamp(36px,4vw,52px);font-weight:800;line-height:1;display:block;margin-bottom:6px}
+.stat-label{font-size:15px;opacity:.85;font-weight:500}
+
+/* ============================================================
+   SCROLL REVEAL
+   ============================================================ */
+.reveal{opacity:0;transform:translateY(36px);transition:opacity .7s ease,transform .7s ease}
+.reveal.visible{opacity:1;transform:translateY(0)}
+.reveal-delay-1{transition-delay:.1s}
+.reveal-delay-2{transition-delay:.2s}
+.reveal-delay-3{transition-delay:.3s}
+.reveal-delay-4{transition-delay:.4s}
+.reveal-delay-5{transition-delay:.5s}
+.reveal-delay-6{transition-delay:.6s}
+
+/* ============================================================
+   FEATURES
+   ============================================================ */
+.features{background:#fff}
+.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.feature-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius-md);padding:32px 28px;transition:var(--transition);position:relative;overflow:hidden}
+.feature-card::before{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;opacity:0;transition:opacity .3s}
+.feature-card::after{content:'';position:absolute;inset:0;opacity:0;transition:opacity .3s;pointer-events:none}
+.feature-card:hover{transform:translateY(-8px);box-shadow:0 24px 64px rgba(109,40,217,.14)}
+.feature-card:hover::before{opacity:1}
+.feature-card:hover .feature-icon{transform:scale(1.18) rotate(-4deg)}
+.feature-icon{width:56px;height:56px;border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;margin-bottom:22px;transition:transform .35s cubic-bezier(.34,1.56,.64,1)}
+.fi-orange{background:linear-gradient(135deg,#fff7ed,#fed7aa);box-shadow:0 4px 16px rgba(251,146,60,.2)}
+.fi-blue{background:linear-gradient(135deg,#eff6ff,#bfdbfe);box-shadow:0 4px 16px rgba(59,130,246,.2)}
+.fi-green{background:linear-gradient(135deg,#f0fdf4,#bbf7d0);box-shadow:0 4px 16px rgba(34,197,94,.2)}
+.fi-pink{background:linear-gradient(135deg,#fdf2f8,#f5d0fe);box-shadow:0 4px 16px rgba(236,72,153,.2)}
+.fi-slate{background:linear-gradient(135deg,#f8fafc,#cbd5e1);box-shadow:0 4px 16px rgba(100,116,139,.2)}
+.fi-purple{background:linear-gradient(135deg,#f5f3ff,#ddd6fe);box-shadow:0 4px 16px rgba(109,40,217,.2)}
+.fc-orange::before{background:linear-gradient(90deg,#f97316,#fb923c)}
+.fc-blue::before{background:linear-gradient(90deg,#3b82f6,#06b6d4)}
+.fc-green::before{background:linear-gradient(90deg,#22c55e,#10b981)}
+.fc-pink::before{background:linear-gradient(90deg,#ec4899,#f43f5e)}
+.fc-slate::before{background:linear-gradient(90deg,#64748b,#475569)}
+.fc-purple::before{background:linear-gradient(90deg,#7c3aed,#6d28d9)}
+.feature-card h3{font-size:20px;font-weight:700;margin-bottom:10px;color:var(--text)}
+.feature-card p{font-size:15px;color:var(--text-sec);line-height:1.65}
+.feature-link{display:inline-flex;align-items:center;gap:6px;margin-top:16px;font-size:14px;font-weight:600;color:var(--primary);transition:gap .2s}
+.feature-link:hover{gap:10px}
+
+/* ============================================================
+   INDUSTRIES
+   ============================================================ */
+.industries{background:var(--surface)}
+.industry-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+.industry-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius-md);padding:36px 20px 28px;text-align:center;cursor:pointer;transition:var(--transition);position:relative;overflow:hidden}
+.industry-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;opacity:1;transition:height .3s}
+.industry-card:hover{transform:translateY(-6px);box-shadow:var(--shadow-lg)}
+.industry-card:hover::before{height:6px}
+.industry-card:hover .ind-emoji{transform:scale(1.3) translateY(-4px)}
+.ind-emoji{font-size:42px;display:block;margin-bottom:14px;transition:transform .4s cubic-bezier(.34,1.56,.64,1)}
+.industry-card h3{font-size:15px;font-weight:700;color:var(--text);position:relative;z-index:1}
+.ic-edu::before{background:linear-gradient(90deg,#6366f1,#8b5cf6)}
+.ic-re::before{background:linear-gradient(90deg,#f59e0b,#fb923c)}
+.ic-auto::before{background:linear-gradient(90deg,#0ea5e9,#06b6d4)}
+.ic-health::before{background:linear-gradient(90deg,#ef4444,#f97316)}
+.ic-ecom::before{background:linear-gradient(90deg,#22c55e,#10b981)}
+.ic-hr::before{background:linear-gradient(90deg,#ec4899,#f43f5e)}
+.ic-ites::before{background:linear-gradient(90deg,#8b5cf6,#6d28d9)}
+.ic-other::before{background:linear-gradient(90deg,#06b6d4,#6366f1)}
+
+/* ============================================================
+   CHANNELS
+   ============================================================ */
+.channels{background:#fff}
+.channels-grid{display:flex;flex-wrap:wrap;justify-content:center;gap:20px}
+.channel-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:28px 36px;text-align:center;min-width:150px;transition:var(--transition);cursor:pointer;position:relative;overflow:hidden}
+.channel-card::after{content:'';position:absolute;inset:0;opacity:0;transition:opacity .3s;pointer-events:none;border-radius:inherit}
+.channel-card:hover{transform:translateY(-6px);box-shadow:var(--shadow-lg)}
+.channel-card:hover::after{opacity:1}
+.channel-card:hover .ch-emoji{transform:scale(1.25) translateY(-3px)}
+.ch-emoji{font-size:38px;display:block;margin-bottom:14px;transition:transform .4s cubic-bezier(.34,1.56,.64,1)}
+.channel-card .ch-label{font-size:15px;font-weight:600;color:var(--text);transition:color .2s;position:relative;z-index:1}
+.ch-web::after{background:linear-gradient(135deg,rgba(109,40,217,.06),rgba(99,102,241,.04))}
+.ch-web:hover{border-color:#6d28d9}
+.ch-wa::after{background:linear-gradient(135deg,rgba(37,211,102,.08),rgba(34,197,94,.04))}
+.ch-wa:hover{border-color:#25d366}
+.ch-ig::after{background:linear-gradient(135deg,rgba(236,72,153,.07),rgba(168,85,247,.04))}
+.ch-ig:hover{border-color:#e1306c}
+.ch-fb::after{background:linear-gradient(135deg,rgba(24,119,242,.07),rgba(59,130,246,.04))}
+.ch-fb:hover{border-color:#1877f2}
+.ch-mob::after{background:linear-gradient(135deg,rgba(245,158,11,.07),rgba(251,146,60,.04))}
+.ch-mob:hover{border-color:#f59e0b}
+.ch-lp::after{background:linear-gradient(135deg,rgba(6,182,212,.07),rgba(20,184,166,.04))}
+.ch-lp:hover{border-color:#06b6d4}
+
+/* ============================================================
+   PRICING
+   ============================================================ */
+.pricing{background:var(--surface)}
+.pricing-toggle-wrap{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:56px}
+.pricing-toggle-label{font-size:15px;font-weight:600;color:var(--text-sec);transition:color .2s}
+.pricing-toggle-label.active{color:var(--primary)}
+.toggle-switch{width:52px;height:28px;background:#e2d9f3;border-radius:100px;position:relative;cursor:pointer;transition:background .3s}
+.toggle-switch.on{background:var(--primary)}
+.toggle-switch::after{content:'';position:absolute;left:4px;top:4px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform .3s;box-shadow:0 2px 4px rgba(0,0,0,.15)}
+.toggle-switch.on::after{transform:translateX(24px)}
+.save-badge{background:linear-gradient(135deg,#d1fae5,#a7f3d0);color:#065f46;font-size:12px;font-weight:700;padding:3px 10px;border-radius:100px}
+
+.pricing-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;align-items:start}
+.price-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px 28px;transition:var(--transition);position:relative}
+.price-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg)}
+.price-card.popular{border:2px solid var(--primary);background:linear-gradient(160deg,#faf8ff 0%,#f3eeff 100%);animation:popularGlow 3s ease-in-out infinite}
+@keyframes popularGlow{0%,100%{box-shadow:0 0 0 0 rgba(109,40,217,.15),var(--shadow-md)}50%{box-shadow:0 0 0 8px rgba(109,40,217,0),0 20px 50px rgba(109,40,217,.22)}}
+.popular-badge{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:var(--gradient);color:#fff;font-size:12px;font-weight:700;padding:5px 16px;border-radius:100px;white-space:nowrap;box-shadow:0 4px 14px rgba(109,40,217,.35)}
+.plan-name{font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px}
+.plan-price{font-size:clamp(26px,2.5vw,34px);font-weight:800;color:var(--text);line-height:1.1}
+.plan-price sub{font-size:14px;font-weight:500;color:var(--text-sec)}
+.plan-yearly-note{font-size:13px;color:var(--text-sec);margin-top:4px;min-height:20px}
+.plan-divider{height:1px;background:var(--border);margin:20px 0}
+.plan-features{display:flex;flex-direction:column;gap:10px;margin-bottom:28px}
+.plan-feature{display:flex;align-items:flex-start;gap:10px;font-size:14px;color:var(--text-sec)}
+.plan-feature::before{content:'✓';color:var(--success);font-weight:700;flex-shrink:0;margin-top:1px}
+.price-card .btn{width:100%;justify-content:center}
+
+/* ============================================================
+   TESTIMONIALS
+   ============================================================ */
+.testimonials{background:#fff}
+.testimonials-track-wrap{overflow:hidden;position:relative}
+.testimonials-track-wrap::before,
+.testimonials-track-wrap::after{content:'';position:absolute;top:0;bottom:0;width:80px;z-index:2;pointer-events:none}
+.testimonials-track-wrap::before{left:0;background:linear-gradient(to right,#fff,transparent)}
+.testimonials-track-wrap::after{right:0;background:linear-gradient(to left,#fff,transparent)}
+.testimonials-track{display:flex;gap:24px;transition:transform .55s cubic-bezier(.4,0,.2,1)}
+.testimonial-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px;min-width:calc(33.333% - 16px);flex-shrink:0;position:relative;transition:var(--transition)}
+.testimonial-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg);border-color:rgba(109,40,217,.25)}
+.testimonial-card::before{content:'\201C';position:absolute;top:12px;right:24px;font-size:80px;color:rgba(109,40,217,.08);font-family:Georgia,serif;line-height:1;pointer-events:none}
+.testimonial-stars{display:flex;gap:3px;margin-bottom:16px}
+.star{color:#f59e0b;font-size:16px}
+.testimonial-text{font-size:15px;color:var(--text);line-height:1.75;margin-bottom:24px;position:relative;z-index:1;font-style:italic}
+.testimonial-author{display:flex;align-items:center;gap:12px}
+.author-avatar{width:44px;height:44px;border-radius:50%;background:var(--gradient);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:16px;flex-shrink:0;box-shadow:0 4px 12px rgba(109,40,217,.25)}
+.author-name{font-size:14px;font-weight:700;color:var(--text)}
+.author-title{font-size:12px;color:var(--text-sec)}
+.testimonials-controls{display:flex;justify-content:center;align-items:center;gap:10px;margin-top:36px}
+.t-dot{width:10px;height:10px;border-radius:50%;background:var(--border);transition:var(--transition);cursor:pointer}
+.t-dot.active{background:var(--primary);width:28px;border-radius:5px}
+
+/* ============================================================
+   CTA SECTION
+   ============================================================ */
+.cta-section{background:var(--gradient);padding:96px 0;position:relative;overflow:hidden}
+.cta-section::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")}
+.cta-inner{text-align:center;position:relative;z-index:1}
+.cta-inner h2{font-size:clamp(34px,4vw,52px);font-weight:800;color:#fff;margin-bottom:16px}
+.cta-inner p{font-size:18px;color:rgba(255,255,255,.85);margin-bottom:40px}
+.cta-actions{display:flex;justify-content:center;gap:16px;flex-wrap:wrap}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.footer{background:#0f0a1e;color:#94a3b8;padding:72px 0 32px}
+.footer-top{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:48px;margin-bottom:56px}
+.footer-brand{display:flex;flex-direction:column;gap:16px}
+.footer-logo{display:flex;align-items:center;gap:10px;color:#fff;font-size:20px;font-weight:800}
+.footer-logo-icon{width:34px;height:34px;background:var(--gradient);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.footer-desc{font-size:14px;line-height:1.7;max-width:280px}
+.footer-copyright{font-size:13px;line-height:1.6}
+.footer-social{display:flex;gap:10px;margin-top:4px}
+.social-icon{width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,.07);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;transition:var(--transition);color:#94a3b8;text-decoration:none}
+.social-icon:hover{background:var(--primary);color:#fff;transform:translateY(-2px)}
+.footer-col h4{color:#fff;font-size:15px;font-weight:700;margin-bottom:20px}
+.footer-col ul{display:flex;flex-direction:column;gap:10px}
+.footer-col a{font-size:14px;color:#94a3b8;transition:color .2s}
+.footer-col a:hover{color:#fff}
+.footer-bottom{border-top:1px solid rgba(255,255,255,.07);padding-top:24px;text-align:center;font-size:13px}
+
+/* ============================================================
+   PAGE LOAD FADE IN
+   ============================================================ */
+@keyframes pageIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.hero-text{animation:pageIn .8s ease both}
+.hero-visual{animation:pageIn .9s .15s ease both}
+
+/* ============================================================
+   SECTION BG ACCENT BLOBS
+   ============================================================ */
+.industries::before{content:'';position:absolute;top:-120px;right:-80px;width:380px;height:380px;background:radial-gradient(circle,rgba(109,40,217,.06),transparent 70%);pointer-events:none;border-radius:50%}
+.industries{position:relative;overflow:hidden}
+.channels::before{content:'';position:absolute;bottom:-80px;left:-80px;width:300px;height:300px;background:radial-gradient(circle,rgba(6,182,212,.07),transparent 70%);pointer-events:none;border-radius:50%}
+.channels{position:relative;overflow:hidden}
+
+/* ============================================================
+   STATS BAR SHIMMER
+   ============================================================ */
+.stats-bar{position:relative;overflow:hidden}
+.stats-bar::after{content:'';position:absolute;top:0;left:-100%;width:60%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);animation:statsShimmer 4s ease-in-out infinite}
+@keyframes statsShimmer{0%{left:-100%}100%{left:150%}}
+
+/* ============================================================
+   BACK TO TOP
+   ============================================================ */
+.back-top{position:fixed;bottom:32px;right:32px;width:46px;height:46px;background:var(--gradient);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow-md);opacity:0;transform:translateY(16px);transition:opacity .3s,transform .3s;z-index:500;border:none}
+.back-top.visible{opacity:1;transform:translateY(0)}
+.back-top:hover{transform:translateY(-3px)!important}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media(max-width:1100px){
+  .pricing-grid{grid-template-columns:repeat(2,1fr)}
+  .hero-visual{flex:0 0 350px}
+}
+
+@media(max-width:900px){
+  .features-grid{grid-template-columns:repeat(2,1fr)}
+  .footer-top{grid-template-columns:1fr 1fr;row-gap:40px}
+  .hero-inner{gap:40px}
+}
+
+@media(max-width:768px){
+  .nav-links,.nav-cta{display:none}
+  .nav-hamburger{display:flex}
+  :root{--nav-height:62px}
+
+  .hero{padding-top:calc(var(--nav-height)+48px);padding-bottom:64px}
+  .hero-inner{flex-direction:column;gap:48px;text-align:center}
+  .hero-sub,.hero-typewriter{max-width:100%}
+  .hero-actions{justify-content:center}
+  .hero-social{justify-content:center}
+  .hero-visual{flex:unset;width:100%;display:flex;justify-content:center}
+  .chat-widget{width:100%;max-width:360px}
+
+  .stats-grid{grid-template-columns:repeat(2,1fr);gap:32px}
+  .features-grid{grid-template-columns:1fr}
+  .industry-grid{grid-template-columns:repeat(2,1fr)}
+  .pricing-grid{grid-template-columns:1fr}
+  .testimonial-card{min-width:calc(100%)}
+  .footer-top{grid-template-columns:1fr}
+}
+
+@media(max-width:480px){
+  .section{padding:64px 0}
+  .channel-card{min-width:120px;padding:20px}
+  .hero-float-tag{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ====================================================
+     NAV
+     ==================================================== -->
+<nav class="nav" id="nav">
+  <div class="container nav-inner">
+    <a href="#" class="nav-logo">
+      <div class="nav-logo-icon">🤖</div>
+      SmatBot
+    </a>
+
+    <div class="nav-links">
+      <a href="#home" class="nav-link active">Home</a>
+      <a href="#features" class="nav-link">AI Services</a>
+      <div class="nav-dropdown">
+        <a href="#features" class="nav-link">
+          Product
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4,6 8,10 12,6"/></svg>
+        </a>
+        <div class="dropdown-menu">
+          <a href="#features" class="dropdown-item">Website Chatbot</a>
+          <a href="#features" class="dropdown-item">WhatsApp Chatbot</a>
+          <a href="#features" class="dropdown-item">Instagram Chatbot</a>
+          <a href="#features" class="dropdown-item">On-premise Bots</a>
+          <a href="#features" class="dropdown-item">Live Chat Feature</a>
+        </div>
+      </div>
+      <a href="#" class="nav-link">Partner With Us</a>
+    </div>
+
+    <div class="nav-cta">
+      <a href="#pricing" class="btn btn-outline">Free Trial</a>
+      <a href="#cta" class="btn btn-primary btn-pulse">Book A Demo</a>
+    </div>
+
+    <button class="nav-hamburger" id="hamburger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<!-- Mobile Menu -->
+<div class="mobile-menu" id="mobileMenu" aria-hidden="true">
+  <div class="mobile-menu-links">
+    <a href="#home" class="mobile-link">Home</a>
+    <a href="#features" class="mobile-link">AI Services</a>
+    <button class="mobile-link" id="mobileProductToggle" style="width:100%;text-align:left;background:transparent;display:flex;justify-content:space-between;align-items:center;font-size:16px;font-weight:500;cursor:pointer;border-radius:8px">
+      Product <span id="mobileProductArrow">▾</span>
+    </button>
+    <div class="mobile-submenu" id="mobileProductMenu">
+      <a href="#features" class="mobile-link" style="font-size:14px">Website Chatbot</a>
+      <a href="#features" class="mobile-link" style="font-size:14px">WhatsApp Chatbot</a>
+      <a href="#features" class="mobile-link" style="font-size:14px">Instagram Chatbot</a>
+      <a href="#features" class="mobile-link" style="font-size:14px">On-premise Bots</a>
+      <a href="#features" class="mobile-link" style="font-size:14px">Live Chat Feature</a>
+    </div>
+    <a href="#" class="mobile-link">Partner With Us</a>
+  </div>
+  <div class="mobile-cta">
+    <a href="#pricing" class="btn btn-outline" style="justify-content:center">Free Trial</a>
+    <a href="#cta" class="btn btn-primary" style="justify-content:center">Book A Demo</a>
+  </div>
+</div>
+
+<!-- ====================================================
+     HERO
+     ==================================================== -->
+<section class="hero" id="home">
+  <div class="hero-dot-grid"></div>
+  <div class="hero-inner">
+    <div class="hero-text reveal">
+      <div class="hero-badge">
+        <div class="hero-badge-dot">✨</div>
+        AI-Powered Chatbot Platform
+      </div>
+      <h1>Let AI Boost Your<br><span class="highlight">Customer Engagement</span></h1>
+      <p class="hero-sub">SmatBot is a simple conversational bot designing platform to build customizable chatbots for various purposes such as lead generation, live chat support, interactive landing pages, surveys, enquiries, appointments, feedback, and suggestions for the user's business.</p>
+      <p class="hero-typewriter">Powerful for <span class="tw-word" id="typewriterEl">lead generation</span></p>
+      <div class="hero-actions">
+        <a href="#cta" class="btn btn-primary btn-pulse">Book A Demo</a>
+        <a href="#pricing" class="btn btn-outline">Free Trial</a>
+      </div>
+      <div class="hero-social">
+        <div class="hero-social-avatars">
+          <span>A</span><span>B</span><span>C</span><span>+</span>
+        </div>
+        <span>Trusted by <strong style="color:var(--primary)">2,000+</strong> businesses across India and the Middle East</span>
+      </div>
+    </div>
+
+    <div class="hero-visual reveal reveal-delay-2">
+      <div style="position:relative;display:inline-block">
+        <!-- Floating tag 1 -->
+        <div class="hero-float-tag tag1">
+          <div class="tag-icon green">✅</div>
+          <div>
+            <strong style="display:block;font-size:13px">Lead Captured!</strong>
+            <span style="font-size:11px;color:var(--text-sec)">via WhatsApp Bot</span>
+          </div>
+        </div>
+
+        <!-- Chat widget -->
+        <div class="chat-widget">
+          <div class="chat-header">
+            <div class="chat-avatar">🤖</div>
+            <div class="chat-info">
+              <strong>SmatBot Assistant</strong>
+              <span>Online · replies instantly</span>
+            </div>
+            <div class="chat-status"></div>
+          </div>
+          <div class="chat-body" id="chatBody">
+            <div class="chat-msg bot">
+              <div class="chat-msg-avatar">🤖</div>
+              <div class="bubble">Hi there! 👋 How can I help you today?</div>
+            </div>
+            <div class="chat-msg user">
+              <div class="bubble">I need customer support</div>
+            </div>
+            <div class="chat-msg bot" id="typingMsg">
+              <div class="chat-msg-avatar">🤖</div>
+              <div class="typing-indicator">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+              </div>
+            </div>
+          </div>
+          <div class="chat-input-bar">
+            <input type="text" placeholder="Type a message…" id="chatInputDemo">
+            <button class="chat-send" id="chatSendBtn" aria-label="Send">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4 20-7z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Floating tag 2 -->
+        <div class="hero-float-tag tag2">
+          <div class="tag-icon blue">📊</div>
+          <div>
+            <strong style="display:block;font-size:13px">95% Satisfaction</strong>
+            <span style="font-size:11px;color:var(--text-sec)">across 50+ languages</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================
+     STATS BAR
+     ==================================================== -->
+<section class="stats-bar" id="stats">
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat-item reveal">
+        <span class="stat-number" data-target="2000" data-suffix="+">0+</span>
+        <span class="stat-label">Businesses</span>
+      </div>
+      <div class="stat-item reveal reveal-delay-1">
+        <span class="stat-number" data-target="50" data-suffix="+">0+</span>
+        <span class="stat-label">Languages</span>
+      </div>
+      <div class="stat-item reveal reveal-delay-2">
+        <span class="stat-number" data-target="130" data-suffix="+">0+</span>
+        <span class="stat-label">Integrations</span>
+      </div>
+      <div class="stat-item reveal reveal-delay-3">
+        <span class="stat-number" data-target="95" data-suffix="%">0%</span>
+        <span class="stat-label">User Satisfaction</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================
+     FEATURES
+     ==================================================== -->
+<section class="features section" id="features">
+  <div class="container">
+    <div class="text-center reveal">
+      <span class="section-tag">Features &amp; Products</span>
+      <h2 class="section-title">Everything You Need to Engage Smarter</h2>
+      <p class="section-sub">An easy-to-use, coding-free, feature-rich tool that provides instant, real-time support across all channels.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card fc-orange reveal reveal-delay-1">
+        <div class="feature-icon fi-orange">🎯</div>
+        <h3>Lead Generation</h3>
+        <p>Capture and qualify leads 24/7 with smart conversational forms and real-time CRM sync.</p>
+        <a href="#" class="feature-link">Learn more →</a>
+      </div>
+      <div class="feature-card fc-blue reveal reveal-delay-2">
+        <div class="feature-icon fi-blue">💬</div>
+        <h3>Live Chat Support</h3>
+        <p>Seamlessly blend bot automation with live human agents for complex queries.</p>
+        <a href="#" class="feature-link">Learn more →</a>
+      </div>
+      <div class="feature-card fc-green reveal reveal-delay-3">
+        <div class="feature-icon fi-green">📱</div>
+        <h3>WhatsApp Chatbot</h3>
+        <p>Reach customers on WhatsApp Business API with promotional messages and real-time support.</p>
+        <a href="#" class="feature-link">Learn more →</a>
+      </div>
+      <div class="feature-card fc-pink reveal reveal-delay-1">
+        <div class="feature-icon fi-pink">📸</div>
+        <h3>Instagram Chatbot</h3>
+        <p>Automate DMs, capture leads, and engage followers directly on Instagram.</p>
+        <a href="#" class="feature-link">Learn more →</a>
+      </div>
+      <div class="feature-card fc-slate reveal reveal-delay-2">
+        <div class="feature-icon fi-slate">🔒</div>
+        <h3>On-premise Bots</h3>
+        <p>Deploy fully on your own infrastructure for maximum data privacy and security.</p>
+        <a href="#" class="feature-link">Learn more →</a>
+      </div>
+      <div class="feature-card fc-purple reveal reveal-delay-3">
+        <div class="feature-icon fi-purple">🧠</div>
+        <h3>AI Services</h3>
+        <p>Power your chatbot with NLP, intent mapping, sentiment analysis and AI speech answering.</p>
+        <a href="#" class="feature-link">Learn more →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================
+     INDUSTRIES
+     ==================================================== -->
+<section class="industries section" id="industries">
+  <div class="container">
+    <div class="text-center reveal">
+      <span class="section-tag">Industry Solutions</span>
+      <h2 class="section-title">Built for Every Industry</h2>
+      <p class="section-sub">Pre-built templates and flows tailored to your sector — go live in minutes.</p>
+    </div>
+    <div class="industry-grid">
+      <div class="industry-card ic-edu reveal reveal-delay-1">
+        <span class="ind-emoji">🎓</span>
+        <h3>Education</h3>
+      </div>
+      <div class="industry-card ic-re reveal reveal-delay-2">
+        <span class="ind-emoji">🏠</span>
+        <h3>Real Estate</h3>
+      </div>
+      <div class="industry-card ic-auto reveal reveal-delay-3">
+        <span class="ind-emoji">🚗</span>
+        <h3>Automobile</h3>
+      </div>
+      <div class="industry-card ic-health reveal reveal-delay-4">
+        <span class="ind-emoji">🏥</span>
+        <h3>Healthcare</h3>
+      </div>
+      <div class="industry-card ic-ecom reveal reveal-delay-1">
+        <span class="ind-emoji">🛒</span>
+        <h3>E-Commerce</h3>
+      </div>
+      <div class="industry-card ic-hr reveal reveal-delay-2">
+        <span class="ind-emoji">👥</span>
+        <h3>HR</h3>
+      </div>
+      <div class="industry-card ic-ites reveal reveal-delay-3">
+        <span class="ind-emoji">💻</span>
+        <h3>ITES</h3>
+      </div>
+      <div class="industry-card ic-other reveal reveal-delay-4">
+        <span class="ind-emoji">✨</span>
+        <h3>Others</h3>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================
+     CHANNELS
+     ==================================================== -->
+<section class="channels section" id="channels">
+  <div class="container">
+    <div class="text-center reveal">
+      <span class="section-tag">Multi-Channel</span>
+      <h2 class="section-title">One Bot. Every Channel.</h2>
+      <p class="section-sub">Deploy across all major platforms from a single dashboard — no extra setup needed.</p>
+    </div>
+    <div class="channels-grid reveal">
+      <div class="channel-card ch-web">
+        <span class="ch-emoji">🌐</span>
+        <span class="ch-label">Website</span>
+      </div>
+      <div class="channel-card ch-wa">
+        <span class="ch-emoji">💬</span>
+        <span class="ch-label">WhatsApp</span>
+      </div>
+      <div class="channel-card ch-ig">
+        <span class="ch-emoji">📸</span>
+        <span class="ch-label">Instagram</span>
+      </div>
+      <div class="channel-card ch-fb">
+        <span class="ch-emoji">📘</span>
+        <span class="ch-label">Facebook Messenger</span>
+      </div>
+      <div class="channel-card ch-mob">
+        <span class="ch-emoji">📱</span>
+        <span class="ch-label">Mobile App</span>
+      </div>
+      <div class="channel-card ch-lp">
+        <span class="ch-emoji">📄</span>
+        <span class="ch-label">Landing Page</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================
+     PRICING
+     ==================================================== -->
+<section class="pricing section" id="pricing">
+  <div class="container">
+    <div class="text-center reveal">
+      <span class="section-tag">Pricing</span>
+      <h2 class="section-title">Simple, Transparent Pricing</h2>
+      <p class="section-sub">Start free. Scale as you grow. No hidden fees.</p>
+    </div>
+
+    <div class="pricing-toggle-wrap reveal">
+      <span class="pricing-toggle-label active" id="monthlyLabel">Monthly</span>
+      <div class="toggle-switch" id="pricingToggle" role="switch" aria-checked="false" tabindex="0"></div>
+      <span class="pricing-toggle-label" id="yearlyLabel">Yearly</span>
+      <span class="save-badge">Save 20%</span>
+    </div>
+
+    <div class="pricing-grid">
+      <!-- FREE -->
+      <div class="price-card reveal reveal-delay-1">
+        <div class="plan-name">Free</div>
+        <div class="plan-price">₹0<sub>/month</sub></div>
+        <div class="plan-yearly-note" style="visibility:hidden">—</div>
+        <div class="plan-divider"></div>
+        <ul class="plan-features">
+          <li class="plan-feature">1 Chatbot</li>
+          <li class="plan-feature">50 Chats/month</li>
+          <li class="plan-feature">Lead Generation Bot</li>
+          <li class="plan-feature">Standard Security</li>
+          <li class="plan-feature">Email support (72-hr response)</li>
+          <li class="plan-feature">Chatbot Analytics</li>
+          <li class="plan-feature">Google Sheets integration</li>
+          <li class="plan-feature">20+ Question Types</li>
+          <li class="plan-feature">Appointment Booking</li>
+          <li class="plan-feature">Voice-enabled exports</li>
+        </ul>
+        <a href="#" class="btn btn-outline">Get Started Free</a>
+      </div>
+
+      <!-- STARTER -->
+      <div class="price-card reveal reveal-delay-2">
+        <div class="plan-name">Starter</div>
+        <div class="plan-price price-display" data-monthly="₹1,890" data-yearly="₹1,490">₹1,890<sub>/month</sub></div>
+        <div class="plan-yearly-note yearly-note" style="visibility:hidden">Billed ₹17,880/year</div>
+        <div class="plan-divider"></div>
+        <ul class="plan-features">
+          <li class="plan-feature">5 Chatbots</li>
+          <li class="plan-feature">1,000 Chats/month</li>
+          <li class="plan-feature">Lead Generation &amp; Customer Support Bots</li>
+          <li class="plan-feature">1 Live Agent</li>
+          <li class="plan-feature">2-Factor Authentication</li>
+          <li class="plan-feature">30+ Question Types</li>
+          <li class="plan-feature">Dynamic Response</li>
+          <li class="plan-feature">Email OTP Validations</li>
+          <li class="plan-feature">WhatsApp Add-on available</li>
+        </ul>
+        <a href="#" class="btn btn-primary">Start Free Trial</a>
+      </div>
+
+      <!-- PRO -->
+      <div class="price-card popular reveal reveal-delay-3">
+        <div class="popular-badge">Most Popular</div>
+        <div class="plan-name">Pro</div>
+        <div class="plan-price price-display" data-monthly="₹5,500" data-yearly="₹4,700">₹5,500<sub>/month</sub></div>
+        <div class="plan-yearly-note yearly-note" style="visibility:hidden">Billed ₹56,400/year</div>
+        <div class="plan-divider"></div>
+        <ul class="plan-features">
+          <li class="plan-feature">10 Chatbots</li>
+          <li class="plan-feature">5,000 Chats/month</li>
+          <li class="plan-feature">All Starter features</li>
+          <li class="plan-feature">Multi-Lingual support (2 languages)</li>
+          <li class="plan-feature">AI Speech Answering</li>
+          <li class="plan-feature">AI Bot</li>
+          <li class="plan-feature">Intent Mapping</li>
+          <li class="plan-feature">CRM integrations (Zoho, HubSpot, Salesforce, Zapier)</li>
+          <li class="plan-feature">User roles (Analyst &amp; Supervisor)</li>
+          <li class="plan-feature">Android app for agents</li>
+          <li class="plan-feature">WhatsApp E-Commerce</li>
+        </ul>
+        <a href="#" class="btn btn-primary btn-pulse">Start Free Trial</a>
+      </div>
+
+      <!-- ENTERPRISE -->
+      <div class="price-card reveal reveal-delay-4">
+        <div class="plan-name">Enterprise</div>
+        <div class="plan-price">Custom</div>
+        <div class="plan-yearly-note" style="visibility:hidden">—</div>
+        <div class="plan-divider"></div>
+        <ul class="plan-features">
+          <li class="plan-feature">On-Premise Installation</li>
+          <li class="plan-feature">Product Customization</li>
+          <li class="plan-feature">AI/NLP Solutions</li>
+          <li class="plan-feature">Custom integrations</li>
+        </ul>
+        <a href="#cta" class="btn btn-outline">Contact Sales</a>
+      </div>
+    </div>
+
+    <p class="text-center reveal" style="margin-top:32px;color:var(--text-sec);font-size:14px">
+      💡 You can save up to <strong>20%</strong> on all yearly plans
+    </p>
+  </div>
+</section>
+
+<!-- ====================================================
+     TESTIMONIALS
+     ==================================================== -->
+<section class="testimonials section" id="testimonials">
+  <div class="container">
+    <div class="text-center reveal">
+      <span class="section-tag">Testimonials</span>
+      <h2 class="section-title">Loved by Businesses Worldwide</h2>
+      <p class="section-sub">Here's what our customers say.</p>
+    </div>
+
+    <div class="testimonials-track-wrap reveal">
+      <div class="testimonials-track" id="testimonialsTrack">
+
+        <div class="testimonial-card">
+          <div class="testimonial-stars">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span>
+          </div>
+          <p class="testimonial-text">"It is easy to integrate, and interface is user friendly"</p>
+          <div class="testimonial-author">
+            <div class="author-avatar">C</div>
+            <div>
+              <div class="author-name">CMA Vipin Arora</div>
+              <div class="author-title">Finance Manager</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="testimonial-card">
+          <div class="testimonial-stars">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span>
+          </div>
+          <p class="testimonial-text">"What really sets SmatBot apart is their exceptional customer support — always responsive, helpful"</p>
+          <div class="testimonial-author">
+            <div class="author-avatar">A</div>
+            <div>
+              <div class="author-name">Abdul Muneer Ayyaril</div>
+              <div class="author-title">IT Manager</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="testimonial-card">
+          <div class="testimonial-stars">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span>
+          </div>
+          <p class="testimonial-text">"We highly recommend it to any business looking to automate and scale their messaging operations"</p>
+          <div class="testimonial-author">
+            <div class="author-avatar">A</div>
+            <div>
+              <div class="author-name">Abdul Muneer Ayyaril</div>
+              <div class="author-title">Verified Customer</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="testimonial-card">
+          <div class="testimonial-stars">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span>
+          </div>
+          <p class="testimonial-text">"Smatbot fulfilled all of my expectations in every way. The user-friendly interface and extensive range of features make it stand out"</p>
+          <div class="testimonial-author">
+            <div class="author-avatar">V</div>
+            <div>
+              <div class="author-name">Verified User</div>
+              <div class="author-title">Business Owner</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="testimonial-card">
+          <div class="testimonial-stars">
+            <span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span>
+          </div>
+          <p class="testimonial-text">"We've been using SmatBot's WhatsApp API for over three years now, and it has truly transformed the way we engage with our customers"</p>
+          <div class="testimonial-author">
+            <div class="author-avatar">V</div>
+            <div>
+              <div class="author-name">Verified Customer</div>
+              <div class="author-title">Enterprise Client</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="testimonials-controls" id="testimonialsControls"></div>
+  </div>
+</section>
+
+<!-- ====================================================
+     CTA SECTION
+     ==================================================== -->
+<section class="cta-section" id="cta">
+  <div class="container cta-inner reveal">
+    <h2>Ready to Boost Your Customer Engagement?</h2>
+    <p>Join 2,000+ businesses using SmatBot. No credit card required.</p>
+    <div class="cta-actions">
+      <a href="#" class="btn btn-white btn-pulse">Book A Demo</a>
+      <a href="#pricing" class="btn btn-ghost">Start Free Trial</a>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================
+     FOOTER
+     ==================================================== -->
+<footer class="footer" id="footer">
+  <div class="container">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <a href="#" class="footer-logo">
+          <div class="footer-logo-icon">🤖</div>
+          SmatBot
+        </a>
+        <p class="footer-desc">AI-powered chatbot platform helping 2,000+ businesses across India and the Middle East automate customer engagement.</p>
+        <p class="footer-copyright">Copyright© 2025 SmatBot All Rights Reserved<br>Feso Social Media Pvt. Ltd.</p>
+        <div class="footer-social">
+          <a href="#" class="social-icon" aria-label="LinkedIn">in</a>
+          <a href="#" class="social-icon" aria-label="Facebook">f</a>
+          <a href="#" class="social-icon" aria-label="Instagram">ig</a>
+          <a href="#" class="social-icon" aria-label="X Twitter">𝕏</a>
+        </div>
+      </div>
+
+      <div class="footer-col">
+        <h4>Product</h4>
+        <ul>
+          <li><a href="#">WhatsApp</a></li>
+          <li><a href="#">Instagram</a></li>
+          <li><a href="#">On-Premise</a></li>
+          <li><a href="#">Arabic Chatbot</a></li>
+          <li><a href="#">AI Services</a></li>
+          <li><a href="#">Signup</a></li>
+          <li><a href="#">Login</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <ul>
+          <li><a href="#">Contact Us</a></li>
+          <li><a href="#">Help Center</a></li>
+          <li><a href="#">Blog</a></li>
+          <li><a href="#">About Us</a></li>
+          <li><a href="#">Partners</a></li>
+          <li><a href="#">WhatsApp Free Plugin</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h4>Templates by Industry</h4>
+        <ul>
+          <li><a href="#">Education</a></li>
+          <li><a href="#">Real Estate</a></li>
+          <li><a href="#">Automobile</a></li>
+          <li><a href="#">Healthcare</a></li>
+          <li><a href="#">E-Commerce</a></li>
+          <li><a href="#">HR</a></li>
+          <li><a href="#">ITES</a></li>
+          <li><a href="#">Others</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bottom">
+      <p>Built with ❤️ by SmatBot — Feso Social Media Pvt. Ltd.</p>
+    </div>
+  </div>
+</footer>
+
+<!-- Back to top -->
+<button class="back-top" id="backTop" aria-label="Back to top">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 15l-6-6-6 6"/></svg>
+</button>
+
+<!-- ====================================================
+     JAVASCRIPT
+     ==================================================== -->
+<script>
+(function(){
+'use strict';
+
+/* ================================================================
+   RIPPLE EFFECT
+   ================================================================ */
+document.querySelectorAll('.btn').forEach(function(btn){
+  btn.addEventListener('click', function(e){
+    var rect = btn.getBoundingClientRect();
+    var r = document.createElement('span');
+    r.className = 'ripple';
+    var size = Math.max(rect.width, rect.height) * 2;
+    r.style.cssText = 'width:'+size+'px;height:'+size+'px;left:'+(e.clientX-rect.left-size/2)+'px;top:'+(e.clientY-rect.top-size/2)+'px';
+    btn.appendChild(r);
+    setTimeout(function(){ r.remove(); }, 700);
+  });
+});
+
+/* ================================================================
+   NAV SCROLL + BACK TO TOP
+   ================================================================ */
+var nav = document.getElementById('nav');
+var backTop = document.getElementById('backTop');
+
+window.addEventListener('scroll', function(){
+  var y = window.scrollY || window.pageYOffset;
+  nav.classList.toggle('scrolled', y > 24);
+  backTop.classList.toggle('visible', y > 400);
+}, { passive: true });
+
+backTop.addEventListener('click', function(){
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+/* ================================================================
+   MOBILE MENU
+   ================================================================ */
+var hamburger = document.getElementById('hamburger');
+var mobileMenu = document.getElementById('mobileMenu');
+
+hamburger.addEventListener('click', function(){
+  var open = hamburger.classList.toggle('open');
+  mobileMenu.classList.toggle('open', open);
+  mobileMenu.setAttribute('aria-hidden', open ? 'false' : 'true');
+  document.body.style.overflow = open ? 'hidden' : '';
+});
+
+// Close when link clicked
+mobileMenu.querySelectorAll('a').forEach(function(a){
+  a.addEventListener('click', function(){
+    hamburger.classList.remove('open');
+    mobileMenu.classList.remove('open');
+    mobileMenu.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  });
+});
+
+// Mobile product sub-menu
+var mobileProductToggle = document.getElementById('mobileProductToggle');
+var mobileProductMenu = document.getElementById('mobileProductMenu');
+var mobileProductArrow = document.getElementById('mobileProductArrow');
+mobileProductToggle.addEventListener('click', function(){
+  var isOpen = mobileProductMenu.classList.toggle('open');
+  mobileProductArrow.textContent = isOpen ? '▴' : '▾';
+});
+
+/* ================================================================
+   SCROLL REVEAL — IntersectionObserver
+   ================================================================ */
+var revealEls = document.querySelectorAll('.reveal');
+var revealObs = new IntersectionObserver(function(entries){
+  entries.forEach(function(entry){
+    if(entry.isIntersecting){
+      entry.target.classList.add('visible');
+      revealObs.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+revealEls.forEach(function(el){ revealObs.observe(el); });
+
+/* ================================================================
+   ANIMATED COUNTERS
+   ================================================================ */
+function animateCounter(el){
+  var target = parseInt(el.getAttribute('data-target'), 10);
+  var suffix = el.getAttribute('data-suffix') || '';
+  var duration = 1400;
+  var startTime = null;
+  function easeOut(t){ return 1 - Math.pow(1 - t, 3); }
+  function step(ts){
+    if(!startTime) startTime = ts;
+    var progress = Math.min((ts - startTime) / duration, 1);
+    var val = Math.floor(easeOut(progress) * target);
+    el.textContent = val.toLocaleString() + suffix;
+    if(progress < 1){ requestAnimationFrame(step); }
+    else { el.textContent = target.toLocaleString() + suffix; }
+  }
+  requestAnimationFrame(step);
+}
+
+var statEls = document.querySelectorAll('.stat-number[data-target]');
+var statObs = new IntersectionObserver(function(entries){
+  entries.forEach(function(entry){
+    if(entry.isIntersecting){
+      animateCounter(entry.target);
+      statObs.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.5 });
+statEls.forEach(function(el){ statObs.observe(el); });
+
+/* ================================================================
+   TYPEWRITER EFFECT
+   ================================================================ */
+var twEl = document.getElementById('typewriterEl');
+var twWords = ['lead generation', 'live chat', 'WhatsApp chatbots', 'AI bots', 'Instagram DMs', 'appointment booking'];
+var twIndex = 0, twChar = 0, twDeleting = false;
+
+function typewrite(){
+  var word = twWords[twIndex];
+  if(!twDeleting){
+    twChar++;
+    twEl.textContent = word.slice(0, twChar);
+    if(twChar === word.length){
+      twDeleting = true;
+      setTimeout(typewrite, 1800);
+      return;
+    }
+  } else {
+    twChar--;
+    twEl.textContent = word.slice(0, twChar);
+    if(twChar === 0){
+      twDeleting = false;
+      twIndex = (twIndex + 1) % twWords.length;
+    }
+  }
+  setTimeout(typewrite, twDeleting ? 55 : 85);
+}
+setTimeout(typewrite, 800);
+
+/* ================================================================
+   PRICING TOGGLE
+   ================================================================ */
+var pricingToggle = document.getElementById('pricingToggle');
+var monthlyLabel = document.getElementById('monthlyLabel');
+var yearlyLabel = document.getElementById('yearlyLabel');
+var isYearly = false;
+
+function updatePricing(){
+  // Update price displays
+  document.querySelectorAll('.price-display').forEach(function(el){
+    var monthly = el.getAttribute('data-monthly');
+    var yearly = el.getAttribute('data-yearly');
+    var sub = el.querySelector('sub');
+    var price = isYearly ? yearly : monthly;
+    el.innerHTML = price + '<sub>/month</sub>';
+  });
+  // Show/hide yearly notes
+  document.querySelectorAll('.yearly-note').forEach(function(el){
+    el.style.visibility = isYearly ? 'visible' : 'hidden';
+  });
+  // Toggle labels
+  monthlyLabel.classList.toggle('active', !isYearly);
+  yearlyLabel.classList.toggle('active', isYearly);
+  pricingToggle.setAttribute('aria-checked', isYearly ? 'true' : 'false');
+}
+
+pricingToggle.addEventListener('click', function(){
+  isYearly = !isYearly;
+  pricingToggle.classList.toggle('on', isYearly);
+  updatePricing();
+});
+
+pricingToggle.addEventListener('keydown', function(e){
+  if(e.key === 'Enter' || e.key === ' '){
+    e.preventDefault();
+    pricingToggle.click();
+  }
+});
+
+updatePricing(); // init
+
+/* ================================================================
+   TESTIMONIALS CAROUSEL
+   ================================================================ */
+var track = document.getElementById('testimonialsTrack');
+var controls = document.getElementById('testimonialsControls');
+var cards = Array.from(track.querySelectorAll('.testimonial-card'));
+var total = cards.length;
+var currentSlide = 0;
+var autoplayTimer = null;
+
+function getVisible(){
+  return window.innerWidth >= 900 ? 3 : window.innerWidth >= 600 ? 2 : 1;
+}
+
+function buildDots(){
+  controls.innerHTML = '';
+  var vis = getVisible();
+  var count = Math.max(1, total - vis + 1);
+  for(var i = 0; i < count; i++){
+    (function(idx){
+      var d = document.createElement('button');
+      d.className = 't-dot' + (idx === 0 ? ' active' : '');
+      d.setAttribute('aria-label', 'Go to slide ' + (idx+1));
+      d.addEventListener('click', function(){ goTo(idx); });
+      controls.appendChild(d);
+    })(i);
+  }
+}
+
+function getCardWidth(){
+  if(cards.length === 0) return 0;
+  var style = window.getComputedStyle(cards[0]);
+  return cards[0].offsetWidth + 24; // 24 = gap
+}
+
+function goTo(idx){
+  var vis = getVisible();
+  var max = Math.max(0, total - vis);
+  currentSlide = Math.max(0, Math.min(idx, max));
+  var offset = currentSlide * getCardWidth();
+  track.style.transform = 'translateX(-' + offset + 'px)';
+  var dots = controls.querySelectorAll('.t-dot');
+  dots.forEach(function(d, i){ d.classList.toggle('active', i === currentSlide); });
+}
+
+function nextSlide(){
+  var vis = getVisible();
+  var max = Math.max(0, total - vis);
+  goTo(currentSlide >= max ? 0 : currentSlide + 1);
+}
+
+function startAutoplay(){
+  clearInterval(autoplayTimer);
+  autoplayTimer = setInterval(nextSlide, 4000);
+}
+
+buildDots();
+startAutoplay();
+
+var resizeTimer;
+window.addEventListener('resize', function(){
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(function(){
+    buildDots();
+    goTo(0);
+  }, 200);
+});
+
+/* ================================================================
+   DEMO CHAT WIDGET
+   ================================================================ */
+var chatBody = document.getElementById('chatBody');
+var chatInput = document.getElementById('chatInputDemo');
+var chatSendBtn = document.getElementById('chatSendBtn');
+
+var botReplies = [
+  "I'd be happy to help! Let me connect you with the right resource. 😊",
+  "Sure! You can explore our Help Center or I can guide you to the right team.",
+  "Great question! Our team typically responds within minutes.",
+  "SmatBot supports 50+ languages across all major channels. Anything specific?",
+  "You can start with our free plan — no credit card required! 🎉",
+  "Absolutely! I can help you set that up right now."
+];
+var replyIdx = 0;
+
+function addMsg(text, who){
+  var div = document.createElement('div');
+  div.className = 'chat-msg ' + who;
+  if(who === 'bot'){
+    div.innerHTML = '<div class="chat-msg-avatar">🤖</div><div class="bubble">' + escapeHtml(text) + '</div>';
+  } else {
+    div.innerHTML = '<div class="bubble">' + escapeHtml(text) + '</div>';
+  }
+  chatBody.appendChild(div);
+  chatBody.scrollTop = chatBody.scrollHeight;
+}
+
+function escapeHtml(str){
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function showTyping(){
+  return new Promise(function(resolve){
+    var div = document.createElement('div');
+    div.className = 'chat-msg bot';
+    div.innerHTML = '<div class="chat-msg-avatar">🤖</div><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>';
+    chatBody.appendChild(div);
+    chatBody.scrollTop = chatBody.scrollHeight;
+    setTimeout(function(){ div.remove(); resolve(); }, 1200);
+  });
+}
+
+function sendMsg(){
+  var text = chatInput.value.trim();
+  if(!text) return;
+  chatInput.value = '';
+  addMsg(text, 'user');
+  showTyping().then(function(){
+    var reply = botReplies[replyIdx % botReplies.length];
+    addMsg(reply, 'bot');
+    replyIdx++;
+  });
+}
+
+chatSendBtn.addEventListener('click', sendMsg);
+chatInput.addEventListener('keydown', function(e){
+  if(e.key === 'Enter') sendMsg();
+});
+
+// Resolve initial typing indicator after delay
+setTimeout(function(){
+  var typingMsg = document.getElementById('typingMsg');
+  if(typingMsg){
+    typingMsg.innerHTML = '<div class="chat-msg-avatar">🤖</div><div class="bubble">Sure! How can I assist you today? 🚀</div>';
+  }
+}, 2000);
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmatBot – Pricing & Plans</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand:      #2563eb;
+      --starter:    #0e7490;
+      --pro:        #6d28d9;
+      --free:       #475569;
+      --yes:        #16a34a;
+      --addon:      #b45309;
+      --bg:         #f1f5f9;
+      --card:       #ffffff;
+      --border:     #e2e8f0;
+      --text:       #0f172a;
+      --muted:      #64748b;
+      --light:      #f8fafc;
+      --radius:     16px;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── NAV ── */
+    nav {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 0 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .nav-logo { font-size: 1.15rem; font-weight: 800; color: var(--brand); letter-spacing: -0.5px; }
+    .nav-logo span { color: var(--text); }
+    .nav-pill {
+      background: var(--brand);
+      color: #fff;
+      font-size: .78rem;
+      font-weight: 600;
+      padding: 7px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      border: none;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+      padding: 72px 24px 64px;
+    }
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--brand);
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      padding: 5px 14px;
+      border-radius: 999px;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(2.2rem, 5vw, 3.4rem);
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      line-height: 1.1;
+      color: var(--text);
+      max-width: 640px;
+      margin: 0 auto 16px;
+    }
+    .hero h1 em { font-style: normal; color: var(--brand); }
+    .hero p {
+      font-size: 1.05rem;
+      color: var(--muted);
+      max-width: 460px;
+      margin: 0 auto;
+      line-height: 1.6;
+      font-weight: 400;
+    }
+
+    /* ── LAYOUT ── */
+    .main { max-width: 1280px; margin: 0 auto; padding: 60px 20px 80px; }
+
+    /* ── PLAN CARDS ── */
+    .plan-cards {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 64px;
+    }
+    @media (max-width: 1100px) {
+      .plan-cards { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+    }
+    .plan-card {
+      background: var(--card);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 24px 30px;
+      position: relative;
+      transition: box-shadow .2s;
+    }
+    .plan-card:hover { box-shadow: 0 8px 32px rgba(0,0,0,.09); }
+    .plan-card.featured {
+      border-color: var(--pro);
+      box-shadow: 0 0 0 4px rgba(109,40,217,.08);
+    }
+
+    .pill-tag {
+      display: inline-block;
+      font-size: .68rem;
+      font-weight: 700;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+    }
+    .pill-free    { background: #f1f5f9; color: var(--free); }
+    .pill-starter { background: #ecfeff; color: var(--starter); }
+    .pill-pro     { background: #ede9fe; color: var(--pro); }
+
+    .plan-name {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .plan-price {
+      font-size: 2.4rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .plan-price sub { font-size: 1rem; font-weight: 600; vertical-align: baseline; letter-spacing: 0; }
+    .plan-price .per { font-size: .85rem; font-weight: 500; color: var(--muted); }
+    .plan-range { font-size: .75rem; color: var(--muted); margin-bottom: 22px; }
+
+    .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+    .plan-features { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    .plan-features li {
+      font-size: .83rem;
+      font-weight: 500;
+      color: #334155;
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      line-height: 1.4;
+    }
+    .feat-icon {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+      font-size: .65rem;
+      font-weight: 800;
+    }
+    .feat-yes  { background: #dcfce7; color: var(--yes); }
+    .feat-info { background: #eff6ff; color: var(--brand); }
+
+    .free-price    { color: var(--free); }
+    .starter-price { color: var(--starter); }
+    .pro-price     { color: var(--pro); }
+
+    .best-value {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--pro);
+      color: #fff;
+      font-size: .68rem;
+      font-weight: 700;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+      padding: 4px 14px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    /* ── SECTION HEADER ── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .section-header h2 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .section-header-line { flex: 1; height: 1px; background: var(--border); }
+
+    /* ── FEATURE TABLE ── */
+    .table-wrap {
+      border-radius: var(--radius);
+      border: 1.5px solid var(--border);
+      overflow: hidden;
+      overflow-x: auto;
+      margin-bottom: 56px;
+      background: var(--card);
+    }
+    table { width: 100%; border-collapse: collapse; min-width: 860px; }
+
+    thead tr {
+      background: var(--light);
+      border-bottom: 1.5px solid var(--border);
+    }
+    thead th {
+      padding: 14px 20px;
+      font-size: .75rem;
+      font-weight: 700;
+      letter-spacing: .4px;
+      text-transform: uppercase;
+      text-align: center;
+      color: var(--muted);
+    }
+    thead th:first-child { text-align: left; width: 26%; }
+    thead th.col-free    { color: var(--free); }
+    thead th.col-starter { color: var(--starter); }
+    thead th.col-pro     { color: var(--pro); }
+
+    .group-row td {
+      background: #f8fafc;
+      font-size: .68rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 10px 20px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody tr:not(.group-row) { border-bottom: 1px solid var(--border); }
+    tbody tr:not(.group-row):last-child { border-bottom: none; }
+    tbody tr:not(.group-row):hover { background: #fafbfc; }
+
+    td {
+      padding: 13px 20px;
+      font-size: .85rem;
+      text-align: center;
+      vertical-align: middle;
+      color: var(--text);
+    }
+    td:first-child { text-align: left; font-weight: 500; }
+
+    .tick {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px; height: 22px;
+      background: #dcfce7;
+      border-radius: 50%;
+      color: var(--yes);
+      font-size: .7rem;
+      font-weight: 800;
+    }
+    .cross {
+      color: #cbd5e1;
+      font-size: 1.1rem;
+      font-weight: 300;
+    }
+    .onreq-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: .72rem;
+      font-weight: 600;
+      color: #6d28d9;
+      background: #ede9fe;
+      border: 1px solid #c4b5fd;
+      border-radius: 6px;
+      padding: 3px 8px;
+      white-space: nowrap;
+    }
+    .addon-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: .72rem;
+      font-weight: 600;
+      color: var(--addon);
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 6px;
+      padding: 3px 8px;
+      white-space: nowrap;
+    }
+    .val-text {
+      font-size: .82rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* ── ADD-ON NOTE ── */
+    .notice {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #fffbeb;
+      border: 1.5px solid #fde68a;
+      border-radius: 12px;
+      padding: 14px 20px;
+      font-size: .84rem;
+      color: #92400e;
+      font-weight: 500;
+      margin-bottom: 40px;
+    }
+    .notice-icon {
+      width: 32px; height: 32px;
+      background: #fef3c7;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    /* ── ADD-ON TABLE ── */
+    .addon-table-wrap {
+      border-radius: var(--radius);
+      border: 1.5px solid var(--border);
+      overflow: hidden;
+      overflow-x: auto;
+      margin-bottom: 56px;
+      background: var(--card);
+    }
+    .addon-table { width: 100%; border-collapse: collapse; min-width: 620px; }
+    .addon-table thead tr { background: var(--light); border-bottom: 1.5px solid var(--border); }
+    .addon-table thead th {
+      padding: 12px 16px;
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .4px;
+      text-transform: uppercase;
+      color: var(--muted);
+      text-align: center;
+    }
+    .addon-table thead th:first-child { text-align: left; }
+    .addon-table tbody tr { border-bottom: 1px solid var(--border); }
+    .addon-table tbody tr:last-child { border-bottom: none; }
+    .addon-table tbody tr:hover { background: #fafbfc; }
+    .addon-table td {
+      padding: 11px 16px;
+      font-size: .85rem;
+      text-align: center;
+      color: var(--text);
+      font-weight: 500;
+    }
+    .addon-table td:first-child { text-align: left; font-weight: 600; }
+    .addon-table .usd-cell { color: var(--muted); font-weight: 400; }
+
+    /* ── FOOTER ── */
+    footer {
+      text-align: center;
+      padding: 32px 20px;
+      font-size: .78rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      background: var(--card);
+    }
+
+    @media (max-width: 768px) {
+      nav { padding: 0 20px; }
+      .plan-cards { grid-template-columns: 1fr; }
+      .hero { padding: 48px 20px 48px; }
+    }
+
+    /* ── QUOTE BUILDER ── */
+    .quote-trigger {
+      background: var(--brand);
+      color: #fff;
+      border: none;
+      font-size: .82rem;
+      font-weight: 600;
+      padding: 9px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .quote-trigger:hover { background: #1d4ed8; }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, .6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 1000;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: var(--card);
+      border-radius: 18px;
+      width: 100%;
+      max-width: 1080px;
+      max-height: 92vh;
+      box-shadow: 0 30px 80px rgba(0,0,0,.3);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 26px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+      flex-shrink: 0;
+    }
+    .modal-header h2 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.3px; }
+    .modal-header p { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+    .modal-close {
+      background: var(--light);
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 1rem;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--muted);
+      flex-shrink: 0;
+      transition: background .15s, color .15s;
+    }
+    .modal-close:hover { background: var(--border); color: var(--text); }
+
+    .modal-split {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      flex: 1;
+      min-height: 0;
+    }
+    .qb-config {
+      padding: 22px 26px 28px;
+      overflow-y: auto;
+      border-right: 1px solid var(--border);
+    }
+    .qb-summary-pane {
+      background: #f8fafc;
+      padding: 22px 24px 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .qb-section { margin-bottom: 24px; }
+    .qb-label {
+      font-size: .72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: var(--muted);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .qb-label .qb-label-hint { text-transform: none; font-weight: 500; color: var(--muted); font-size: .72rem; letter-spacing: 0; }
+
+    .qb-plan-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 8px;
+    }
+    .qb-plan-pill {
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      background: var(--card);
+    }
+    .qb-plan-pill:hover { border-color: #cbd5e1; }
+    .qb-plan-pill.active { border-color: var(--brand); background: #eff6ff; box-shadow: 0 0 0 1px var(--brand); }
+    .qb-plan-pill .pp-name { font-size: .8rem; font-weight: 700; color: var(--text); }
+    .qb-plan-pill .pp-price { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+    .qb-plan-pill.active .pp-name { color: var(--brand); }
+
+    .qb-cycle-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      background: var(--light);
+      border-radius: 10px;
+      padding: 4px;
+      gap: 4px;
+    }
+    .qb-cycle-tab {
+      border: none;
+      background: transparent;
+      padding: 8px 6px;
+      font-size: .76rem;
+      font-weight: 600;
+      color: var(--muted);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+    .qb-cycle-tab.active { background: var(--card); color: var(--brand); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+
+    .qb-discount-note {
+      font-size: .72rem;
+      color: var(--addon);
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-top: 10px;
+      line-height: 1.5;
+    }
+    .qb-discount-note code { background: #fef3c7; padding: 1px 4px; border-radius: 4px; }
+
+    .qb-list { display: flex; flex-direction: column; gap: 6px; }
+    .qb-addon-card, .qb-setup-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      transition: border-color .15s, background .15s;
+      font-size: .85rem;
+    }
+    .qb-addon-card:has(input:checked), .qb-setup-card:has(input:checked) {
+      border-color: var(--brand);
+      background: #eff6ff;
+    }
+    .qb-toggle { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+    .qb-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .qb-toggle .slider {
+      position: absolute; inset: 0;
+      background: #cbd5e1;
+      border-radius: 999px;
+      transition: background .15s;
+      cursor: pointer;
+    }
+    .qb-toggle .slider::before {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 2px; top: 2px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform .15s;
+      box-shadow: 0 1px 2px rgba(0,0,0,.2);
+    }
+    .qb-toggle input:checked + .slider { background: var(--brand); }
+    .qb-toggle input:checked + .slider::before { transform: translateX(16px); }
+
+    .qb-addon-info { flex: 1; min-width: 0; }
+    .qb-addon-name { font-weight: 600; color: var(--text); font-size: .83rem; }
+    .qb-addon-unit { font-size: .72rem; color: var(--muted); margin-top: 1px; }
+    .qb-qty {
+      width: 56px;
+      padding: 6px 6px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: .8rem;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .qb-price-input {
+      width: 100px;
+      padding: 6px 8px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: .8rem;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .qb-others-input {
+      flex: 1;
+      padding: 6px 8px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: .8rem;
+      min-width: 0;
+    }
+    .qb-unit-price { font-size: .72rem; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+
+    .qb-discount-card {
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      background: var(--card);
+    }
+    .qb-discount-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .qb-discount-field:last-of-type { margin-bottom: 0; }
+    .qb-discount-prefix { font-size: .82rem; font-weight: 600; color: var(--text); width: 64px; flex-shrink: 0; }
+    .qb-discount-input {
+      width: 70px;
+      padding: 6px 8px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: .82rem;
+      text-align: right;
+    }
+    .qb-discount-suffix { font-size: .82rem; color: var(--muted); }
+
+    /* ── Summary pane ── */
+    .qb-summary-sticky { position: sticky; top: 0; }
+    .qb-summary-title { font-size: .95rem; font-weight: 700; margin-bottom: 14px; color: var(--text); }
+    .qb-summary-card {
+      background: var(--card);
+      border: 1.5px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 18px;
+      margin-bottom: 14px;
+    }
+    .qb-summary-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: .83rem;
+      padding: 6px 0;
+      color: var(--text);
+    }
+    .qb-summary-row span:first-child { color: var(--muted); }
+    .qb-summary-row.bold span:first-child { color: var(--text); font-weight: 600; }
+    .qb-summary-row .amt { font-weight: 600; color: var(--text); white-space: nowrap; }
+    .qb-summary-divider { height: 1px; background: var(--border); margin: 6px 0; }
+    .qb-empty-line { font-size: .76rem; color: var(--muted); font-style: italic; padding: 4px 0; }
+
+    .qb-grand-card {
+      background: var(--text);
+      border-radius: 14px;
+      padding: 18px 20px;
+      color: #fff;
+    }
+    .qb-grand-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .6px; opacity: .7; margin-bottom: 4px; }
+    .qb-grand-amount { font-size: 1.7rem; font-weight: 800; letter-spacing: -.5px; }
+    .qb-grand-cycle { font-size: .76rem; opacity: .75; margin-top: 4px; }
+
+    .qb-tax-note { font-size: .7rem; color: var(--muted); margin-top: 12px; line-height: 1.6; }
+    .qb-tax-note code { background: var(--light); padding: 1px 4px; border-radius: 4px; }
+
+    @media (max-width: 760px) {
+      .modal-split { grid-template-columns: 1fr; }
+      .qb-config { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── NAV ── -->
+<nav>
+  <div class="nav-logo">Smat<span>Bot</span></div>
+  <div style="display:flex; gap:10px;">
+    <button class="quote-trigger" onclick="openQuoteBuilder()">Build a Quote</button>
+    <button class="nav-pill">Get Started Free</button>
+  </div>
+</nav>
+
+<!-- ── HERO ── -->
+<section class="hero">
+  <div class="hero-eyebrow">⚡ Simple Pricing</div>
+  <h1>The right plan for <em>every</em> business</h1>
+  <p>Start free, scale with add-ons, or go all-in on Pro. No hidden fees.</p>
+</section>
+
+<!-- ── QUOTE BUILDER MODAL ── -->
+<div class="modal-overlay" id="quoteModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div>
+        <h2>Build a Custom Quote</h2>
+        <p>Pick a plan, billing cycle, and add-ons — see your total update live.</p>
+      </div>
+      <button class="modal-close" onclick="closeQuoteBuilder()">✕</button>
+    </div>
+
+    <div class="modal-split">
+
+      <!-- LEFT: Configuration -->
+      <div class="qb-config">
+
+        <div class="qb-section">
+          <div class="qb-label">Plan</div>
+          <div class="qb-plan-grid" id="qbPlanGrid"></div>
+        </div>
+
+        <div class="qb-section">
+          <div class="qb-label">Billing Cycle</div>
+          <div class="qb-cycle-tabs" id="qbCycleTabs"></div>
+          <div class="qb-discount-note">⚠ Quarterly &amp; Semi-Yearly discount rates are <strong>placeholders</strong> — update <code>CYCLE_DISCOUNTS</code> in the page source with finalized rates. Yearly uses the already-published annual pricing.</div>
+        </div>
+
+        <div class="qb-section">
+          <div class="qb-label">Add-ons <span class="qb-label-hint">toggle on what you need</span></div>
+          <div class="qb-list" id="qbAddons"></div>
+        </div>
+
+        <div class="qb-section">
+          <div class="qb-label">Discount <span class="qb-label-hint">applies to plan + add-ons</span></div>
+          <div class="qb-discount-card">
+            <div class="qb-discount-field">
+              <span class="qb-discount-prefix">Plan</span>
+              <input type="number" class="qb-discount-input" id="discPlanPct" value="0" min="0" max="100" oninput="renderQuote()" />
+              <span class="qb-discount-suffix">%</span>
+            </div>
+            <div class="qb-discount-field">
+              <span class="qb-discount-prefix">Add-ons</span>
+              <input type="number" class="qb-discount-input" id="discAddonPct" value="0" min="0" max="100" oninput="renderQuote()" />
+              <span class="qb-discount-suffix">%</span>
+            </div>
+            <input type="text" class="qb-others-input" id="discReason" placeholder="Reason / promo code (optional)" oninput="renderQuote()" style="margin-top:8px; width:100%;" />
+          </div>
+        </div>
+
+        <div class="qb-section">
+          <div class="qb-label">One-Time Setup Charges <span class="qb-label-hint">placeholder amounts — editable</span></div>
+          <div class="qb-list" id="qbSetup"></div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT: Live Summary -->
+      <div class="qb-summary-pane">
+        <div class="qb-summary-sticky">
+          <div class="qb-summary-title">Quote Summary</div>
+          <div class="qb-summary-card" id="qbSummaryCard"></div>
+          <div class="qb-grand-card" id="qbGrandCard"></div>
+          <div class="qb-tax-note" id="qbTaxNote"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ── MAIN ── -->
+<div class="main">
+
+  <!-- Plan Cards -->
+  <div class="plan-cards">
+
+    <!-- FREE -->
+    <div class="plan-card">
+      <div class="pill-tag pill-free">Free</div>
+      <div class="plan-name">Free Forever</div>
+      <div class="plan-price free-price"><sub>₹</sub>0 <span class="per">/ mo</span></div>
+      <div class="plan-range">No credit card required</div>
+      <div class="divider"></div>
+      <ul class="plan-features">
+        <li><span class="feat-icon feat-yes">✓</span>1 Chatbot</li>
+        <li><span class="feat-icon feat-yes">✓</span>Limited channels</li>
+        <li><span class="feat-icon feat-yes">✓</span>Lead email notifications</li>
+        <li><span class="feat-icon feat-yes">✓</span>Standard security protocols</li>
+      </ul>
+    </div>
+
+    <!-- STARTER (Website only) -->
+    <div class="plan-card">
+      <div class="pill-tag pill-starter">Starter</div>
+      <div class="plan-name">Starter</div>
+      <div class="plan-price starter-price"><sub>₹</sub>1,890 <span class="per">/ mo</span></div>
+      <div class="plan-range">₹1,490 / mo billed annually</div>
+      <div class="divider"></div>
+      <ul class="plan-features">
+        <li><span class="feat-icon feat-yes">✓</span>5 Chatbots</li>
+        <li><span class="feat-icon feat-yes">✓</span>1,000 Website chats/month</li>
+        <li><span class="feat-icon feat-yes">✓</span>No WhatsApp features</li>
+        <li><span class="feat-icon feat-yes">✓</span>Custom Google Sheet</li>
+        <li><span class="feat-icon feat-yes">✓</span>AdWords Tracking</li>
+        <li><span class="feat-icon feat-yes">✓</span>Two-Factor Authentication</li>
+      </ul>
+    </div>
+
+    <!-- PRO (Website only) -->
+    <div class="plan-card">
+      <div class="pill-tag pill-pro">Pro</div>
+      <div class="plan-name">Pro</div>
+      <div class="plan-price pro-price"><sub>₹</sub>5,500 <span class="per">/ mo</span></div>
+      <div class="plan-range">₹4,700 / mo billed annually</div>
+      <div class="divider"></div>
+      <ul class="plan-features">
+        <li><span class="feat-icon feat-yes">✓</span>10 Chatbots</li>
+        <li><span class="feat-icon feat-yes">✓</span>5,000 Website chats/month</li>
+        <li><span class="feat-icon feat-yes">✓</span>No WhatsApp features</li>
+        <li><span class="feat-icon feat-yes">✓</span>3 Live Agents included</li>
+        <li><span class="feat-icon feat-yes">✓</span>AI Agent with Dialogflow</li>
+        <li><span class="feat-icon feat-yes">✓</span>CRM &amp; Custom Google Sheet</li>
+        <li><span class="feat-icon feat-yes">✓</span>Voice (Speech to Text)</li>
+        <li><span class="feat-icon feat-yes">✓</span>Multi Lingual (Upto 2 Languages)</li>
+        <li><span class="feat-icon feat-yes">✓</span>Lead Data Masking</li>
+        <li><span class="feat-icon feat-yes">✓</span>Auto Email Follow-up</li>
+      </ul>
+    </div>
+
+    <!-- STARTER WHATSAPP -->
+    <div class="plan-card">
+      <div class="pill-tag pill-starter">Starter WhatsApp</div>
+      <div class="plan-name">Starter WhatsApp</div>
+      <div class="plan-price starter-price"><sub>₹</sub>2,890 <span class="per">/ mo</span></div>
+      <div class="plan-range">₹2,390 / mo billed annually</div>
+      <div class="divider"></div>
+      <ul class="plan-features">
+        <li><span class="feat-icon feat-yes">✓</span>5 Chatbots</li>
+        <li><span class="feat-icon feat-yes">✓</span>1,000 UI chats/month</li>
+        <li><span class="feat-icon feat-yes">✓</span>1,000 Website chats/month</li>
+        <li><span class="feat-icon feat-yes">✓</span>Custom Google Sheet</li>
+        <li><span class="feat-icon feat-yes">✓</span>AdWords Tracking</li>
+        <li><span class="feat-icon feat-yes">✓</span>Email OTP &amp; Hot Lead alerts</li>
+        <li><span class="feat-icon feat-yes">✓</span>Two-Factor Authentication</li>
+      </ul>
+    </div>
+
+    <!-- PRO WHATSAPP -->
+    <div class="plan-card featured">
+      <div class="best-value">Most Popular</div>
+      <div class="pill-tag pill-pro">Pro WhatsApp</div>
+      <div class="plan-name">Pro WhatsApp</div>
+      <div class="plan-price pro-price"><sub>₹</sub>6,500 <span class="per">/ mo</span></div>
+      <div class="plan-range">₹6,000 / mo billed annually</div>
+      <div class="divider"></div>
+      <ul class="plan-features">
+        <li><span class="feat-icon feat-yes">✓</span>10 Chatbots</li>
+        <li><span class="feat-icon feat-yes">✓</span>5,000 UI chats/month</li>
+        <li><span class="feat-icon feat-yes">✓</span>5,000 Website chats/month</li>
+        <li><span class="feat-icon feat-yes">✓</span>3 Live Agents included</li>
+        <li><span class="feat-icon feat-yes">✓</span>All channels incl. Instagram</li>
+        <li><span class="feat-icon feat-yes">✓</span>AI Agent with Dialogflow</li>
+        <li><span class="feat-icon feat-yes">✓</span>CRM &amp; Custom Google Sheet</li>
+        <li><span class="feat-icon feat-yes">✓</span>Voice (Speech to Text)</li>
+        <li><span class="feat-icon feat-yes">✓</span>Multi Lingual (Upto 2 Languages)</li>
+        <li><span class="feat-icon feat-yes">✓</span>Lead Data Masking</li>
+        <li><span class="feat-icon feat-yes">✓</span>Auto Email Follow-up</li>
+      </ul>
+    </div>
+
+  </div><!-- /plan-cards -->
+
+  <!-- ── Feature Comparison ── -->
+  <div class="section-header">
+    <h2>Feature Comparison</h2>
+    <div class="section-header-line"></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th class="col-free">Free</th>
+          <th class="col-starter">Starter</th>
+          <th class="col-starter">Starter WhatsApp</th>
+          <th class="col-pro">Pro</th>
+          <th class="col-pro">Pro WhatsApp</th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <tr class="group-row"><td colspan="6">Quotas</td></tr>
+        <tr><td>Price / Month</td><td class="val-text">₹0</td><td class="val-text">₹1,890</td><td class="val-text">₹2,890</td><td class="val-text">₹5,500</td><td class="val-text">₹6,500</td></tr>
+        <tr><td>Price / Month (Annual)</td><td class="val-text">₹0</td><td class="val-text">₹1,490</td><td class="val-text">₹2,390</td><td class="val-text">₹4,700</td><td class="val-text">₹6,000</td></tr>
+        <tr><td>Price / Year (Annual Billing)</td><td class="val-text">₹0</td><td class="val-text">₹17,880</td><td class="val-text">₹28,680</td><td class="val-text">₹56,400</td><td class="val-text">₹72,000</td></tr>
+        <tr><td>WA UI Chats / Month</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td class="val-text">1,000</td><td><span class="cross">—</span></td><td class="val-text">5,000</td></tr>
+        <tr><td>WA BI Chats / Month</td><td class="val-text">0</td><td class="val-text">0</td><td class="val-text">0</td><td class="val-text">0</td><td class="val-text">0</td></tr>
+        <tr><td>Website Chats / Month</td><td><span class="cross">—</span></td><td class="val-text">1,000</td><td class="val-text">1,000</td><td class="val-text">5,000</td><td class="val-text">5,000</td></tr>
+        <tr><td>Chatbots</td><td class="val-text">1</td><td class="val-text">5</td><td class="val-text">5</td><td class="val-text">10</td><td class="val-text">10</td></tr>
+        <tr><td>Channels</td><td class="val-text">Limited</td><td class="val-text">Limited</td><td class="val-text">Limited</td><td class="val-text">All (no WA)</td><td class="val-text">All Channels</td></tr>
+        <tr><td>WhatsApp Features</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td></tr>
+
+        <tr class="group-row"><td colspan="6">Core Features</td></tr>
+        <tr><td>Live Agents</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td class="val-text">3 agents</td><td class="val-text">3 agents</td></tr>
+        <tr><td>Canned Responses</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Template Text Replies</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>WhatsApp Cart &amp; Catalog</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Template Button Click Responses</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Instagram</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>AI Agent (Dialogflow)</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Voice Enabled (Speech to Text)</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Reply from Bot Chats (Admin)</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Custom Google Sheet</td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>AdWords Tracking</td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Facebook Pixel</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Store User Session</td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Webpage Closing Alert</td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>WhatsApp Co-Existence</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Dynamic Responses</td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+
+        <tr class="group-row"><td colspan="6">Available as Add-on (Paid Plans)</td></tr>
+        <tr><td>CRM</td><td><span class="cross">—</span></td><td><span class="onreq-badge">On Request</span></td><td><span class="onreq-badge">On Request</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Languages</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>Multi Lingual (Upto 2 Languages)</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>BI Chats</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>Media Upload</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>WhatsApp Lead Notifications</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>SMS OTPs</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>WhatsApp OTPs</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>SMS Notifications</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>WhatsApp Notifications</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>ChatGPT</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>Text to Speech</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>Remove Branding</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+        <tr><td>Basic / Premium Support</td><td><span class="cross">—</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td><td><span class="addon-badge">+ Add-on</span></td></tr>
+
+        <tr class="group-row"><td colspan="6">Notifications</td></tr>
+        <tr><td>Lead Email</td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Email OTP</td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Hot Lead Email</td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Auto Email Follow-up</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+
+        <tr class="group-row"><td colspan="6">Security</td></tr>
+        <tr><td>Standard Protocols</td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Authentication</td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Restrict to Company Email</td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Two-Factor Authentication (2FA)</td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+        <tr><td>Lead Data Masking</td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="cross">—</span></td><td><span class="tick">✓</span></td><td><span class="tick">✓</span></td></tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Tax Notice -->
+  <div class="notice">
+    <div class="notice-icon">ℹ️</div>
+    <div>All prices listed above (monthly, annual, and yearly totals) are <strong>exclusive of applicable taxes</strong>. GST / other applicable taxes will be charged extra at checkout.</div>
+  </div>
+
+  <!-- Notice -->
+  <div class="notice">
+    <div class="notice-icon">⚠️</div>
+    <div>Add-ons are <strong>not available</strong> on the Free plan. All paid plan subscribers (Starter, Starter WhatsApp, Pro, Pro WhatsApp) can purchase any add-on separately to extend their plan.</div>
+  </div>
+
+  <!-- ── Add-on Pricing ── -->
+  <div class="section-header">
+    <h2>Add-on Pricing</h2>
+    <div class="section-header-line"></div>
+  </div>
+
+  <div class="addon-table-wrap">
+    <table class="addon-table">
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th>Monthly (INR)</th>
+          <th>Monthly (USD)</th>
+          <th>Yearly (INR)</th>
+          <th>Yearly (USD)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Chatbots</td><td>₹1,000</td><td class="usd-cell">$13</td><td>₹9,600</td><td class="usd-cell">$120</td></tr>
+        <tr><td>Live Agent</td><td>₹1,000</td><td class="usd-cell">$13</td><td>₹9,600</td><td class="usd-cell">$120</td></tr>
+        <tr><td>BI Chats <span class="usd-cell">(per 1,000 chats/month)</span></td><td>₹200</td><td class="usd-cell">$3</td><td>₹2,400</td><td class="usd-cell">$40</td></tr>
+        <tr><td>UI Chats <span class="usd-cell">(per 1,000 chats/month)</span></td><td>₹200</td><td class="usd-cell">$3</td><td>₹2,400</td><td class="usd-cell">$40</td></tr>
+        <tr><td>Languages</td><td>₹1,000</td><td class="usd-cell">$13</td><td>₹9,600</td><td class="usd-cell">$120</td></tr>
+        <tr><td>AI Agent (Dialogflow)</td><td>₹1,000</td><td class="usd-cell">$13</td><td>₹9,600</td><td class="usd-cell">$120</td></tr>
+        <tr><td>CRM</td><td>₹1,000</td><td class="usd-cell">$13</td><td>₹9,600</td><td class="usd-cell">$120</td></tr>
+        <tr><td>SMS OTPs</td><td>₹500</td><td class="usd-cell">$8</td><td>₹6,000</td><td class="usd-cell">$100</td></tr>
+        <tr><td>WhatsApp OTPs</td><td>₹500</td><td class="usd-cell">$8</td><td>₹6,000</td><td class="usd-cell">$100</td></tr>
+        <tr><td>SMS Notifications</td><td>₹500</td><td class="usd-cell">$8</td><td>₹6,000</td><td class="usd-cell">$100</td></tr>
+        <tr><td>WhatsApp Notifications</td><td>₹500</td><td class="usd-cell">$8</td><td>₹6,000</td><td class="usd-cell">$100</td></tr>
+        <tr><td>Website Chats <span class="usd-cell">(per 1,000 chats/month)</span></td><td>₹600</td><td class="usd-cell">$8</td><td>₹7,200</td><td class="usd-cell">$90</td></tr>
+        <tr><td>Media Upload</td><td>₹800</td><td class="usd-cell">$10</td><td>₹9,600</td><td class="usd-cell">$120</td></tr>
+        <tr><td>Text to Speech</td><td>₹800</td><td class="usd-cell">$10</td><td>₹7,200</td><td class="usd-cell">$90</td></tr>
+        <tr><td>ChatGPT</td><td>₹2,000</td><td class="usd-cell">$26</td><td>₹24,000</td><td class="usd-cell">$312</td></tr>
+        <tr><td>Remove Branding</td><td>₹1,900</td><td class="usd-cell">$30</td><td>₹20,280</td><td class="usd-cell">$300</td></tr>
+        <tr><td>Basic Support</td><td>₹6,999</td><td class="usd-cell">$90</td><td>₹71,988</td><td class="usd-cell">$900</td></tr>
+        <tr><td>Premium Support</td><td>₹14,999</td><td class="usd-cell">$185</td><td>₹143,988</td><td class="usd-cell">$1,800</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Add-on Tax Notice -->
+  <div class="notice">
+    <div class="notice-icon">ℹ️</div>
+    <div>Add-on prices listed above are also <strong>exclusive of applicable taxes</strong>. GST / other applicable taxes will be charged extra at checkout.</div>
+  </div>
+
+</div><!-- /main -->
+
+<footer>
+  &copy; 2026 SmatBot &nbsp;·&nbsp; All prices exclusive of applicable taxes &nbsp;·&nbsp; Pricing subject to change
+</footer>
+
+<script>
+/* ── Quote Builder Data (placeholders marked where noted) ── */
+const PLANS = {
+  free:       { name: "Free",            monthly: 0,    annualMonthly: 0    },
+  starter:    { name: "Starter",         monthly: 1890, annualMonthly: 1490 },
+  starter_wa: { name: "Starter WhatsApp",monthly: 2890, annualMonthly: 2390 },
+  pro:        { name: "Pro",             monthly: 5500, annualMonthly: 4700 },
+  pro_wa:     { name: "Pro WhatsApp",    monthly: 6500, annualMonthly: 6000 },
+};
+
+/* PLACEHOLDER discount rates for quarterly/semi-yearly — update once finalized */
+const CYCLE_DISCOUNTS = {
+  monthly:    { months: 1,  discount: 0,    label: "Monthly" },
+  quarterly:  { months: 3,  discount: 0.05, label: "Quarterly" },   // placeholder 5%
+  semiyearly: { months: 6,  discount: 0.10, label: "Semi-Yearly" }, // placeholder 10%
+  yearly:     { months: 12, discount: null, label: "Yearly" },      // uses published annual rate
+};
+
+/* PLACEHOLDER tax rate — update with actual GST/applicable rate */
+const TAX_RATE = 0.18;
+
+const ADDONS = [
+  { key: "chatbots",     name: "Chatbots",                unit: "per 5 chatbots",          monthly: 1000, yearlyTotal: 9600   },
+  { key: "live_agent",   name: "Live Agent",               unit: "per 1 agent",              monthly: 1000, yearlyTotal: 9600   },
+  { key: "bi_chats",     name: "BI Chats",                 unit: "per 1,000 chats/month",    monthly: 200,  yearlyTotal: 2400   },
+  { key: "ui_chats",     name: "UI Chats",                 unit: "per 1,000 chats/month",    monthly: 200,  yearlyTotal: 2400   },
+  { key: "languages",    name: "Languages",                unit: "per 1 language",           monthly: 1000, yearlyTotal: 9600   },
+  { key: "ai_agent",     name: "AI Agent (Dialogflow)",    unit: "per 5 agents",             monthly: 1000, yearlyTotal: 9600   },
+  { key: "crm",          name: "CRM",                      unit: "flat rate",                monthly: 1000, yearlyTotal: 9600   },
+  { key: "sms_otp",      name: "SMS OTPs",                 unit: "per 1,000 OTPs",           monthly: 500,  yearlyTotal: 6000   },
+  { key: "wa_otp",       name: "WhatsApp OTPs",            unit: "per 1,000 OTPs",           monthly: 500,  yearlyTotal: 6000   },
+  { key: "sms_notif",    name: "SMS Notifications",        unit: "per 1,000 notifications",  monthly: 500,  yearlyTotal: 6000   },
+  { key: "wa_notif",     name: "WhatsApp Notifications",   unit: "per 1,000 notifications",  monthly: 500,  yearlyTotal: 6000   },
+  { key: "website_chats",name: "Website Chats",            unit: "per 1,000 chats/month",    monthly: 600,  yearlyTotal: 7200   },
+  { key: "media_upload", name: "Media Upload",              unit: "per 50 files",             monthly: 800,  yearlyTotal: 9600   },
+  { key: "tts",          name: "Text to Speech",            unit: "flat rate",                monthly: 800,  yearlyTotal: 7200   },
+  { key: "chatgpt",      name: "ChatGPT",                   unit: "flat rate",                monthly: 2000, yearlyTotal: 24000  },
+  { key: "remove_brand", name: "Remove Branding",           unit: "flat rate",                monthly: 1900, yearlyTotal: 20280  },
+  { key: "basic_support",name: "Basic Support",             unit: "flat rate",                monthly: 6999, yearlyTotal: 71988 },
+  { key: "premium_support",name: "Premium Support",         unit: "flat rate",                monthly: 14999,yearlyTotal: 143988},
+];
+
+/* PLACEHOLDER one-time setup charge amounts — adjust per actual scope/effort */
+const SETUP_CHARGES = [
+  { key: "api_integration", name: "API Integration",            amount: 5000  },
+  { key: "cron_setup",      name: "Cron Jobs Setup",             amount: 3000  },
+  { key: "crm_integration", name: "CRM Integration",             amount: 8000  },
+  { key: "ai_integration",  name: "AI Integration & Training",   amount: 10000 },
+  { key: "meta_verification",name: "Meta Verification",          amount: 2500  },
+];
+
+let qbState = { plan: "pro", cycle: "monthly" };
+
+function fmt(n) {
+  return "₹" + Math.round(n).toLocaleString("en-IN");
+}
+
+function openQuoteBuilder() {
+  buildPlanGrid();
+  buildCycleTabs();
+  buildAddonRows();
+  buildSetupRows();
+  renderQuote();
+  document.getElementById("quoteModal").classList.add("open");
+}
+function closeQuoteBuilder() {
+  document.getElementById("quoteModal").classList.remove("open");
+}
+
+function buildPlanGrid() {
+  const wrap = document.getElementById("qbPlanGrid");
+  wrap.innerHTML = Object.entries(PLANS).map(([key, p]) => `
+    <div class="qb-plan-pill ${key === qbState.plan ? "active" : ""}" onclick="selectPlan('${key}')">
+      <div class="pp-name">${p.name}</div>
+      <div class="pp-price">${p.monthly === 0 ? "Free" : fmt(p.monthly) + "/mo"}</div>
+    </div>
+  `).join("");
+}
+
+function selectPlan(key) {
+  qbState.plan = key;
+  buildPlanGrid();
+  renderQuote();
+}
+
+function buildCycleTabs() {
+  const wrap = document.getElementById("qbCycleTabs");
+  wrap.innerHTML = Object.entries(CYCLE_DISCOUNTS).map(([key, c]) => `
+    <button class="qb-cycle-tab ${key === qbState.cycle ? "active" : ""}" onclick="selectCycle('${key}')">${c.label}</button>
+  `).join("");
+}
+
+function selectCycle(key) {
+  qbState.cycle = key;
+  buildCycleTabs();
+  renderQuote();
+}
+
+function buildAddonRows() {
+  const wrap = document.getElementById("qbAddons");
+  wrap.innerHTML = ADDONS.map(a => `
+    <div class="qb-addon-card">
+      <div class="qb-toggle">
+        <input type="checkbox" id="addon_${a.key}" onchange="renderQuote()" />
+        <label class="slider" for="addon_${a.key}"></label>
+      </div>
+      <div class="qb-addon-info">
+        <div class="qb-addon-name">${a.name}</div>
+        <div class="qb-addon-unit">${a.unit}</div>
+      </div>
+      <input type="number" class="qb-qty" id="qty_${a.key}" value="1" min="1" oninput="renderQuote()" />
+      <span class="qb-unit-price">${fmt(a.monthly)}/mo ea.</span>
+    </div>
+  `).join("");
+}
+
+function buildSetupRows() {
+  const wrap = document.getElementById("qbSetup");
+  wrap.innerHTML = SETUP_CHARGES.map(s => `
+    <div class="qb-setup-card">
+      <div class="qb-toggle">
+        <input type="checkbox" id="setup_${s.key}" onchange="renderQuote()" />
+        <label class="slider" for="setup_${s.key}"></label>
+      </div>
+      <div class="qb-addon-info">
+        <div class="qb-addon-name">${s.name}</div>
+      </div>
+      <input type="number" class="qb-price-input" id="amt_${s.key}" value="${s.amount}" min="0" oninput="renderQuote()" />
+    </div>
+  `).join("") + `
+    <div class="qb-setup-card">
+      <div class="qb-toggle">
+        <input type="checkbox" id="setup_others" onchange="renderQuote()" />
+        <label class="slider" for="setup_others"></label>
+      </div>
+      <input type="text" class="qb-others-input" id="othersLabel" placeholder="Other (describe)" oninput="renderQuote()" />
+      <input type="number" class="qb-price-input" id="amt_others" value="0" min="0" oninput="renderQuote()" />
+    </div>
+  `;
+}
+
+function renderQuote() {
+  const plan = PLANS[qbState.plan];
+  const cycleKey = qbState.cycle;
+  const cycle = CYCLE_DISCOUNTS[cycleKey];
+
+  let planTotal;
+  if (cycleKey === "yearly") {
+    planTotal = plan.annualMonthly * 12;
+  } else {
+    planTotal = plan.monthly * cycle.months * (1 - cycle.discount);
+  }
+
+  let addonTotal = 0;
+  const addonLines = [];
+  ADDONS.forEach(a => {
+    const cb = document.getElementById(`addon_${a.key}`);
+    if (cb && cb.checked) {
+      const qty = parseInt(document.getElementById(`qty_${a.key}`).value) || 1;
+      let lineTotal;
+      if (cycleKey === "yearly") {
+        lineTotal = a.yearlyTotal * qty;
+      } else {
+        lineTotal = a.monthly * qty * cycle.months * (1 - cycle.discount);
+      }
+      addonTotal += lineTotal;
+      addonLines.push(`<div class="qb-summary-row"><span>${a.name} × ${qty}</span><span class="amt">${fmt(lineTotal)}</span></div>`);
+    }
+  });
+
+  let setupTotal = 0;
+  const setupLines = [];
+  SETUP_CHARGES.forEach(s => {
+    const cb = document.getElementById(`setup_${s.key}`);
+    if (cb && cb.checked) {
+      const amt = parseFloat(document.getElementById(`amt_${s.key}`).value) || 0;
+      setupTotal += amt;
+      setupLines.push(`<div class="qb-summary-row"><span>${s.name} (one-time)</span><span class="amt">${fmt(amt)}</span></div>`);
+    }
+  });
+  const othersCb = document.getElementById("setup_others");
+  if (othersCb && othersCb.checked) {
+    const amt = parseFloat(document.getElementById("amt_others").value) || 0;
+    const label = document.getElementById("othersLabel").value || "Other (one-time)";
+    setupTotal += amt;
+    setupLines.push(`<div class="qb-summary-row"><span>${label}</span><span class="amt">${fmt(amt)}</span></div>`);
+  }
+
+  const planDiscPct = parseFloat(document.getElementById("discPlanPct").value) || 0;
+  const addonDiscPct = parseFloat(document.getElementById("discAddonPct").value) || 0;
+  const discReason = document.getElementById("discReason").value;
+  const planDiscAmt = planTotal * (planDiscPct / 100);
+  const addonDiscAmt = addonTotal * (addonDiscPct / 100);
+  const totalDiscAmt = planDiscAmt + addonDiscAmt;
+
+  const subtotal = (planTotal - planDiscAmt) + (addonTotal - addonDiscAmt) + setupTotal;
+  const tax = subtotal * TAX_RATE;
+  const grandTotal = subtotal + tax;
+
+  const discountLines = [];
+  if (planDiscPct > 0) discountLines.push(`<div class="qb-summary-row"><span>Plan Discount (-${planDiscPct}%)${discReason ? " · " + discReason : ""}</span><span class="amt" style="color:var(--yes,#16a34a);">-${fmt(planDiscAmt)}</span></div>`);
+  if (addonDiscPct > 0) discountLines.push(`<div class="qb-summary-row"><span>Add-on Discount (-${addonDiscPct}%)${discReason ? " · " + discReason : ""}</span><span class="amt" style="color:var(--yes,#16a34a);">-${fmt(addonDiscAmt)}</span></div>`);
+
+  document.getElementById("qbSummaryCard").innerHTML = `
+    <div class="qb-summary-row bold"><span>${plan.name} Plan (${cycle.label})</span><span class="amt">${fmt(planTotal)}</span></div>
+    ${addonLines.length ? addonLines.join("") : '<div class="qb-empty-line">No add-ons selected</div>'}
+    ${discountLines.length ? `<div class="qb-summary-divider"></div>` + discountLines.join("") : ""}
+    ${setupLines.length ? `<div class="qb-summary-divider"></div>` + setupLines.join("") : ""}
+    <div class="qb-summary-divider"></div>
+    <div class="qb-summary-row bold"><span>Subtotal</span><span class="amt">${fmt(subtotal)}</span></div>
+    <div class="qb-summary-row"><span>Tax (${(TAX_RATE*100).toFixed(0)}%)</span><span class="amt">${fmt(tax)}</span></div>
+  `;
+
+  document.getElementById("qbGrandCard").innerHTML = `
+    <div class="qb-grand-label">Grand Total</div>
+    <div class="qb-grand-amount">${fmt(grandTotal)}</div>
+    <div class="qb-grand-cycle">Recurring billed every ${cycle.months === 1 ? "month" : cycle.months + " months"}${setupTotal > 0 ? " · one-time charges billed at signup" : ""}</div>
+  `;
+
+  document.getElementById("qbTaxNote").innerHTML =
+    `Tax rate is a placeholder — update <code>TAX_RATE</code> with the actual applicable rate. Quarterly/Semi-Yearly discounts are placeholders in <code>CYCLE_DISCOUNTS</code>.`;
+}
+</script>
+
+</body>
+</html>
