@@ -4,7 +4,7 @@ import {
   MessageSquare, Settings, Smartphone, Monitor, Tablet,
   Check, ChevronDown, ChevronUp, Zap, Plus, X,
   Star, Send, Paperclip, Mail, Calendar, Info,
-  MapPin, Upload, CreditCard,
+  MapPin, Upload, CreditCard, Lock,
   Clock, ArrowRight, ExternalLink, Eye,
   Edit2, Image, Bot, Users,
   ChevronRight, Palette, Shield, MessageCircle, DollarSign,
@@ -411,21 +411,16 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
   const ChatScreen = () => (
     <div className="flex flex-col h-full" style={{ fontFamily: fontFamilyCss }}>
       {/* ── Header ── */}
-      <div className="flex-shrink-0 px-3 py-2.5 flex items-center gap-2.5 relative z-20"
+      <div className="flex-shrink-0 px-3 py-2.5 flex items-center gap-3 relative z-20"
         style={{ background: headerBg,
           boxShadow: headerLight ? '0 1px 0 rgba(15,23,42,0.07), 0 4px 12px -8px rgba(15,23,42,0.20)'
                                  : '0 4px 14px -8px rgba(15,23,42,0.45)' }}>
-        {tabsEnabled && (
-          <HeaderBtn title="Back" onClick={()=>setActiveTab('home')}><ChevronLeft size={15}/></HeaderBtn>
-        )}
         <div className="relative flex-shrink-0">
-          <div className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
-            style={{ background: cfg.avatarStyle === 'image' && cfg.avatarImage ? '#fff' : brandBg,
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden"
+            style={{ background: dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.22)',
               border: headerLight ? 'none' : '1.5px solid rgba(255,255,255,0.35)' }}>
-            <AvatarFace px={36}/>
+            <Lock size={18} className="text-white"/>
           </div>
-          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400"
-            style={{ border: `2px solid ${headerBaseColor}`, animation: 'wcPresence 2.4s ease-in-out infinite' }}/>
         </div>
         <div className="flex-1 min-w-0">
           <p style={{fontSize: fs(12.5), color: onHeader}} className="font-bold leading-tight truncate">
@@ -438,11 +433,20 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
         </div>
 
         <div className="flex items-center gap-0.5 flex-shrink-0">
-          <HeaderBtn title="Minimize"><Minus size={14}/></HeaderBtn>
+          <button title="Minimize" className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+            style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+            onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <Minus size={14}/>
+          </button>
           <div className="relative">
-            <HeaderBtn title="More options" active={moreOpen} onClick={()=>setMoreOpen(o=>!o)}>
+            <button title="More options" active={moreOpen} onClick={()=>setMoreOpen(o=>!o)}
+              className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+              style={{ color: onHeaderMuted, background: moreOpen ? headerHoverBg : 'transparent', ['--wc-hover']: headerHoverBg }}
+              onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+              onMouseLeave={e => e.currentTarget.style.background = moreOpen ? headerHoverBg : 'transparent'}>
               <MoreVertical size={14}/>
-            </HeaderBtn>
+            </button>
             {moreOpen && (
               <div className={clsx('absolute right-0 top-9 w-48 rounded-2xl overflow-hidden z-30 text-left border',
                 dark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200')}
@@ -476,7 +480,12 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
               </div>
             )}
           </div>
-          <HeaderBtn title="Close" className="wc-close"><X size={15}/></HeaderBtn>
+          <button title="Close" className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+            style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+            onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <X size={14}/>
+          </button>
         </div>
 
         {savedFlash && (

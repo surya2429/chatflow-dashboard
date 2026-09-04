@@ -65,7 +65,8 @@
       "Bash(node \"C:/Users/Deepak/AppData/Local/Temp/claude/C--Users-Deepak-Music-claude/a2b07976-61e1-4477-a937-eb6cbc4fa6cc/scratchpad/build-clientele-jsx.cjs\")",
       "Bash(mv \"C:/Users/Deepak/Music/claude\" \"C:/Users/Deepak/Music/whatsapp-dashboard\")",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(curl -s http://localhost:5173/)"
     ]
   }
 }

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "smatbot-revamp",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["-e", "const http=require('http');const fs=require('fs');const path=require('path');const server=http.createServer((req,res)=>{const file=path.join(__dirname,'index.html');fs.readFile(file,(err,data)=>{if(err){res.writeHead(404);res.end();}else{res.writeHead(200,{'Content-Type':'text/html'});res.end(data);}});});server.listen(3001,()=>console.log('Serving on 3001'));"],
+      "port": 3001
+    }
+  ]
+}

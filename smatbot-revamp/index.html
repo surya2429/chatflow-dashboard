@@ -160,15 +160,22 @@ button{cursor:pointer;border:none;outline:none;font-family:inherit}
 
 /* Chat widget */
 .hero-visual{flex:0 0 400px;position:relative}
-.chat-widget{background:#fff;border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);overflow:hidden;animation:floatWidget 4s ease-in-out infinite;border:1px solid var(--border);width:360px;max-width:100%}
+.chat-widget{background:#fff;border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);overflow:hidden;animation:floatWidget 4s ease-in-out infinite;border:1px solid var(--border);width:360px;max-width:100%;font-family:'Plus Jakarta Sans',Inter,sans-serif}
 @keyframes floatWidget{0%,100%{transform:translateY(0)}50%{transform:translateY(-16px)}}
-.chat-header{background:var(--gradient);padding:16px 20px;display:flex;align-items:center;gap:12px}
-.chat-avatar{width:38px;height:38px;background:rgba(255,255,255,.25);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px}
-.chat-info{color:#fff}
-.chat-info strong{display:block;font-size:15px;font-weight:700}
-.chat-info span{font-size:12px;opacity:.85}
-.chat-status{width:8px;height:8px;background:#4ade80;border-radius:50%;margin-left:auto;animation:statusPulse 2s infinite}
-@keyframes statusPulse{0%,100%{box-shadow:0 0 0 2px rgba(74,222,128,.3)}50%{box-shadow:0 0 0 5px rgba(74,222,128,.1)}}
+.chat-header{background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#a855f7 100%);padding:16px 18px;display:flex;align-items:center;gap:12px;position:relative;overflow:hidden}
+.chat-header::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.06'%3E%3Ccircle cx='20' cy='20' r='1.5'/%3E%3C/g%3E%3C/svg%3E");pointer-events:none}
+.chat-header-icon-btn{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.12);border:none;color:#fff;cursor:pointer;transition:background .2s,transform .15s;flex-shrink:0;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.chat-header-icon-btn:hover{background:rgba(255,255,255,.22);transform:scale(1.05)}
+.chat-header-icon-btn:active{transform:scale(.95)}
+.chat-avatar-wrap{width:44px;height:44px;border-radius:14px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:2px solid rgba(255,255,255,.3)}
+.chat-avatar-icon{color:#fff}
+.chat-status-dot{position:absolute;bottom:-2px;right:-2px;width:12px;height:12px;background:#4ade80;border-radius:50%;border:2px solid #fff;animation:statusPulse 2s infinite}
+@keyframes statusPulse{0%,100%{box-shadow:0 0 0 2px rgba(74,222,128,.4)}50%{box-shadow:0 0 0 5px rgba(74,222,128,.1)}}
+.chat-info{color:#fff;flex:1;min-width:0;position:relative;z-index:1}
+.chat-info strong{display:block;font-size:14px;font-weight:700;letter-spacing:.01em;line-height:1.2}
+.chat-info span{font-size:11.5px;opacity:.8;font-weight:500;display:flex;align-items:center;gap:5px}
+.chat-info .status-dot-text{width:6px;height:6px;background:#4ade80;border-radius:50%;display:inline-block;flex-shrink:0}
+.chat-header-actions{display:flex;align-items:center;gap:6px;position:relative;z-index:1}
 .chat-body{padding:16px;background:#f9fafb;min-height:190px;overflow-y:auto;max-height:220px}
 .chat-msg{display:flex;gap:8px;margin-bottom:12px;animation:msgIn .4s ease}
 @keyframes msgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
@@ -176,7 +183,7 @@ button{cursor:pointer;border:none;outline:none;font-family:inherit}
 .chat-msg.user{flex-direction:row-reverse}
 .chat-msg.user .bubble{background:var(--gradient);color:#fff;border-radius:12px 0 12px 12px}
 .bubble{padding:10px 14px;font-size:14px;max-width:210px;line-height:1.5}
-.chat-msg-avatar{width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;background:var(--surface)}
+.chat-msg-avatar{width:28px;height:28px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;background:var(--surface);color:var(--primary)}
 .typing-indicator{display:flex;align-items:center;gap:4px;padding:10px 14px;background:#fff;border:1px solid var(--border);border-radius:0 12px 12px 12px;width:fit-content}
 .typing-dot{width:7px;height:7px;background:var(--accent);border-radius:50%;animation:typingDot 1.2s ease-in-out infinite}
 .typing-dot:nth-child(2){animation-delay:.2s}
@@ -185,8 +192,8 @@ button{cursor:pointer;border:none;outline:none;font-family:inherit}
 .chat-input-bar{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;background:#fff}
 .chat-input-bar input{flex:1;border:1px solid var(--border);border-radius:100px;padding:9px 14px;font-size:13px;color:var(--text);background:#f8f5ff;outline:none;font-family:inherit}
 .chat-input-bar input::placeholder{color:var(--text-sec)}
-.chat-send{width:34px;height:34px;border-radius:50%;background:var(--gradient);border:none;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .2s;flex-shrink:0}
-.chat-send:hover{transform:scale(1.1)}
+.chat-send{width:36px;height:36px;border-radius:10px;background:var(--gradient);border:none;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .2s,box-shadow .2s;flex-shrink:0;box-shadow:0 2px 8px rgba(109,40,217,.3)}
+.chat-send:hover{transform:scale(1.08);box-shadow:0 4px 16px rgba(109,40,217,.4)}
 
 /* Floating tags */
 .hero-float-tag{position:absolute;background:#fff;border:1px solid var(--border);border-radius:14px;padding:10px 16px;box-shadow:0 8px 32px rgba(109,40,217,.14);display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;z-index:5}
@@ -552,23 +559,33 @@ button{cursor:pointer;border:none;outline:none;font-family:inherit}
         <!-- Chat widget -->
         <div class="chat-widget">
           <div class="chat-header">
-            <div class="chat-avatar">🤖</div>
-            <div class="chat-info">
-              <strong>SmatBot Assistant</strong>
-              <span>Online · replies instantly</span>
+            <div class="chat-avatar-wrap">
+              <svg class="chat-avatar-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="3"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1" fill="currentColor" stroke="none"/><path d="M9 11h.01M15 11h.01"/></svg>
+              <div class="chat-status-dot"></div>
             </div>
-            <div class="chat-status"></div>
+            <div class="chat-info">
+              <strong>ChatBot</strong>
+              <span><span class="status-dot-text"></span> We reply instantly</span>
+            </div>
+            <div class="chat-header-actions">
+              <button class="chat-header-icon-btn" aria-label="More options">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+              </button>
+              <button class="chat-header-icon-btn" aria-label="Close">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
           </div>
           <div class="chat-body" id="chatBody">
             <div class="chat-msg bot">
-              <div class="chat-msg-avatar">🤖</div>
+              <div class="chat-msg-avatar"><svg width="20" height="20"><use href="#i-bot-sm"/></svg></div>
               <div class="bubble">Hi there! 👋 How can I help you today?</div>
             </div>
             <div class="chat-msg user">
               <div class="bubble">I need customer support</div>
             </div>
             <div class="chat-msg bot" id="typingMsg">
-              <div class="chat-msg-avatar">🤖</div>
+              <div class="chat-msg-avatar"><svg width="20" height="20"><use href="#i-bot-sm"/></svg></div>
               <div class="typing-indicator">
                 <div class="typing-dot"></div>
                 <div class="typing-dot"></div>
@@ -579,7 +596,7 @@ button{cursor:pointer;border:none;outline:none;font-family:inherit}
           <div class="chat-input-bar">
             <input type="text" placeholder="Type a message…" id="chatInputDemo">
             <button class="chat-send" id="chatSendBtn" aria-label="Send">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4 20-7z"/></svg>
+              <svg width="20" height="20"><use href="#i-send"/></svg>
             </button>
           </div>
         </div>
@@ -1042,6 +1059,19 @@ button{cursor:pointer;border:none;outline:none;font-family:inherit}
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 15l-6-6-6 6"/></svg>
 </button>
 
+<!-- Icon Sprite -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <defs>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 8V5a2 2 0 0 1 4 0v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9" cy="14" r=".8" fill="currentColor" stroke="none"/><circle cx="15" cy="14" r=".8" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="18" cy="12" r="2" fill="currentColor"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><line x1="7" y1="7" x2="17" y2="17" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="17" y1="7" x2="7" y2="17" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><polygon points="22 2 15 22 11 13 2 9 22 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-bot-sm" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 8V5a2 2 0 0 1 4 0v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  </defs>
+</svg>
+
 <!-- ====================================================
      JAVASCRIPT
      ==================================================== -->
@@ -1318,7 +1348,7 @@ function addMsg(text, who){
   var div = document.createElement('div');
   div.className = 'chat-msg ' + who;
   if(who === 'bot'){
-    div.innerHTML = '<div class="chat-msg-avatar">🤖</div><div class="bubble">' + escapeHtml(text) + '</div>';
+    div.innerHTML = '<div class="chat-msg-avatar"><svg width="20" height="20"><use href="#i-bot-sm"/></svg></div><div class="bubble">' + escapeHtml(text) + '</div>';
   } else {
     div.innerHTML = '<div class="bubble">' + escapeHtml(text) + '</div>';
   }
@@ -1334,7 +1364,7 @@ function showTyping(){
   return new Promise(function(resolve){
     var div = document.createElement('div');
     div.className = 'chat-msg bot';
-    div.innerHTML = '<div class="chat-msg-avatar">🤖</div><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>';
+    div.innerHTML = '<div class="chat-msg-avatar"><svg width="20" height="20"><use href="#i-bot-sm"/></svg></div><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>';
     chatBody.appendChild(div);
     chatBody.scrollTop = chatBody.scrollHeight;
     setTimeout(function(){ div.remove(); resolve(); }, 1200);
@@ -1362,7 +1392,7 @@ chatInput.addEventListener('keydown', function(e){
 setTimeout(function(){
   var typingMsg = document.getElementById('typingMsg');
   if(typingMsg){
-    typingMsg.innerHTML = '<div class="chat-msg-avatar">🤖</div><div class="bubble">Sure! How can I assist you today? 🚀</div>';
+    typingMsg.innerHTML = '<div class="chat-msg-avatar"><svg width="20" height="20"><use href="#i-bot-sm"/></svg></div><div class="bubble">Sure! How can I assist you today? 🚀</div>';
   }
 }, 2000);
 
