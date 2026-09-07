@@ -2368,12 +2368,6 @@ const SAMPLE_QUESTIONS = {
    input stays neutral regardless of bubble theming. */
 function renderAnswerControl(type) {
   const previewMap = {
-    'short':    <input readOnly placeholder="Type your answer…" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white mt-2"/>,
-    'long':     <textarea readOnly rows={2} placeholder="Type your message…" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white resize-none mt-2"/>,
-    'number':   <input type="number" readOnly placeholder="0" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white mt-2"/>,
-    'email':    <input readOnly placeholder="you@example.com" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white mt-2"/>,
-    'phone':    <div className="flex gap-1.5 mt-2"><div className="border border-slate-200 rounded-lg px-2 py-2 text-[11px] text-slate-500 bg-white">🇮🇳 +91</div><input readOnly placeholder="Phone number" className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white"/></div>,
-    'url':      <input readOnly placeholder="https://yoursite.com" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white mt-2"/>,
     'single':   <div className="mt-2 space-y-1.5">{['Option A','Option B','Option C'].map(o=><div key={o} className="border border-slate-200 rounded-lg px-3 py-1.5 text-[11px] text-slate-600 bg-white flex items-center gap-2"><div className="w-3 h-3 rounded-full border-2 border-slate-300 flex-shrink-0"/>{o}</div>)}</div>,
     'multi':    <div className="mt-2 space-y-1.5">{['Option A','Option B','Option C'].map(o=><div key={o} className="border border-slate-200 rounded-lg px-3 py-1.5 text-[11px] text-slate-600 bg-white flex items-center gap-2"><div className="w-3 h-3 rounded border-2 border-slate-300 flex-shrink-0"/>{o}</div>)}</div>,
     'dropdown': <div className="mt-2 border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white flex items-center justify-between"><span>Select an option</span><ChevronDown size={12}/></div>,
