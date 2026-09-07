@@ -698,46 +698,44 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
       ) : (
       <div className={clsx('flex-shrink-0 px-3 pt-2 pb-2.5', dark ? 'bg-slate-900' : 'bg-white')}
         style={{ boxShadow: dark ? '0 -1px 0 rgba(255,255,255,0.06)' : '0 -1px 0 rgba(15,23,42,0.06)' }}>
-        <div className="wc-composer flex items-end gap-1"
+        <div className="wc-composer flex items-end gap-1.5"
           style={{
-            borderRadius: cfg.bubbleStyle === 'classic' ? cornerR*0.6 : 20,
-            padding: '4px 4px 4px 5px',
-            background: dark ? '#111c30' : '#ffffff',
+            borderRadius: cfg.bubbleStyle === 'classic' ? cornerR*0.6 : 22,
+            padding: '6px 6px 6px 8px',
+            background: dark ? '#111c30' : '#f4f6f9',
             border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}`,
-            boxShadow: dark ? 'none' : '0 1px 2px rgba(15,23,42,0.04)',
-            transition: 'border-color 0.2s, box-shadow 0.2s',
+            boxShadow: 'none',
+            transition: 'all 0.2s ease',
           }}>
           {cfg.attach && (
-            <button title="Attach file" className="wc-ibtn"
-              style={{ marginBottom: 2, ['--wc-hover']: dark ? 'rgba(255,255,255,0.07)' : '#f1f4f9', color: dark ? '#7c8ba1' : '#98a2b3' }}>
-              <Paperclip size={15}/>
+            <button title="Attach file" className="wc-ibtn flex-shrink-0"
+              style={{ marginBottom: 1, ['--wc-hover']: dark ? 'rgba(255,255,255,0.08)' : '#e8ecf1', color: dark ? '#7c8ba1' : '#64748b' }}>
+              <Paperclip size={16}/>
             </button>
           )}
-          {/* A real, typeable textarea (not a decorative readOnly input) that
-              grows with the message up to ~4.5 lines, then scrolls internally —
-              the same behavior a deployed chat widget's composer actually has. */}
           <textarea
+            name="message"
             ref={draftRef}
             rows={1}
             value={draft}
             onChange={e => setDraft(e.target.value)}
-            placeholder={recording ? 'Listening…' : 'Type your message…'}
-            style={{ fontSize: fs(11.8), fontFamily: fontFamilyCss, lineHeight: 1.45, maxHeight: 92, paddingTop: 6, paddingBottom: 6 }}
-            className={clsx('flex-1 bg-transparent outline-none min-w-0 px-1.5 resize-none wc-scroll',
-              dark ? 'text-slate-200 placeholder-slate-500' : 'text-slate-700 placeholder-slate-400')}/>
+            placeholder={recording ? 'Listening…' : 'Type a message…'}
+            style={{ fontSize: fs(12), fontFamily: fontFamilyCss, lineHeight: 1.5, maxHeight: 100, paddingTop: 7, paddingBottom: 7, caretColor: cfg.color }}
+            className={clsx('flex-1 bg-transparent outline-none min-w-0 px-1 resize-none wc-scroll',
+              dark ? 'text-slate-100 placeholder-slate-500' : 'text-slate-800 placeholder-slate-400')}/>
 
           {(cfg.gifPicker || cfg.emoji || cfg.voiceInput) && (
-            <span className="flex items-center gap-0.5 flex-shrink-0" style={{ marginBottom: 2 }}>
+            <span className="flex items-center gap-0.5 flex-shrink-0" style={{ marginBottom: 1 }}>
               {cfg.gifPicker && (
                 <button title="Send a GIF" className="wc-ibtn"
-                  style={{ ['--wc-hover']: dark ? 'rgba(255,255,255,0.07)' : '#f1f4f9' }}>
-                  <span className="text-[8px] font-black tracking-tight px-1 py-[3px] rounded-[4px] border"
-                    style={{ color: dark ? '#7c8ba1' : '#98a2b3', borderColor: dark ? '#3b4a63' : '#cbd5e1' }}>GIF</span>
+                  style={{ ['--wc-hover']: dark ? 'rgba(255,255,255,0.08)' : '#e8ecf1' }}>
+                  <span className="text-[8px] font-black tracking-tight px-1.5 py-[3px] rounded-[4px] border"
+                    style={{ color: dark ? '#7c8ba1' : '#64748b', borderColor: dark ? '#3b4a63' : '#cbd5e1' }}>GIF</span>
                 </button>
               )}
               {cfg.emoji && (
                 <button title="Emoji" className="wc-ibtn wc-ibtn-emoji"
-                  style={{ ['--wc-hover']: dark ? 'rgba(255,255,255,0.07)' : '#f1f4f9', color: dark ? '#7c8ba1' : '#98a2b3' }}>
+                  style={{ ['--wc-hover']: dark ? 'rgba(255,255,255,0.08)' : '#e8ecf1', color: dark ? '#7c8ba1' : '#64748b' }}>
                   <Smile size={16}/>
                 </button>
               )}
@@ -745,7 +743,7 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
                 <button onClick={()=>setRecording(r=>!r)} title="Voice to text" className="wc-ibtn"
                   style={recording
                     ? { background:'#fee2e2', color:'#ef4444', animation:'wcRec 1.4s ease-in-out infinite' }
-                    : { ['--wc-hover']: dark ? 'rgba(255,255,255,0.07)' : '#f1f4f9', color: dark ? '#7c8ba1' : '#98a2b3' }}>
+                    : { ['--wc-hover']: dark ? 'rgba(255,255,255,0.08)' : '#e8ecf1', color: dark ? '#7c8ba1' : '#64748b' }}>
                   <Mic size={16}/>
                 </button>
               )}
@@ -758,8 +756,8 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
               setDraft('')
               if (draftRef.current) draftRef.current.style.height = 'auto'
             }}
-            style={{ width: 34, height: 34, borderRadius: '50%', background: brandBg, boxShadow: `0 4px 12px -4px ${cfg.color}aa` }}>
-            <Send size={14} className="text-white" style={{ marginLeft: 1, marginTop: -1 }}/>
+            style={{ width: 36, height: 36, borderRadius: '50%', background: brandBg, boxShadow: `0 4px 14px -4px ${cfg.color}99`, transition: 'transform .18s cubic-bezier(.16,1,.3,1)' }}>
+            <Send size={15} className="text-white" style={{ marginLeft: 1, marginTop: -1 }}/>
           </button>
         </div>
 

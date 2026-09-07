@@ -66,7 +66,10 @@
       "Bash(mv \"C:/Users/Deepak/Music/claude\" \"C:/Users/Deepak/Music/whatsapp-dashboard\")",
       "Bash(git add *)",
       "Bash(git commit *)",
-      "Bash(curl -s http://localhost:5173/)"
+      "Bash(curl -s http://localhost:5173/)",
+      "Bash(netstat -ano)",
+      "Bash(awk '{print $5}')",
+      "Bash(xargs -I {} taskkill //F //PID {})"
     ]
   }
 }
