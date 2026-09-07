@@ -1,6 +1,12 @@
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const toPosix = (p) => p.split('\\').join('/')
+
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{js,jsx}'],
+  content: [toPosix(resolve(__dirname, 'index.html')), toPosix(resolve(__dirname, 'src/**/*.{js,jsx}'))],
   theme: {
     extend: {
       colors: {
