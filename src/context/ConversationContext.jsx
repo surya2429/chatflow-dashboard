@@ -1,15 +1,30 @@
 import { createContext, useContext, useState } from 'react'
-import { CONVERSATIONS } from '../constants/mockData'
+import { CONVERSATIONS, WEBCHAT_CONVERSATIONS } from '../constants/mockData'
 
 const ConversationContext = createContext(null)
 
+// default channel for conversations without an explicit channel field is 'whatsapp'.
+// channelFilter='all' means "all WhatsApp channels" (whatsapp + calls) — it
+// deliberately excludes webchat so the WhatsApp inbox's "All chats" view (and
+// its badge counts) never pick up Website Chat conversations. The Website
+// Chat inbox filters explicitly by channelFilter='webchat'.
+function matchChannelGroup(c, channelFilter) {
+  const chan = c.channel || 'whatsapp'
+  if (channelFilter === 'all')     return chan !== 'webchat'
+  if (channelFilter === 'webchat') return chan === 'webchat'
+  return chan === channelFilter
+}
+
 export function ConversationProvider({ children }) {
-  const [conversations, setConversations] = useState(CONVERSATIONS)
+  const [conversations, setConversations] = useState([...CONVERSATIONS, ...WEBCHAT_CONVERSATIONS])
   const [activeId, setActiveId] = useState(null)
   const [filter, setFilter] = useState('all')           // all | open | pending | bot | agent | resolved | closed
   const [agentFilter, setAgentFilter] = useState('all') // all | unassigned | admin | a1 | a2 | ...
   const [sourceFilter, setSourceFilter] = useState('all') // all | direct | ctwa | g-ctwa | t-ctwa | broadcast
-  const [channelFilter, setChannelFilter] = useState('all') // all | whatsapp | calls
+  // all = every WhatsApp channel (whatsapp + calls) — this is the historical
+  // default and keeps the WhatsApp inbox scoped away from webchat data.
+  // 'webchat' is used explicitly by the Website Chat inbox.
+  const [channelFilter, setChannelFilter] = useState('all') // all | whatsapp | calls | webchat
   const [search, setSearch] = useState('')
 
   // Advanced filter states
@@ -35,6 +50,16 @@ export function ConversationProvider({ children }) {
 
   const active = conversations.find(c => c.id === activeId) || null
 
+  // "allConversations" (used for sidebar/tab badge counts) always reflects every
+  // conversation in the current inbox regardless of which sub-filter (whatsapp/
+  // calls/etc.) is selected — that's the pre-existing badge-count behavior.
+  // The one thing it must never mix is Website Chat with WhatsApp: which side
+  // of that split it's on is decided by whether channelFilter is 'webchat'
+  // (set by the Website Chat inbox on mount) or anything else (the WhatsApp inbox).
+  const channelScoped = conversations.filter(c =>
+    channelFilter === 'webchat' ? (c.channel === 'webchat') : (c.channel || 'whatsapp') !== 'webchat'
+  )
+
   const filtered = conversations.filter(c => {
     // 'open'    = bot or agent (live)
     // 'pending' = bot-handled (awaiting agent takeover)
@@ -48,8 +73,7 @@ export function ConversationProvider({ children }) {
 
     const matchAgent   = agentFilter === 'all' || c.agentId === agentFilter || (agentFilter === 'unassigned' && !c.agentId)
     const matchSource  = sourceFilter === 'all' || c.source === sourceFilter
-    // default channel for conversations without explicit channel field is 'whatsapp'
-    const matchChannel = channelFilter === 'all' || (c.channel || 'whatsapp') === channelFilter
+    const matchChannel = matchChannelGroup(c, channelFilter)
     const matchSearch   = !search.trim() || c.name.toLowerCase().includes(search.toLowerCase()) ||
                           c.lastMessage.toLowerCase().includes(search.toLowerCase()) ||
                           (c.phone || '').includes(search) ||
@@ -183,7 +207,12 @@ export function ConversationProvider({ children }) {
   return (
     <ConversationContext.Provider value={{
       conversations: filtered,
-      allConversations: conversations,
+      allConversations: channelScoped,
+      // Unfiltered by channelFilter/status/etc — for lookups from screens that
+      // aren't the inbox itself (e.g. a Contacts page jumping to a contact's
+      // conversation) and can't rely on channelFilter already being scoped
+      // the way the inbox page scopes it on mount.
+      everyConversation: conversations,
       active,
       activeId,
       filter,
