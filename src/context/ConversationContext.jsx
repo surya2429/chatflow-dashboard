@@ -8,6 +8,14 @@ const ConversationContext = createContext(null)
 // deliberately excludes webchat so the WhatsApp inbox's "All chats" view (and
 // its badge counts) never pick up Website Chat conversations. The Website
 // Chat inbox filters explicitly by channelFilter='webchat'.
+//
+// Each conversation's `id` here is just its internal record key — it says
+// nothing about who the other party is. What identifies *them*, and is what
+// screens outside the inbox (like Contacts' "Open Chat") should match on, is
+// channel-specific: `phone` for WhatsApp, `handle` for Instagram, and
+// `visitorId` for Website Chat (a stand-in for the id a real embeddable
+// widget would generate client-side and persist to localStorage — see the
+// comment on WEBCHAT_CONVERSATIONS in constants/mockData.js).
 function matchChannelGroup(c, channelFilter) {
   const chan = c.channel || 'whatsapp'
   if (channelFilter === 'all')     return chan !== 'webchat'

@@ -309,9 +309,20 @@ export const CONVERSATIONS = [
 // Same shape as CONVERSATIONS so they can flow through the shared
 // ConversationContext (labels/assign/snooze/etc. work identically), but
 // tagged with visitor/browsing info instead of WhatsApp phone numbers.
+//
+// `visitorId` is website chat's analog of WhatsApp's `phone` / Instagram's
+// `handle` — the stable external identity that keeps every session from the
+// same browser threaded as one continuous conversation, and lets a Contacts
+// record link back to it. In production this is generated client-side by the
+// embeddable widget on first load (a UUID persisted to localStorage, with a
+// cookie fallback) and sent with every message; the id itself never appears
+// in the UI as a phone number would, but it's what `WebChatContacts.jsx`'s
+// "Open Chat" matches on. `id` below, by contrast, is just this record's
+// internal primary key — it says nothing about who the visitor is.
 export const WEBCHAT_CONVERSATIONS = [
   {
     id: 'wc1',
+    visitorId: 'v_4f9a21e8',
     name: 'Visitor #4821',
     avatar: 'V4',
     channel: 'webchat',
@@ -345,6 +356,7 @@ export const WEBCHAT_CONVERSATIONS = [
   },
   {
     id: 'wc2',
+    visitorId: 'v_7c2b8d31',
     name: 'Sarah Wilson',
     avatar: 'SW',
     channel: 'webchat',
@@ -377,6 +389,7 @@ export const WEBCHAT_CONVERSATIONS = [
   },
   {
     id: 'wc3',
+    visitorId: 'v_1a5e9f04',
     name: 'Visitor #4790',
     avatar: 'V4',
     channel: 'webchat',
@@ -406,6 +419,7 @@ export const WEBCHAT_CONVERSATIONS = [
   },
   {
     id: 'wc4',
+    visitorId: 'v_c83fa62d',
     name: 'Marcus Chen',
     avatar: 'MC',
     channel: 'webchat',
@@ -440,6 +454,12 @@ export const WEBCHAT_CONVERSATIONS = [
   },
   {
     id: 'wc5',
+    // Display name is still the generated visitor label even though this
+    // person answered "Jordan Lee" to a name question mid-chat (see the
+    // 'answer' message below) — a real system would rename the thread once
+    // identified. visitorId is what actually links this to the matching
+    // Contact record regardless of that lag.
+    visitorId: 'v_92d4b7ea',
     name: 'Visitor #5012',
     avatar: 'V5',
     channel: 'webchat',
@@ -472,6 +492,7 @@ export const WEBCHAT_CONVERSATIONS = [
   },
   {
     id: 'wc6',
+    visitorId: 'v_5e1c0af9',
     name: 'Emily Rodriguez',
     avatar: 'ER',
     channel: 'webchat',
@@ -507,12 +528,19 @@ export const WEBCHAT_CONVERSATIONS = [
 // Same shape as WhatsApp's Contacts.jsx INIT_CONTACTS, minus WhatsApp-only
 // messaging-consent fields (optIn), plus visitor/browsing context so the
 // info panel can show how each lead reached the chat widget.
+//
+// `visitorId`, where present, is the same stable id as the matching entry in
+// WEBCHAT_CONVERSATIONS — see the comment there. It's how WebChatContacts.jsx's
+// "Open Chat" finds the right conversation, instead of matching on `name`
+// (which breaks the moment a visitor is identified mid-chat — see wc-7 below).
+// Contacts with no `visitorId` were added directly (e.g. CSV import) and have
+// never actually chatted through the widget.
 export const WEBCHAT_CONTACTS = [
-  {id:'wc-1', name:'Sarah Wilson',   phone:'+1 512 555 0142', email:'sarah.wilson@gmail.com', company:'',                  city:'Austin',    language:'English', source:'Direct',   status:'active', starred:true,  tags:['customer','vip'], agent:'Priya Das',   created:'2025-03-02', last:'2025-04-15', convos:9, notes:'Repeat customer, prefers chat over email.', groupIds:['wgrp3'],
+  {id:'wc-1', visitorId:'v_7c2b8d31', name:'Sarah Wilson',   phone:'+1 512 555 0142', email:'sarah.wilson@gmail.com', company:'',                  city:'Austin',    language:'English', source:'Direct',   status:'active', starred:true,  tags:['customer','vip'], agent:'Priya Das',   created:'2025-03-02', last:'2025-04-15', convos:9, notes:'Repeat customer, prefers chat over email.', groupIds:['wgrp3'],
    page:'/checkout', browser:'Safari', os:'macOS', location:'Austin, USA', referrer:'Direct', visits:3,
    score:88, aiSummary:'Loyal customer with 9 conversations, mostly checkout support. High satisfaction, low churn risk.',
    log:[{t:'message',text:'Asked about live chat support hours',date:'2025-04-15'},{t:'resolved',text:'Checkout issue resolved',date:'2025-04-10'},{t:'created',text:'Started chat on /checkout',date:'2025-03-02'}]},
-  {id:'wc-2', name:'Visitor #4821',  phone:'', email:'visitor4821@example.com', company:'',                  city:'',          language:'',        source:'Direct',   status:'active', starred:false, tags:['lead'],           agent:null,          created:'2025-04-08', last:'2025-04-08', convos:1, notes:'', groupIds:['wgrp1'],
+  {id:'wc-2', visitorId:'v_4f9a21e8', name:'Visitor #4821',  phone:'', email:'visitor4821@example.com', company:'',                  city:'',          language:'',        source:'Direct',   status:'active', starred:false, tags:['lead'],           agent:null,          created:'2025-04-08', last:'2025-04-08', convos:1, notes:'', groupIds:['wgrp1'],
    page:'/pricing', browser:'Chrome', os:'Windows', location:'Mumbai, India', referrer:'google.com', visits:1,
    score:55, aiSummary:'New lead from a Google search landing on pricing. Asked about refund policy — mid-funnel intent.',
    log:[{t:'created',text:'Started chat on /pricing',date:'2025-04-08'},{t:'message',text:'Asked about refund policy',date:'2025-04-08'}]},
@@ -520,7 +548,7 @@ export const WEBCHAT_CONTACTS = [
    page:'/features', browser:'Chrome', os:'macOS', location:'San Francisco, USA', referrer:'linkedin.com', visits:5,
    score:71, aiSummary:'Trial user from LinkedIn evaluating for a team rollout. Strong engagement across 4 conversations.',
    log:[{t:'message',text:'Asked about seat pricing',date:'2025-04-14'},{t:'created',text:'Started chat on /features',date:'2025-03-20'}]},
-  {id:'wc-4', name:'Visitor #4790',  phone:'', email:'', company:'',                  city:'',          language:'',        source:'Direct',   status:'blocked',starred:false, tags:[],                 agent:null,          created:'2025-04-05', last:'2025-04-05', convos:1, notes:'Blocked — spam links in chat.',
+  {id:'wc-4', visitorId:'v_1a5e9f04', name:'Visitor #4790',  phone:'', email:'', company:'',                  city:'',          language:'',        source:'Direct',   status:'blocked',starred:false, tags:[],                 agent:null,          created:'2025-04-05', last:'2025-04-05', convos:1, notes:'Blocked — spam links in chat.',
    page:'/', browser:'Firefox', os:'Linux', location:'Berlin, Germany', referrer:'Direct', visits:1,
    score:5, aiSummary:'Blocked visitor. Sent spam links during a single short session.',
    log:[{t:'blocked',text:'Flagged and blocked for spam',date:'2025-04-05'}]},
@@ -528,15 +556,15 @@ export const WEBCHAT_CONTACTS = [
    page:'/dashboard', browser:'Chrome', os:'Windows', location:'Ahmedabad, India', referrer:'twitter.com', visits:8,
    score:93, aiSummary:'Premium subscriber with 14 conversations. Highly engaged, consistently positive sentiment.',
    log:[{t:'message',text:'Requested invoice copy',date:'2025-04-13'}]},
-  {id:'wc-6', name:'Marcus Chen',    phone:'+65 8123 4567', email:'marcus.chen@enterprise.io', company:'Chen Enterprises', city:'Singapore', language:'English', source:'Referral', status:'active', starred:false, tags:['vip','prospect'], agent:'Rahul Mehta', created:'2025-04-01', last:'2025-04-12', convos:6, notes:'Evaluating for 200-seat rollout.', groupIds:['wgrp1'],
+  {id:'wc-6', visitorId:'v_c83fa62d', name:'Marcus Chen',    phone:'+65 8123 4567', email:'marcus.chen@enterprise.io', company:'Chen Enterprises', city:'Singapore', language:'English', source:'Referral', status:'active', starred:false, tags:['vip','prospect'], agent:'Rahul Mehta', created:'2025-04-01', last:'2025-04-12', convos:6, notes:'Evaluating for 200-seat rollout.', groupIds:['wgrp1'],
    page:'/features', browser:'Edge', os:'Windows', location:'Singapore', referrer:'linkedin.com', visits:2,
    score:82, aiSummary:'Enterprise prospect evaluating a 200-seat rollout. Requested a callback about pricing — high priority.',
    log:[{t:'message',text:'Requested callback about enterprise pricing',date:'2025-04-12'}]},
-  {id:'wc-7', name:'Jordan Lee',     phone:'', email:'jordan.lee@devmail.com', company:'',                  city:'São Paulo', language:'Portuguese', source:'Direct', status:'active', starred:false, tags:['support'],        agent:null,          created:'2025-04-07', last:'2025-04-07', convos:1, notes:'',
+  {id:'wc-7', visitorId:'v_92d4b7ea', name:'Jordan Lee',     phone:'', email:'jordan.lee@devmail.com', company:'',                  city:'São Paulo', language:'Portuguese', source:'Direct', status:'active', starred:false, tags:['support'],        agent:null,          created:'2025-04-07', last:'2025-04-07', convos:1, notes:'',
    page:'/docs/api', browser:'Chrome', os:'Android', location:'São Paulo, Brazil', referrer:'Direct', visits:1,
    score:40, aiSummary:'Developer asking about API authentication. Early-stage technical evaluation.',
    log:[{t:'created',text:'Started chat on /docs/api',date:'2025-04-07'}]},
-  {id:'wc-8', name:'Emily Rodriguez',phone:'', email:'emily.rodriguez@mail.com', company:'',                  city:'Toronto',   language:'English', source:'Referral', status:'active', starred:false, tags:['customer'],       agent:'Aryan Kapoor',created:'2025-02-14', last:'2025-04-11', convos:5, notes:'Free plan user, happy with support.', groupIds:['wgrp2'],
+  {id:'wc-8', visitorId:'v_5e1c0af9', name:'Emily Rodriguez',phone:'', email:'emily.rodriguez@mail.com', company:'',                  city:'Toronto',   language:'English', source:'Referral', status:'active', starred:false, tags:['customer'],       agent:'Aryan Kapoor',created:'2025-02-14', last:'2025-04-11', convos:5, notes:'Free plan user, happy with support.', groupIds:['wgrp2'],
    page:'/blog/best-practices', browser:'Chrome', os:'macOS', location:'Toronto, Canada', referrer:'twitter.com', visits:4,
    score:65, aiSummary:'Free-plan customer with consistently positive interactions. Found us via a blog post on Twitter.',
    log:[{t:'resolved',text:'Feature availability question resolved',date:'2025-04-11'}]},

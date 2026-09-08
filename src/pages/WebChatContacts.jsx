@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Search, Plus, X, Star, Mail, MapPin, Building2,
   Globe, MessageSquare, CheckCircle2, Shield, UserPlus, Trash2, UserCheck,
-  Upload, Download, Users, Clock, Monitor, Eye, Link2,
+  Upload, Download, Users, Clock, Monitor, Eye, Link2, Hash,
   ChevronDown, SlidersHorizontal, Sparkles, Variable, Layers, FolderPlus,
   LayoutList, Table2, CheckSquare, MousePointer2, ArrowLeft,
 } from 'lucide-react'
@@ -502,17 +502,19 @@ function ContactPanel({ c, onClose, onUpdate, onDelete, onChat, groups = [] }) {
                 </div>
                 <div className="divide-y divide-surface-border/60">
                   {[
+                    ...(c.visitorId ? [{Icon:Hash, label:'Visitor ID', val:c.visitorId, mono:true,
+                      title:"Persisted client-side (localStorage) by the chat widget — this is what \"Open Chat\" matches to find this contact's conversation."}] : []),
                     {Icon:Link2,    label:'First page', val:c.page || '—'},
                     {Icon:Monitor,  label:'Browser',    val:c.browser ? `${c.browser}${c.os ? ' on '+c.os : ''}` : '—'},
                     {Icon:MapPin,   label:'Location',   val:c.location || '—'},
                     {Icon:Globe,    label:'Referrer',   val:c.referrer || '—'},
                     {Icon:Eye,      label:'Visits',     val: c.visits != null ? `${c.visits} visit${c.visits===1?'':'s'}` : '—'},
-                  ].map(({Icon,label,val}) => (
-                    <div key={label} className="flex items-start gap-2.5 px-4 py-2.5">
+                  ].map(({Icon,label,val,mono,title}) => (
+                    <div key={label} className="flex items-start gap-2.5 px-4 py-2.5" title={title}>
                       <Icon size={12} className="text-slate-400 flex-shrink-0 mt-0.5"/>
                       <div className="flex-1 min-w-0">
                         <p className="text-[10px] text-slate-400 leading-none mb-0.5">{label}</p>
-                        <p className="text-[11px] text-slate-700 font-medium break-all">{val}</p>
+                        <p className={clsx('text-[11px] text-slate-700 font-medium break-all', mono && 'font-mono')}>{val}</p>
                       </div>
                     </div>
                   ))}
@@ -802,8 +804,25 @@ export default function WebChatContacts() {
     })
   }
 
+  // A conversation's email/phone only exists as a captured 'answer' message
+  // (see the "Captured from Chat" panel in WebChatInbox.jsx), not a top-level
+  // field — so matching by contact email/phone means checking those answers.
+  function convAnswerValue(cv, questionType) {
+    return cv.messages?.find(m => m.type === 'answer' && m.questionType === questionType)?.value
+  }
+
   function goToChat(c) {
-    const conv = everyConversation.find(cv => cv.channel === 'webchat' && cv.name === c.name)
+    // visitorId is the stable identity linking a contact to its conversation
+    // (see the comment on WEBCHAT_CONVERSATIONS in constants/mockData.js) —
+    // match on that first. Fall back to a captured email/phone answer for
+    // contacts predating visitorId, and only fall back to name as a last
+    // resort, since a visitor's display name can change once they're
+    // identified mid-chat (e.g. "Visitor #5012" → "Jordan Lee") while their
+    // conversation's name field lags behind.
+    const conv = everyConversation.find(cv => cv.channel === 'webchat' && cv.visitorId && cv.visitorId === c.visitorId)
+      || everyConversation.find(cv => cv.channel === 'webchat' && c.email && convAnswerValue(cv, 'email') === c.email)
+      || everyConversation.find(cv => cv.channel === 'webchat' && c.phone && convAnswerValue(cv, 'phone') === c.phone)
+      || everyConversation.find(cv => cv.channel === 'webchat' && cv.name === c.name)
     if (conv) selectConversation(conv.id)
     navigate('/webchat/inbox')
   }

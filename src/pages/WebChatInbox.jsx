@@ -1112,17 +1112,18 @@ function ContactPanel({ conversation, adminOnline, onClose }) {
               </div>
               <div className="border-t border-b border-surface-border divide-y divide-surface-border/40">
                 {[
+                  { Icon: Hash,    k: 'Visitor ID',   v: conversation.visitorId, mono: true, title: "Persisted client-side (localStorage) by the chat widget — this is what keeps every visit from this browser in one thread, and what the Contacts page's \"Open Chat\" matches on." },
                   { Icon: Link2,   k: 'Current page', v: conversation.page                                  },
                   { Icon: Monitor, k: 'Browser',      v: `${conversation.browser} on ${conversation.os}`    },
                   { Icon: MapPin,  k: 'Location',     v: conversation.location                               },
                   { Icon: Globe,   k: 'Referrer',     v: conversation.referrer                               },
                   { Icon: Eye,     k: 'Visits',       v: `${conversation.visits} visit${conversation.visits === 1 ? '' : 's'}` },
-                ].map(({ Icon, k, v }) => (
-                  <div key={k} className="flex items-start gap-2.5 px-3 py-2">
+                ].filter(row => row.v).map(({ Icon, k, v, mono, title }) => (
+                  <div key={k} className="flex items-start gap-2.5 px-3 py-2" title={title}>
                     <Icon size={12} className="text-slate-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-[9px] text-slate-400 leading-none mb-0.5">{k}</p>
-                      <p className="text-[11px] text-slate-700 font-medium break-words">{v}</p>
+                      <p className={clsx('text-[11px] text-slate-700 font-medium break-words', mono && 'font-mono')}>{v}</p>
                     </div>
                   </div>
                 ))}
