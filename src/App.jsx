@@ -3,8 +3,11 @@ import { AppProvider } from './context/AppContext'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ConversationProvider } from './context/ConversationContext'
 import { CallProvider } from './context/CallContext'
+import { WebchatCallProvider } from './context/WebchatCallContext'
 import IncomingCallBanner from './components/IncomingCallBanner'
 import CallWidget from './components/CallWidget'
+import WebchatIncomingCallBanner from './components/WebchatIncomingCallBanner'
+import WebchatCallWidget from './components/WebchatCallWidget'
 import MainLayout from './layouts/MainLayout'
 import SignIn from './pages/SignIn'
 import Home from './pages/Home'
@@ -34,6 +37,8 @@ import WebChatContacts from './pages/WebChatContacts'
 import WebChatAnalytics from './pages/WebChatAnalytics'
 import VoiceLanding from './pages/VoiceLanding'
 import InstagramOAuthCallback from './pages/InstagramOAuthCallback'
+import WebChatCallTester from './pages/WebChatCallTester'
+import WebChatLandingPage from './pages/WebChatLandingPage'
 
 
 function AppRoutes() {
@@ -46,6 +51,13 @@ function AppRoutes() {
       />
       <Route path="/clientele" element={<Clientele />} />
       <Route path="/voice-landing" element={<VoiceLanding />} />
+      {/* Standalone "you are the website visitor" call tester — bypasses login/layout
+          so it can be opened in a second tab to test real webchat calling end-to-end. */}
+      <Route path="/call-test" element={<WebChatCallTester />} />
+      {/* The real page behind the Widget Builder's "Landing Page" link and "Preview
+          Widget" button — bypasses login/layout since the whole point is a link anyone
+          (no dashboard account) can open and land straight in the chat. */}
+      <Route path="/webchat-landing" element={<WebChatLandingPage />} />
       {/* Matches the Instagram Business Login redirect_uri exactly — must work whether or not the app session is authenticated */}
       <Route path="/instagramBusinessLoginSetup" element={<InstagramOAuthCallback />} />
       <Route
@@ -54,9 +66,12 @@ function AppRoutes() {
           isAuthenticated
             ? (
               <CallProvider>
+              <WebchatCallProvider>
                 {/* Global call overlays — visible on every page */}
                 <IncomingCallBanner />
                 <CallWidget />
+                <WebchatIncomingCallBanner />
+                <WebchatCallWidget />
 
                 <ConversationProvider>
                   <Routes>
@@ -88,6 +103,7 @@ function AppRoutes() {
                     </Route>
                   </Routes>
                 </ConversationProvider>
+              </WebchatCallProvider>
               </CallProvider>
             )
             : <Navigate to="/signin" replace />

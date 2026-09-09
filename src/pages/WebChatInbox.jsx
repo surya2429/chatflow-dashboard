@@ -10,9 +10,10 @@ import {
   Image, Filter, Tag, ChevronRight,
   RotateCcw, UserPlus, MessageSquare, ThumbsUp,
   Globe, Monitor, MapPin, Link2, Eye, Info,
-  Mail, Building2, Home, Landmark, CalendarDays, User2, Languages, ShoppingBag, Phone,
+  Mail, Building2, Home, Landmark, CalendarDays, User2, Languages, ShoppingBag, Phone, Video,
 } from 'lucide-react'
 import { useConversations } from '../context/ConversationContext'
+import { useWebchatCall } from '../context/WebchatCallContext'
 import { useApp } from '../context/AppContext'
 import { AGENTS, PAST_CONVERSATIONS, MOCK_ORDERS } from '../constants/mockData'
 import Select, { NativeSelect } from '../components/Select'
@@ -562,7 +563,7 @@ function InsightsPanel({ adminOnline }) {
   )
 }
 
-/* ─── Chat Window (no phone/video calls, no Send Template) ─────── */
+/* ─── Chat Window (real phone/video calls via WebchatCallContext; still no Send Template) ─── */
 function ChatWindow({ conversation, adminOnline, showPanel, onTogglePanel }) {
   const [message, setMessage]               = useState('')
   const [replyMode, setReplyMode]           = useState('reply')
@@ -579,6 +580,7 @@ function ChatWindow({ conversation, adminOnline, showPanel, onTogglePanel }) {
     sendMessage, takeoverConversation, resolveConversation, returnToBot,
     toggleStar, archiveConversation, snoozeConversation, addNote,
   } = useConversations()
+  const { initiateCall, activeCall, setWatchedVisitor } = useWebchatCall()
 
   const msgsRef   = useRef(null)
   const moreRef   = useRef(null)
@@ -588,6 +590,13 @@ function ChatWindow({ conversation, adminOnline, showPanel, onTogglePanel }) {
   useEffect(() => {
     if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight
   }, [conversation?.messages])
+
+  // Let WebchatCallProvider listen on this visitor's signaling room while
+  // their chat is open, so an inbound call-request from them can be caught.
+  useEffect(() => {
+    setWatchedVisitor(conversation?.visitorId)
+    return () => setWatchedVisitor(null)
+  }, [conversation?.visitorId])
 
   useEffect(() => {
     function h(e) {
@@ -733,6 +742,22 @@ function ChatWindow({ conversation, adminOnline, showPanel, onTogglePanel }) {
               <UserCheck size={12} /> Take Over
             </button>
           )}
+
+          {/* Voice / video call */}
+          <button
+            onClick={() => initiateCall(conversation, { video: false })}
+            disabled={!!activeCall}
+            title="Voice call"
+            className={clsx('p-1.5 rounded-lg transition-colors', activeCall ? 'text-slate-300 cursor-not-allowed' : 'hover:bg-surface-hover text-slate-400 hover:text-slate-600')}>
+            <Phone size={13} />
+          </button>
+          <button
+            onClick={() => initiateCall(conversation, { video: true })}
+            disabled={!!activeCall}
+            title="Video call"
+            className={clsx('p-1.5 rounded-lg transition-colors', activeCall ? 'text-slate-300 cursor-not-allowed' : 'hover:bg-surface-hover text-slate-400 hover:text-slate-600')}>
+            <Video size={13} />
+          </button>
 
           {/* Label picker */}
           <div ref={labelRef} className="relative">

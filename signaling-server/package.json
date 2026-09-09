@@ -1,0 +1,13 @@
+{
+  "name": "webchat-signaling-server",
+  "version": "1.0.0",
+  "description": "Minimal local-dev WebSocket signaling relay for Website Chat voice/video calls (not for production use).",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

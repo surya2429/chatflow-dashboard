@@ -108,7 +108,7 @@ const CORNER_PX  = { sharp: 6, soft: 14, round: 24 }
    The old 236/264/300 values were far too narrow and caused text to wrap badly. */
 const SIZE_PX    = { compact: 340, standard: 384, large: 420 }
 
-function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQType, activeTab, setActiveTab }) {
+export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQType, activeTab, setActiveTab }) {
   useGoogleFont(cfg.fontFamily)
   const [maximized, setMaximized] = useState(false)
   const [muted, setMuted] = useState(!cfg.sound)
@@ -2688,6 +2688,14 @@ export function buildLandingUrl(name) {
   return `${LANDING_HOST}/?name=${encodeURIComponent(slugifyBotName(name))}&id=${LANDING_BOT_ID}`
 }
 
+/* `buildLandingUrl` above is the production-format URL shown for customers to
+   copy — page.smatbot.com isn't a real deployed host in this project. This is
+   the actual working page in THIS app that renders the same query params, so
+   "Open page" has something real to open while you're testing. */
+export function buildLocalLandingUrl(name) {
+  return `/webchat-landing?name=${encodeURIComponent(slugifyBotName(name))}&id=${LANDING_BOT_ID}`
+}
+
 function CopyRow({ label, value, mono = true }) {
   const [copied, setCopied] = useState(false)
   return (
@@ -2771,7 +2779,7 @@ function LandingPageTab({ cfg, set }) {
           <CopyRow label="Landing Page URL" value={url}/>
 
           <div className="flex gap-2">
-            <a href={url} target="_blank" rel="noreferrer"
+            <a href={buildLocalLandingUrl(cfg.landingName)} target="_blank" rel="noreferrer"
               className="btn-secondary flex-1 justify-center gap-1.5">
               <ExternalLink size={12}/> Open page
             </a>
@@ -2781,6 +2789,9 @@ function LandingPageTab({ cfg, set }) {
               <LinkIcon size={12}/> Copy link
             </button>
           </div>
+          <p className="text-[10px] text-slate-400 -mt-2">
+            "Open page" previews the real page live (it reads this Widget Builder's live settings). "Copy link" copies the production-format URL above for once this is deployed.
+          </p>
         </div>
       </div>
 
@@ -2826,9 +2837,17 @@ const NAV_GROUPS = [
 ]
 const BUILDER_SECTIONS = ['theme','branding','behavior','lead','questions']
 
+/* Shared with WebChatLandingPage.jsx — that's a separate route/page, so the
+   only way it can see this widget's live look (colors, avatar, greeting,
+   launcher icon, everything) is by reading it back out of localStorage
+   rather than React state. Exported so the landing page's fallback default
+   config can't drift from this one. */
+export const WIDGET_CFG_STORAGE_KEY = 'cf_webchat_widget_cfg'
+
 export default function WebChatAppearance() {
   const [section, setSection] = useState('theme')
-  const [cfg, setCfg] = useState({
+  const [cfg, setCfg] = useState(() => {
+    const defaults = {
     // Theme
     colorMode: 'gradient', color: '#0066ff', colorEnd: '#8B5CF6',
     theme: 'light', corner: 'round', size: 'compact', launcherShape: 'circle',
@@ -2857,9 +2876,20 @@ export default function WebChatAppearance() {
     gifPicker: true, voiceInput: true, saveChat: true,
     // Widget tabs — Chat is always on by default
     showHomeTab: false, showChatTab: true, showMessagesTab: false, showFaqTab: false, showBookingTab: false,
-    // Lead capture
-    leadName: true, leadEmail: true, leadPhone: false, leadTiming: 'before',
+      // Lead capture
+      leadName: true, leadEmail: true, leadPhone: false, leadTiming: 'before',
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem(WIDGET_CFG_STORAGE_KEY) || 'null')
+      return saved ? { ...defaults, ...saved } : defaults
+    } catch { return defaults }
   })
+  // Persist on every change so WebChatLandingPage.jsx (a separate route) can
+  // render the same live look — this is the only channel between them, since
+  // there's no backend to save widget settings to.
+  useEffect(() => {
+    try { localStorage.setItem(WIDGET_CFG_STORAGE_KEY, JSON.stringify(cfg)) } catch {}
+  }, [cfg])
   const set = (k, v) => setCfg(p => ({...p, [k]:v}))
   const [device, setDevice] = useState('desktop')
   const [screen, setScreen] = useState('open')
@@ -2910,7 +2940,8 @@ export default function WebChatAppearance() {
             className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-surface-border bg-white text-slate-600 text-[11px] font-semibold hover:bg-surface-hover transition-colors">
             <Zap size={12}/> Flow Designer
           </Link>
-          <button className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-primary text-white text-[11px] font-semibold hover:bg-primary-hover transition-colors">
+          <button onClick={() => window.open(buildLocalLandingUrl(cfg.landingName), '_blank')}
+            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-primary text-white text-[11px] font-semibold hover:bg-primary-hover transition-colors">
             <ExternalLink size={12}/> Preview Widget
           </button>
         </div>

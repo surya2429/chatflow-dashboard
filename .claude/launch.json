@@ -7,6 +7,13 @@
       "runtimeArgs": ["C:/Users/Deepak/Music/claude/node_modules/vite/bin/vite.js", "--config", "C:/Users/Deepak/Music/claude/vite.config.js", "--port", "5173"],
       "workingDirectory": "C:/Users/Deepak/Music/claude",
       "port": 5173
+    },
+    {
+      "name": "Signaling Server",
+      "runtimeExecutable": "C:/Program Files/nodejs/node.exe",
+      "runtimeArgs": ["C:/Users/Deepak/Music/claude/signaling-server/index.js"],
+      "workingDirectory": "C:/Users/Deepak/Music/claude/signaling-server",
+      "port": 8788
     }
   ]
 }
