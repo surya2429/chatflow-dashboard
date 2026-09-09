@@ -24,6 +24,19 @@ import { WIDGET_ID } from '../constants/webchat'
 
 /* ─── Constants ─────────────────────────────────────────────── */
 const COLORS = ['#0066ff','#8B5CF6','#10B981','#F59E0B','#EF4444','#EC4899','#06B6D4','#1D4ED8']
+
+/* Icon choices for the launcher bubble when it's not just mirroring the
+   profile picture — 'chat' (MessageCircleMore) is the long-standing default. */
+const LAUNCHER_ICON_MAP = {
+  chat: MessageCircleMore, bubble: MessageCircle, square: MessageSquare,
+  bot: Bot, support: LifeBuoy, spark: Sparkles, bolt: Zap, help: HelpCircle,
+}
+const LAUNCHER_ICON_OPTIONS = [
+  { v: 'chat',    l: 'Chat'    }, { v: 'bubble',  l: 'Bubble'  },
+  { v: 'square',  l: 'Square'  }, { v: 'bot',     l: 'Bot'     },
+  { v: 'support', l: 'Support' }, { v: 'spark',   l: 'Spark'   },
+  { v: 'bolt',    l: 'Bolt'    }, { v: 'help',    l: 'Help'    },
+]
 /* Body text is authored against a 12px baseline; every other size in the widget is
    expressed relative to it, so one slider (10-20px) scales the whole thing coherently. */
 const FONT_BASE_PX = 12
@@ -157,6 +170,24 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
   const brandBg = cfg.colorMode === 'gradient'
     ? `linear-gradient(135deg, ${cfg.color} 0%, ${cfg.colorEnd||cfg.color} 100%)`
     : cfg.color
+
+  /* Launcher icon — by default it mirrors the Profile Picture (launcherIconStyle
+     'match', the long-standing behavior), but can be set independently: its own
+     icon, emoji, or uploaded image. 'initials' has no launcher equivalent — that
+     branch (only reachable via 'match') falls through to the default chat icon,
+     same as before this was configurable at all. */
+  const effLauncherStyle = cfg.launcherIconStyle === 'match' ? cfg.avatarStyle : cfg.launcherIconStyle
+  const LauncherIconCmp = LAUNCHER_ICON_MAP[cfg.launcherIcon] || MessageCircleMore
+  const launcherIconEl =
+    effLauncherStyle === 'image' && (cfg.launcherIconStyle === 'match' ? cfg.avatarImage : cfg.launcherImage)
+      ? <img src={cfg.launcherIconStyle === 'match' ? cfg.avatarImage : cfg.launcherImage} alt="" className="w-full h-full object-cover"/>
+      : effLauncherStyle === 'emoji'
+      ? <span style={{fontSize: 27}}>{(cfg.launcherIconStyle === 'match' ? cfg.avatarEmoji : cfg.launcherEmoji) || '🤖'}</span>
+      : effLauncherStyle === 'icon'
+        ? (cfg.launcherIconStyle === 'match'
+            ? <Bot size={26} className="text-white"/>
+            : <LauncherIconCmp size={26} className="text-white"/>)
+        : <MessageCircleMore size={27} className="text-white"/>
 
   /* Header can now break away from the brand color entirely: keep it on brand,
      paint it a custom solid/gradient, or leave it a clean light surface. */
@@ -1169,13 +1200,7 @@ function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQTyp
               cfg.launcherShape==='square' ? 'rounded-2xl' : 'rounded-full')}
               style={{background: brandBg, boxShadow: `0 12px 32px -6px ${cfg.color}77, 0 4px 12px -2px rgba(15,23,42,0.18)`,
                 animation: LAUNCHER_FX[cfg.launcherAnimation]?.self }}>
-              {cfg.avatarStyle === 'image' && cfg.avatarImage
-                ? <img src={cfg.avatarImage} alt="" className="w-full h-full object-cover"/>
-                : cfg.avatarStyle === 'emoji'
-                ? <span style={{fontSize: 27}}>{cfg.avatarEmoji || '🤖'}</span>
-                : cfg.avatarStyle === 'icon'
-                  ? <Bot size={26} className="text-white"/>
-                  : <MessageCircleMore size={27} className="text-white"/>}
+              {launcherIconEl}
             </button>
             {/* Sits outside the button's own overflow-hidden (needed to clip an
                 uploaded avatar image to the circle) — inside it, this badge was
@@ -1682,6 +1707,7 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
 
   const [themeGroup, setThemeGroup] = useState('colors')
   const filteredQ = qCat==='All' ? QUESTION_TYPES : QUESTION_TYPES.filter(q=>q.cat===qCat)
+  const LauncherIconCmp = LAUNCHER_ICON_MAP[cfg.launcherIcon] || MessageCircleMore
 
   return (
     <>
@@ -1864,6 +1890,59 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                   <PositionPicker value={cfg.position} onChange={v=>set('position',v)}/>
                 </div>
 
+                <div className="border-t border-surface-border"/>
+
+                <div>
+                  <label className="label flex items-center gap-1.5">Launcher Icon
+                    <InfoTip text="The icon shown on the closed, floating chat button. Defaults to your profile picture, or set one just for the launcher."/>
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5 mt-1.5">
+                    {[{v:'match',l:'Match'},{v:'icon',l:'Icon'},{v:'emoji',l:'Emoji'},{v:'image',l:'Photo'}].map(o=>(
+                      <button key={o.v} onClick={()=>set('launcherIconStyle',o.v)}
+                        className={clsx('py-2 px-1 rounded-lg border text-[10.5px] font-semibold transition-all flex flex-col items-center gap-1',
+                          cfg.launcherIconStyle===o.v ? 'border-primary bg-primary/5 text-primary' : 'border-surface-border text-slate-600 hover:border-slate-300')}>
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-black overflow-hidden"
+                          style={{background: cfg.colorMode==='gradient' ? `linear-gradient(135deg, ${cfg.color}, ${cfg.colorEnd})` : cfg.color}}>
+                          {o.v==='match'
+                            ? <RefreshCw size={11}/>
+                            : o.v==='icon' ? <LauncherIconCmp size={12}/>
+                            : o.v==='emoji' ? (cfg.launcherEmoji||'💬')
+                            : cfg.launcherImage ? <img src={cfg.launcherImage} alt="" className="w-full h-full object-cover"/> : <Image size={11}/>}
+                        </div>
+                        {o.l}
+                      </button>
+                    ))}
+                  </div>
+                  {cfg.launcherIconStyle==='icon' && (
+                    <div className="grid grid-cols-4 gap-1.5 mt-2">
+                      {LAUNCHER_ICON_OPTIONS.map(o=>{
+                        const OptIcon = LAUNCHER_ICON_MAP[o.v]
+                        return (
+                          <button key={o.v} onClick={()=>set('launcherIcon',o.v)}
+                            className={clsx('py-1.5 rounded-lg border text-[10px] font-semibold transition-all flex flex-col items-center gap-1',
+                              cfg.launcherIcon===o.v ? 'border-primary bg-primary/5 text-primary' : 'border-surface-border text-slate-500 hover:border-slate-300')}>
+                            <OptIcon size={14}/>
+                            {o.l}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {cfg.launcherIconStyle==='emoji' && (
+                    <input className="input mt-2" value={cfg.launcherEmoji} maxLength={4}
+                      onChange={e=>set('launcherEmoji',e.target.value)} placeholder="💬"/>
+                  )}
+                  {cfg.launcherIconStyle==='image' && (
+                    <div className="mt-2 pl-2.5 border-l-2 border-primary/20">
+                      <ImageUploadField label="Launcher Image" value={cfg.launcherImage}
+                        onChange={v=>set('launcherImage',v)}
+                        hint="Square image works best. PNG, JPG, SVG or WebP, up to 2 MB."/>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-surface-border"/>
+
                 <div>
                   <label className="label text-[10.5px] flex items-center gap-1">Idle Animation
                     <InfoTip text="Attention effect on the closed launcher. Switch the preview to Closed to watch it run."/>
@@ -1914,7 +1993,7 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
               {/* ── Profile picture — the big avatar in the widget header ── */}
               <div>
                 <label className="label flex items-center gap-1.5">Profile Picture Style
-                  <InfoTip text="Shown in the widget header and on the launcher"/>
+                  <InfoTip text="Shown in the widget header, and on the launcher too unless you give the launcher its own icon under Theme → Launcher"/>
                 </label>
                 <div className="grid grid-cols-4 gap-1.5 mt-1.5">
                   {[{v:'initials',l:'Initials'},{v:'emoji',l:'Emoji'},{v:'icon',l:'Bot'},{v:'image',l:'Photo'}].map(o=>(
@@ -2754,6 +2833,9 @@ export default function WebChatAppearance() {
     colorMode: 'gradient', color: '#0066ff', colorEnd: '#8B5CF6',
     theme: 'light', corner: 'round', size: 'compact', launcherShape: 'circle',
     position: 'bottom-right', launcherText: 'Chat with us', launcherAnimation: 'pulse',
+    // 'match' mirrors the Profile Picture (the long-standing default); switch
+    // to 'icon'/'emoji'/'image' to give the launcher its own look.
+    launcherIconStyle: 'match', launcherIcon: 'chat', launcherEmoji: '💬', launcherImage: '',
     bubbleStyle: 'ios', fontFamily: 'Inter', fontSizePx: 12,
     // Header can follow the brand, use its own color, or stay a light surface
     headerMode: 'brand', headerColor: '#0066ff', headerColorEnd: '#8B5CF6', headerGradient: false,
