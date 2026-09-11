@@ -1089,12 +1089,12 @@ export function buildFlowTestConversation(flow, messages, source = 'canvas', bas
   const env = TEST_BROWSERS[num % TEST_BROWSERS.length]
   const location = TEST_LOCATIONS[num % TEST_LOCATIONS.length]
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  // An `ask_*` node's answer is tagged by submitAsk (questionType/label) so it
-  // renders as a "Captured from Chat" answer card (and feeds the Visitor
+  // An `ask_*` node's answer is tagged by submitAsk (`m.capturedAnswer`) so
+  // it renders as a "Captured from Chat" answer card (and feeds the Visitor
   // panel's Phone/Email prefill) instead of a plain chat bubble — same shape
   // WEBCHAT_CONVERSATIONS mock data already uses for this.
-  const mappedNew = messages.map(m => m.isAnswer
-    ? { id: `ft${m.id}`, type: 'answer', questionType: m.questionType, label: m.label, value: m.text, time }
+  const mappedNew = messages.map(m => m.capturedAnswer
+    ? { id: `ft${m.id}`, type: 'answer', questionType: m.capturedAnswer.questionType, label: m.capturedAnswer.label, value: m.text, time }
     : { id: `ft${m.id}`, type: m.from === 'bot' ? 'outgoing' : 'incoming', text: m.text, time, sender: m.from === 'bot' ? 'Bot' : 'Visitor' }
   )
   const mapped = [...(baseline?.messages || []), ...mappedNew]
@@ -1379,13 +1379,21 @@ export function useFlowSimulation(flow, allFlows) {
     if (!awaiting || awaiting.type !== 'ask') return
     const node = awaiting.node
     const text = (typeof value === 'string' ? value : value != null ? JSON.stringify(value) : '').trim() || '(skipped)'
-    // Tag this as a captured answer (questionType/label) so it renders as a
-    // "Captured from Chat" card in the Inbox's Visitor panel — same as a
-    // real visitor's answers — instead of a plain chat bubble; see
-    // buildFlowTestConversation's use of `m.isAnswer`.
+    // Tag this as a captured answer so it renders as a "Captured from Chat"
+    // card in the Inbox's Visitor panel — same as a real visitor's answers —
+    // instead of a plain chat bubble; see buildFlowTestConversation's use of
+    // `m.capturedAnswer`. Deliberately namespaced as a single nested object
+    // (not flat `questionType`/`label` keys) — WidgetPreview's OWN message
+    // rendering already gives `m.questionType` a completely different
+    // meaning (a question-type OBJECT, used only by the static "Question
+    // Types" design-preview thread to render an inert example control under
+    // a message). Flattening these fields onto the same message object
+    // collided with that check and made a real answered question sprout a
+    // second, empty, non-interactive control under itself in the live
+    // widget — every answer looked like it left a ghost input box behind.
     const questionType = node.data?.questionType
     const label = node.data?.name || ASK_DEFS[`ask_${questionType}`]?.label || 'Answer'
-    push('user', text, questionType ? { isAnswer: true, questionType, label } : undefined)
+    push('user', text, questionType ? { capturedAnswer: { questionType, label } } : undefined)
     setAwaiting(null)
     finishOrAdvance(node.id, 0)
   }

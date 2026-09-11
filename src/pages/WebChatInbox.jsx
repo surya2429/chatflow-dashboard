@@ -981,7 +981,15 @@ function ContactPanel({ conversation, adminOnline, onClose }) {
   /* ── Editable contact info — same fields as the WhatsApp panel, plus an
      editable Phone (with country code) since website chat has no WA number to
      fall back on. Phone/Email default from whatever the visitor answered to a
-     matching question type during the chat, if the field isn't set directly. ── */
+     matching question type during the chat, if the field isn't set directly.
+     Re-derives whenever the message COUNT changes (not just when a different
+     conversation is selected) — a bot flow can capture its email/phone
+     answer well after this panel is already open and watching the thread
+     (e.g. testing a flow live), and depending on `conversation?.id` alone
+     meant this only ever computed once per conversation, so an answer that
+     arrived after that point silently never reached these fields even
+     though it was already showing correctly under "Captured from Chat"
+     below (which reads conversation.messages directly, every render). ── */
   const [info, setInfo] = useState({})
   const [customValues, setCustomValues] = useState({})
   useEffect(() => {
@@ -1002,7 +1010,7 @@ function ContactPanel({ conversation, adminOnline, onClose }) {
       language: conversation?.language || 'English',
     })
     setCustomValues(conversation?.customFields || {})
-  }, [conversation?.id])
+  }, [conversation?.id, conversation?.messages?.length])
 
   function setField(key) { return val => setInfo(p => ({ ...p, [key]: val })) }
   function setCustomField(key) { return val => setCustomValues(p => ({ ...p, [key]: val })) }
