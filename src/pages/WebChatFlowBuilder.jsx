@@ -1070,8 +1070,43 @@ function hashToVisitorNumber(str) {
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0
   return 1000 + (h % 9000)
 }
-const TEST_BROWSERS = [{ browser: 'Chrome', os: 'Windows' }, { browser: 'Safari', os: 'macOS' }, { browser: 'Chrome', os: 'Android' }, { browser: 'Edge', os: 'Windows' }]
-const TEST_LOCATIONS = ['Mumbai, India', 'Bengaluru, India', 'Delhi, India', 'Austin, USA', 'London, UK']
+// A flow test is always run from a REAL browser (whoever's actually testing
+// it) — there's no reason for the Visitor panel's "Session" details to show
+// a fabricated, hash-picked "Edge on Windows" / "Delhi, India" that has
+// nothing to do with the machine actually running it. These derive the real
+// browser/OS from the UA string, the real current page from this tab's own
+// address bar (genuinely accurate for the standalone Live Preview tab, which
+// really is the page a visitor would be on), and a real referrer/timezone —
+// nothing here is guessed or random.
+function detectBrowserOS() {
+  if (typeof navigator === 'undefined') return { browser: 'Unknown', os: 'Unknown' }
+  const ua = navigator.userAgent
+  let browser = 'Unknown'
+  if (/Edg\//.test(ua))                              browser = 'Edge'
+  else if (/OPR\//.test(ua))                          browser = 'Opera'
+  else if (/Chrome\//.test(ua) && !/Edg\//.test(ua))  browser = 'Chrome'
+  else if (/Firefox\//.test(ua))                      browser = 'Firefox'
+  else if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) browser = 'Safari'
+  let os = 'Unknown'
+  if (/Windows/.test(ua))              os = 'Windows'
+  else if (/Mac OS X/.test(ua))        os = 'macOS'
+  else if (/Android/.test(ua))         os = 'Android'
+  else if (/iPhone|iPad|iPod/.test(ua)) os = 'iOS'
+  else if (/Linux/.test(ua))           os = 'Linux'
+  return { browser, os }
+}
+// No IP-geolocation call and no automatic Geolocation-API prompt here — both
+// would be either unreliable/third-party-dependent or an intrusive surprise
+// permission popup just for opening a chat widget. The timezone is the one
+// piece of real, ambient, permission-free location signal a browser exposes.
+function detectTimezone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown' }
+  catch { return 'Unknown' }
+}
+function detectReferrer() {
+  if (typeof document === 'undefined' || !document.referrer) return 'Direct'
+  try { return new URL(document.referrer).hostname } catch { return document.referrer }
+}
 // `baseline` is whatever this exact thread's history already looked like the
 // moment the CURRENT run started (see recordFlowTestTurn below) — restarting
 // the simulator, or closing the popup/tab and reopening it, clears the
@@ -1086,8 +1121,10 @@ const TEST_LOCATIONS = ['Mumbai, India', 'Bengaluru, India', 'Delhi, India', 'Au
 export function buildFlowTestConversation(flow, messages, source = 'canvas', baseline = null) {
   const id = `flowtest_${source}_${flow.id}`
   const num = hashToVisitorNumber(`${source}:${flow.id}`)
-  const env = TEST_BROWSERS[num % TEST_BROWSERS.length]
-  const location = TEST_LOCATIONS[num % TEST_LOCATIONS.length]
+  const env = detectBrowserOS()
+  const location = detectTimezone()
+  const page = (typeof window !== 'undefined' && window.location?.pathname) || '/'
+  const referrer = detectReferrer()
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   // An `ask_*` node's answer is tagged by submitAsk (`m.capturedAnswer`) so
   // it renders as a "Captured from Chat" answer card (and feeds the Visitor
@@ -1108,8 +1145,8 @@ export function buildFlowTestConversation(flow, messages, source = 'canvas', bas
     name: `Visitor #${num}`,
     avatar: `V${String(num)[0]}`,
     channel: 'webchat',
-    page: '/', browser: env.browser, os: env.os, location,
-    referrer: 'Direct', firstSeen: 'Just now', visits: baseline?.visits || 1,
+    page, browser: env.browser, os: env.os, location,
+    referrer, firstSeen: 'Just now', visits: baseline?.visits || 1,
     lastMessage: last?.text || last?.value || '',
     time: 'Just now',
     unread: 0,
