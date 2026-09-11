@@ -1052,13 +1052,19 @@ export function buildFlowPreviewUrl(flow) {
 // look — as WEBCHAT_CONVERSATIONS in constants/mockData.js, indistinguishable
 // from a real visitor's thread (no "test"/"internal" labeling anywhere
 // visible: no special name prefix, no tag, ordinary page/browser/os fields).
-// `id`/`visitorId` are DERIVED FROM THE FLOW's OWN id, not the current
-// timestamp or a random visitor number — every call for the same flow
-// produces the same id, so re-testing (restarting Preview, stepping through
-// again) keeps updating that ONE thread via upsertConversation instead of
-// spawning a fresh "chat" each time. The visible visitor number IS random
-// per flow (stable via a simple hash of flow.id, not Date.now()) purely so
-// two different flows don't show up with the identical "Visitor #____".
+// `id`/`visitorId` are DERIVED FROM THE FLOW's OWN id plus `source` (which
+// surface produced this run — 'canvas' for the in-canvas Preview popup,
+// 'live' for the standalone Live Preview tab), not the current timestamp or
+// a random visitor number — every call for the same flow+source produces
+// the same id, so re-testing (restarting Preview, stepping through again)
+// keeps updating that ONE thread via upsertConversation instead of spawning
+// a fresh "chat" each time. `source` is part of the id specifically so the
+// two surfaces never collide into a single thread — testing the same flow
+// via the canvas popup and via the Live Preview link are meant to read as
+// two independent visitor sessions, each keeping its own history. The
+// visible visitor number is likewise derived from flow.id + source (a
+// simple hash, not Date.now()) purely so different flows/surfaces don't all
+// show up with the identical "Visitor #____".
 function hashToVisitorNumber(str) {
   let h = 0
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0
@@ -1066,9 +1072,9 @@ function hashToVisitorNumber(str) {
 }
 const TEST_BROWSERS = [{ browser: 'Chrome', os: 'Windows' }, { browser: 'Safari', os: 'macOS' }, { browser: 'Chrome', os: 'Android' }, { browser: 'Edge', os: 'Windows' }]
 const TEST_LOCATIONS = ['Mumbai, India', 'Bengaluru, India', 'Delhi, India', 'Austin, USA', 'London, UK']
-export function buildFlowTestConversation(flow, messages) {
-  const id = `flowtest_${flow.id}`
-  const num = hashToVisitorNumber(flow.id)
+export function buildFlowTestConversation(flow, messages, source = 'canvas') {
+  const id = `flowtest_${source}_${flow.id}`
+  const num = hashToVisitorNumber(`${source}:${flow.id}`)
   const env = TEST_BROWSERS[num % TEST_BROWSERS.length]
   const location = TEST_LOCATIONS[num % TEST_LOCATIONS.length]
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -1425,7 +1431,7 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
   const { upsertConversation } = useConversations()
   useEffect(() => {
     if (!messages.length) return
-    const conv = buildFlowTestConversation(flow, messages)
+    const conv = buildFlowTestConversation(flow, messages, 'canvas')
     upsertConversation(conv)
     // Also persist, not just update in-memory state — otherwise this thread
     // only ever lived in this tab's React state and vanished on reload (see

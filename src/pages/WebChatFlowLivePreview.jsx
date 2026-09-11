@@ -52,7 +52,7 @@ function LiveFlowPreview({ flow, allFlows }) {
   // FLOW_PREVIEW_STORAGE_KEY already uses in the other direction.
   useEffect(() => {
     if (!messages.length) return
-    saveFlowTestConversation(buildFlowTestConversation(flow, messages))
+    saveFlowTestConversation(buildFlowTestConversation(flow, messages, 'live'))
   }, [messages, flow])
 
   const simComposerBanner = ended ? { text: 'This simulation has ended', actionLabel: '↻ Restart', onAction: reset } : null
