@@ -16,7 +16,9 @@
 import { useState, useEffect } from 'react'
 import { MessageSquareText } from 'lucide-react'
 import { WidgetPreview, useWidgetTheme } from './WebChatAppearance'
-import { useFlowSimulation, renderFlowSimComposerControl, useWidgetCfg, FLOW_PREVIEW_STORAGE_KEY, recordFlowTestTurn, useAgentReplyBridge } from './WebChatFlowBuilder'
+import { useFlowSimulation, renderFlowSimComposerControl, useWidgetCfg, FLOW_PREVIEW_STORAGE_KEY, recordFlowTestTurn, useAgentReplyBridge, hashToVisitorNumber } from './WebChatFlowBuilder'
+import { useVisitorCall } from '../hooks/useVisitorCall'
+import { VisitorCallOverlay } from '../components/webchat/VisitorCallOverlay'
 
 function EmptyState() {
   return (
@@ -44,6 +46,16 @@ function LiveFlowPreview({ flow, allFlows }) {
   const { cornerR, fs, dark } = useWidgetTheme(cfg)
   const { messages, awaiting, ended, reset, submitAsk, pickQuickReply, pickBranch, injectAgentMessage } = useFlowSimulation(flow, allFlows)
   useAgentReplyBridge(flow, 'live', injectAgentMessage)
+
+  // Same visitorId buildFlowTestConversation derives for this exact flow +
+  // 'live' source, so a call the agent places on this thread from the Inbox
+  // (and this page's own "Call agent" button) land in the same signaling
+  // room. Without a matching, real call UI here, this was the ONLY surface
+  // an agent's call to a flow-test visitor could ever reach — and it had no
+  // way at all to show or answer an incoming call, so "answering from the
+  // widget" was never actually possible.
+  const visitorId = `v_${hashToVisitorNumber(`live:${flow.id}`)}`
+  const call = useVisitorCall(visitorId)
 
   // This standalone tab has no ConversationContext (it's outside the
   // authenticated app entirely) to push straight into the Inbox, so it
@@ -77,7 +89,10 @@ function LiveFlowPreview({ flow, allFlows }) {
           activeTab="chat" setActiveTab={() => {}}
           simThread={messages} simComposerBanner={simComposerBanner}
           simComposerControl={simComposerControl}
-          onRestartChat={reset}/>
+          onRestartChat={reset}
+          onVoiceCall={() => call.callAgent(false)}
+          onVideoCall={() => call.callAgent(true)}/>
+        <VisitorCallOverlay call={call} cfg={cfg} />
       </div>
     </div>
   )

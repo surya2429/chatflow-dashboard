@@ -1065,7 +1065,7 @@ export function buildFlowPreviewUrl(flow) {
 // visible visitor number is likewise derived from flow.id + source (a
 // simple hash, not Date.now()) purely so different flows/surfaces don't all
 // show up with the identical "Visitor #____".
-function hashToVisitorNumber(str) {
+export function hashToVisitorNumber(str) {
   let h = 0
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0
   return 1000 + (h % 9000)
@@ -1078,7 +1078,7 @@ function hashToVisitorNumber(str) {
 // address bar (genuinely accurate for the standalone Live Preview tab, which
 // really is the page a visitor would be on), and a real referrer/timezone —
 // nothing here is guessed or random.
-function detectBrowserOS() {
+export function detectBrowserOS() {
   if (typeof navigator === 'undefined') return { browser: 'Unknown', os: 'Unknown' }
   const ua = navigator.userAgent
   let browser = 'Unknown'
@@ -1099,11 +1099,11 @@ function detectBrowserOS() {
 // would be either unreliable/third-party-dependent or an intrusive surprise
 // permission popup just for opening a chat widget. The timezone is the one
 // piece of real, ambient, permission-free location signal a browser exposes.
-function detectTimezone() {
+export function detectTimezone() {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown' }
   catch { return 'Unknown' }
 }
-function detectReferrer() {
+export function detectReferrer() {
   if (typeof document === 'undefined' || !document.referrer) return 'Direct'
   try { return new URL(document.referrer).hostname } catch { return document.referrer }
 }
