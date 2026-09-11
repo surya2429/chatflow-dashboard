@@ -1,11 +1,13 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { CONVERSATIONS, WEBCHAT_CONVERSATIONS } from '../constants/mockData'
 
-// Matches WebChatFlowBuilder.jsx's FLOW_TEST_SYNC_KEY export — duplicated as
+// Matches WebChatFlowBuilder.jsx's FLOW_TEST_STORE_KEY export — duplicated as
 // a literal (not imported) to avoid this context pulling in the entire flow
 // builder module just for one string constant. Keep these two in sync if
-// either changes.
-const FLOW_TEST_SYNC_KEY = 'webchat_flow_test_sync'
+// either changes. Holds every flow-test conversation ever written (keyed by
+// conversation id), from both the in-canvas Preview popup and the standalone
+// /webchat-flow-preview tab, so any of them survive a reload of this tab.
+const FLOW_TEST_STORE_KEY = 'webchat_flow_test_store'
 
 const ConversationContext = createContext(null)
 
@@ -205,23 +207,26 @@ export function ConversationProvider({ children }) {
     })
   }
 
-  // Picks up a flow test running in the standalone /webchat-flow-preview tab
-  // (a separate, unauthenticated page with no access to this context — see
-  // the comment on FLOW_TEST_SYNC_KEY above). That page writes its running
-  // transcript to this localStorage key on every message; a `storage` event
-  // fires here in THIS tab whenever another tab changes it, so a flow tested
-  // in a fresh "Live Preview" tab shows up in the Inbox without needing a
-  // manual refresh. Also checked once on mount in case that tab wrote
-  // something before this one was even open.
+  // Picks up flow tests run either in this tab's own in-canvas Preview popup
+  // (which also calls upsertConversation directly, but needs this too so the
+  // thread survives a reload) or in the standalone /webchat-flow-preview tab
+  // (a separate, unauthenticated page with no access to this context at all
+  // — see the comment on FLOW_TEST_STORE_KEY above). A `storage` event fires
+  // here whenever another tab writes to that key, so a flow tested in a
+  // fresh "Live Preview" tab shows up in the Inbox without needing a manual
+  // refresh. Also checked once on mount to restore anything written earlier
+  // (by either surface), including in a previous, now-reloaded page load.
   const syncFlowTest = useCallback(() => {
     try {
-      const raw = JSON.parse(localStorage.getItem(FLOW_TEST_SYNC_KEY) || 'null')
-      if (raw && raw.id && Array.isArray(raw.messages)) upsertConversation(raw)
+      const store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}')
+      Object.values(store).forEach(raw => {
+        if (raw && raw.id && Array.isArray(raw.messages)) upsertConversation(raw)
+      })
     } catch {}
   }, [])
   useEffect(() => {
     syncFlowTest()
-    const onStorage = e => { if (e.key === FLOW_TEST_SYNC_KEY) syncFlowTest() }
+    const onStorage = e => { if (e.key === FLOW_TEST_STORE_KEY) syncFlowTest() }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
   }, [syncFlowTest])

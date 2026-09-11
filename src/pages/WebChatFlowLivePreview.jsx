@@ -16,7 +16,7 @@
 import { useState, useEffect } from 'react'
 import { MessageSquareText } from 'lucide-react'
 import { WidgetPreview, useWidgetTheme } from './WebChatAppearance'
-import { useFlowSimulation, renderFlowSimComposerControl, useWidgetCfg, FLOW_PREVIEW_STORAGE_KEY, buildFlowTestConversation, FLOW_TEST_SYNC_KEY } from './WebChatFlowBuilder'
+import { useFlowSimulation, renderFlowSimComposerControl, useWidgetCfg, FLOW_PREVIEW_STORAGE_KEY, buildFlowTestConversation, saveFlowTestConversation } from './WebChatFlowBuilder'
 
 function EmptyState() {
   return (
@@ -52,7 +52,7 @@ function LiveFlowPreview({ flow, allFlows }) {
   // FLOW_PREVIEW_STORAGE_KEY already uses in the other direction.
   useEffect(() => {
     if (!messages.length) return
-    try { localStorage.setItem(FLOW_TEST_SYNC_KEY, JSON.stringify(buildFlowTestConversation(flow, messages))) } catch {}
+    saveFlowTestConversation(buildFlowTestConversation(flow, messages))
   }, [messages, flow])
 
   const simComposerBanner = ended ? { text: 'This simulation has ended', actionLabel: '↻ Restart', onAction: reset } : null

@@ -1100,13 +1100,29 @@ export function buildFlowTestConversation(flow, messages) {
   }
 }
 
-// localStorage bridge so a flow test run on the standalone /webchat-flow-preview
-// page (a separate, unauthenticated tab with no access to ConversationContext)
-// can still reach the Inbox — the dashboard tab listens for `storage` events
-// on this key (see ConversationContext.jsx) and upserts whatever lands here,
-// the same cross-tab pattern FLOW_PREVIEW_STORAGE_KEY already uses to hand
-// the flow itself to that page in the first place.
-export const FLOW_TEST_SYNC_KEY = 'webchat_flow_test_sync'
+// Persistent store (keyed by conversation id, so it can hold more than one
+// flow's test thread at once) that every flow-test surface writes into:
+// - the standalone /webchat-flow-preview page (a separate, unauthenticated
+//   tab with no access to ConversationContext) — its only way to reach the
+//   Inbox at all
+// - the in-canvas Preview popup (PreviewSimulator, below) — it already has
+//   direct access to ConversationContext's upsertConversation for instant
+//   in-session updates, but ALSO needs to persist here, otherwise the test
+//   thread it created only lives in that one tab's React state and silently
+//   disappears the moment the page is reloaded or the Inbox is opened in a
+//   fresh tab (this was the actual bug: it looked like test chats "weren't
+//   saving" because nothing durable had actually been written yet).
+// ConversationContext reads this whole store (not just one entry) on mount
+// and on every `storage` event, and upserts every conversation in it — so
+// any number of previously-tested flows reappear after a reload.
+export const FLOW_TEST_STORE_KEY = 'webchat_flow_test_store'
+export function saveFlowTestConversation(conv) {
+  try {
+    const store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}')
+    store[conv.id] = conv
+    localStorage.setItem(FLOW_TEST_STORE_KEY, JSON.stringify(store))
+  } catch {}
+}
 
 
 function simBotText(node) {
@@ -1409,7 +1425,12 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
   const { upsertConversation } = useConversations()
   useEffect(() => {
     if (!messages.length) return
-    upsertConversation(buildFlowTestConversation(flow, messages))
+    const conv = buildFlowTestConversation(flow, messages)
+    upsertConversation(conv)
+    // Also persist, not just update in-memory state — otherwise this thread
+    // only ever lived in this tab's React state and vanished on reload (see
+    // the comment on FLOW_TEST_STORE_KEY above).
+    saveFlowTestConversation(conv)
     // `upsertConversation` is intentionally excluded — it's a plain function
     // redefined on every ConversationProvider render (not useCallback'd), so
     // depending on it would re-fire this effect on every render triggered by
