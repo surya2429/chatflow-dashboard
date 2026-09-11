@@ -33,28 +33,41 @@ function Waveform({ active }) {
 // Summary shown after call ends
 function CallSummary({ summary, onDismiss }) {
   if (!summary) return null
+  // Distinguishes "the calling service itself is unreachable" (see the
+  // ringing-timeout in WebchatCallContext.jsx) from a normal completed/
+  // missed call — otherwise this silently reads as "Completed · 0:00",
+  // which gives no hint that signaling-server/ needs to be started.
+  const unreachable = summary.endReason === 'signaling-unreachable'
   return (
     <div className="fixed bottom-6 right-6 z-[90] animate-fade-in">
       <div className="bg-white border border-surface-border rounded-2xl shadow-modal p-4 w-72">
         <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
-            <Phone size={14} className="text-slate-500" />
+          <div className={clsx('w-8 h-8 rounded-full flex items-center justify-center', unreachable ? 'bg-red-50' : 'bg-slate-100')}>
+            <Phone size={14} className={unreachable ? 'text-red-500' : 'text-slate-500'} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-slate-800 truncate">Call ended</p>
+            <p className="text-xs font-bold text-slate-800 truncate">{unreachable ? "Couldn't reach calling service" : 'Call ended'}</p>
             <p className="text-[10px] text-slate-400">{summary.contact?.name || 'Website Visitor'}</p>
           </div>
           <button onClick={onDismiss} className="text-slate-300 hover:text-slate-500 text-lg leading-none">×</button>
         </div>
-        <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 rounded-xl px-3 py-2 mb-3">
-          <span className="capitalize">{summary.direction}</span>
-          <span className="font-mono font-semibold text-slate-700">{fmtDuration(summary.duration)}</span>
-          <span className="capitalize">{summary.status === 'ended' ? 'Completed' : summary.status}</span>
-        </div>
+        {unreachable ? (
+          <p className="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2 mb-3 leading-relaxed">
+            No response from the signaling server (ws://localhost:8788). Make sure it's running, then try the call again.
+          </p>
+        ) : (
+          <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 rounded-xl px-3 py-2 mb-3">
+            <span className="capitalize">{summary.direction}</span>
+            <span className="font-mono font-semibold text-slate-700">{fmtDuration(summary.duration)}</span>
+            <span className="capitalize">{summary.status === 'ended' ? 'Completed' : summary.status}</span>
+          </div>
+        )}
         <div className="flex gap-2">
-          <button onClick={onDismiss} className="btn-secondary text-xs flex-1 flex items-center justify-center gap-1.5">
-            <MessageSquare size={11} /> Add note
-          </button>
+          {!unreachable && (
+            <button onClick={onDismiss} className="btn-secondary text-xs flex-1 flex items-center justify-center gap-1.5">
+              <MessageSquare size={11} /> Add note
+            </button>
+          )}
           <button onClick={onDismiss} className="btn-ghost text-xs text-slate-400 flex-1">Dismiss</button>
         </div>
       </div>

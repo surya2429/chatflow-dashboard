@@ -84,6 +84,25 @@ export function WebchatCallProvider({ children }) {
     }
   }, [signaling.connected, activeCall?.callId, activeCall?.direction, activeCall?.status, activeCall?.video])
 
+  // ── Give up if the signaling relay never comes up ───────────────────────────
+  // Without this, a call started while signaling-server/ isn't running (or is
+  // unreachable for any other reason) just sits on "Ringing…" forever — no
+  // call-request can be sent because that only happens once `signaling.
+  // connected` is true, and nothing ever tells the agent anything is wrong.
+  // That silent hang is indistinguishable from "calling doesn't work at all",
+  // which is exactly the confusing state a dev environment with only the Vite
+  // server (and not the separate signaling-server/) running ends up in.
+  useEffect(() => {
+    if (!activeCall || activeCall.status !== 'ringing' || signaling.connected) return
+    const callId = activeCall.callId
+    const t = setTimeout(() => {
+      if (activeCallRef.current?.callId === callId && !signaling.connected) {
+        finishCall('signaling-unreachable')
+      }
+    }, 8000)
+    return () => clearTimeout(t)
+  }, [activeCall?.callId, activeCall?.status, signaling.connected])
+
   function finishCall(reason) {
     clearInterval(timerRef.current)
     const current = activeCallRef.current
