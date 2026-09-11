@@ -1107,18 +1107,24 @@ export function detectReferrer() {
   if (typeof document === 'undefined' || !document.referrer) return 'Direct'
   try { return new URL(document.referrer).hostname } catch { return document.referrer }
 }
-// `baseline` is whatever this exact thread's history already looked like the
-// moment the CURRENT run started (see recordFlowTestTurn below) — restarting
-// the simulator, or closing the popup/tab and reopening it, clears the
-// running simulation's own transcript back to empty and starts over from the
-// flow's first node (by design, so a fresh test run isn't polluted by
-// however far a previous run got). Without folding that snapshot back in,
-// every run would overwrite this thread's PERSISTED history with just its
-// own — shorter — transcript so far, so previously-captured messages and
-// answers appeared to vanish from the Inbox the moment you restarted or
-// reopened. Folding it in means each restart reads as a new visit
-// continuing the same conversation, never erasing what came before.
-export function buildFlowTestConversation(flow, messages, source = 'canvas', baseline = null) {
+// `existing` is this thread's CURRENT stored record, read fresh on every
+// call. The thread is treated as an append-only log: a message already
+// persisted is never rewritten or dropped, and this run only ever adds the
+// messages of its own that aren't in there yet (its ids carry a per-run tag
+// — see runTagRef in useFlowSimulation — so they can't collide with any
+// previous run's).
+//
+// This has to be a merge against the LIVE stored record rather than a
+// snapshot taken at run start, because this simulation is not the only
+// writer. An agent replying from the Inbox, a call outcome being logged,
+// and a private note being added all append to this same record from the
+// dashboard side, at any moment. Rebuilding the record from a start-of-run
+// snapshot + this run's transcript silently destroyed every one of those:
+// they were in neither half, so the visitor's very next message erased
+// them. Appending instead of rebuilding is what makes the thread actually
+// single and complete — restarting the flow, reopening the tab, the agent
+// replying mid-run, and a call landing all just add to the one thread.
+export function buildFlowTestConversation(flow, messages, source = 'canvas', existing = null) {
   const id = `flowtest_${source}_${flow.id}`
   const num = hashToVisitorNumber(`${source}:${flow.id}`)
   const env = detectBrowserOS()
@@ -1130,30 +1136,41 @@ export function buildFlowTestConversation(flow, messages, source = 'canvas', bas
   // it renders as a "Captured from Chat" answer card (and feeds the Visitor
   // panel's Phone/Email prefill) instead of a plain chat bubble — same shape
   // WEBCHAT_CONVERSATIONS mock data already uses for this.
-  const mappedNew = messages.map(m => m.capturedAnswer
-    ? { id: `ft${m.id}`, type: 'answer', questionType: m.capturedAnswer.questionType, label: m.capturedAnswer.label, value: m.text, time }
+  // `m.originId` is set only on a message injected into this run from one
+  // already in the stored thread (an agent's Inbox reply — see
+  // useAgentReplyBridge). Reusing that id is what lets the merge below
+  // recognise it as the same message rather than appending a second copy.
+  const mappedRun = messages.map(m => m.capturedAnswer
+    ? { id: m.originId || `ft${m.id}`, type: 'answer', questionType: m.capturedAnswer.questionType, label: m.capturedAnswer.label, value: m.text, time }
     // `m.sender` overrides the default Bot/Visitor label — used when this
     // message was actually injected from an agent's Inbox reply (see
     // injectAgentMessage below), so it reads as "Agent" rather than "Bot".
-    : { id: `ft${m.id}`, type: m.from === 'bot' ? 'outgoing' : 'incoming', text: m.text, time, sender: m.sender || (m.from === 'bot' ? 'Bot' : 'Visitor') }
+    : { id: m.originId || `ft${m.id}`, type: m.from === 'bot' ? 'outgoing' : 'incoming', text: m.text, time, sender: m.sender || (m.from === 'bot' ? 'Bot' : 'Visitor') }
   )
-  const mapped = [...(baseline?.messages || []), ...mappedNew]
-  const last = [...mapped].reverse().find(m => m.type !== 'answer') || mapped[mapped.length - 1]
+  const kept = existing?.messages || []
+  const keptIds = new Set(kept.map(m => m.id))
+  const mapped = [...kept, ...mappedRun.filter(m => !keptIds.has(m.id))]
+  const last = [...mapped].reverse().find(m => m.type !== 'answer' && m.type !== 'note') || mapped[mapped.length - 1]
   return {
+    // Base shape for a thread being created for the first time…
+    unread: 0, status: 'bot', tags: [], labels: [],
+    agentId: null, agentName: null, source: 'direct',
+    starred: false, archived: false, snoozed: null,
+    // …then everything the dashboard may since have changed about it
+    // (assignment, labels, status, starred, archived…) is preserved, so a
+    // visitor's next message can't silently revert an agent's actions…
+    ...existing,
+    // …and finally the identity + live-session fields, always refreshed.
     id,
     visitorId: `v_${num}`,
-    name: `Visitor #${num}`,
-    avatar: `V${String(num)[0]}`,
+    name: existing?.name || `Visitor #${num}`,
+    avatar: existing?.avatar || `V${String(num)[0]}`,
     channel: 'webchat',
     page, browser: env.browser, os: env.os, location,
-    referrer, firstSeen: 'Just now', visits: baseline?.visits || 1,
+    referrer, firstSeen: existing?.firstSeen || 'Just now',
+    visits: existing?.visits || 1,
     lastMessage: last?.text || last?.value || '',
     time: 'Just now',
-    unread: 0,
-    status: 'bot',
-    tags: [], labels: [],
-    agentId: null, agentName: null,
-    source: 'direct', starred: false, archived: false, snoozed: null,
     timestamp: new Date().toISOString(),
     messages: mapped,
   }
@@ -1183,30 +1200,32 @@ export function saveFlowTestConversation(conv) {
   } catch {}
 }
 
-// One entry point both flow-test surfaces call on every `messages` change —
-// centralizes the "restart shouldn't erase history" logic (see the comment
-// on buildFlowTestConversation) so it only has to be gotten right once.
-// `messages.length === 0` is precisely the instant a run (re)starts —
-// initial mount and every explicit restart both clear the simulator's
-// transcript back to empty before rebuilding it — so that's exactly when we
-// snapshot whatever's currently persisted as this run's baseline to build on
-// top of; every later call in the same run reuses that same frozen snapshot
-// so growth within a run replaces only its own tail, never re-appends the
-// baseline again.
-const flowTestRunBaselines = {}
+// One entry point both flow-test surfaces call on every `messages` change.
+// `messages.length === 0` is precisely the instant a run (re)starts — initial
+// mount and every explicit restart both clear the simulator's transcript back
+// to empty before rebuilding it — so that's when the visit counter ticks.
+// Every other call merges this run's transcript into the stored thread,
+// reading it fresh each time so concurrent writers (an agent replying, a call
+// outcome, a note) are never clobbered. See buildFlowTestConversation.
 export function recordFlowTestTurn(flow, messages, source = 'canvas') {
   const id = `flowtest_${source}_${flow.id}`
+  let store = {}
+  try { store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}') } catch {}
+
   if (!messages.length) {
-    try {
-      const store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}')
-      const prior = store[id]
-      flowTestRunBaselines[id] = { messages: prior?.messages || [], visits: (prior?.visits || 0) + 1 }
-    } catch {
-      flowTestRunBaselines[id] = { messages: [], visits: 1 }
+    const prior = store[id]
+    // Nothing to count a visit against until the thread actually exists —
+    // the first run's visit is the `visits: 1` a new record is created with.
+    if (prior) {
+      try {
+        store[id] = { ...prior, visits: (prior.visits || 0) + 1 }
+        localStorage.setItem(FLOW_TEST_STORE_KEY, JSON.stringify(store))
+      } catch {}
     }
     return null
   }
-  const conv = buildFlowTestConversation(flow, messages, source, flowTestRunBaselines[id])
+
+  const conv = buildFlowTestConversation(flow, messages, source, store[id])
   saveFlowTestConversation(conv)
   return conv
 }
@@ -1234,7 +1253,12 @@ export function useAgentReplyBridge(flow, source, injectAgentMessage) {
         for (const m of stored.messages) {
           if (m.type === 'outgoing' && m.sender === 'Agent' && !seenRef.current.has(m.id)) {
             seenRef.current.add(m.id)
-            injectAgentMessage(m.value ?? m.text)
+            // Carries the STORED message's id along, so when this run's
+            // transcript is next merged back into the stored thread the
+            // injected copy is recognised as that same already-stored
+            // message instead of being appended as a second one — the
+            // agent's reply otherwise ended up in the thread twice.
+            injectAgentMessage(m.value ?? m.text, m.id)
           }
         }
       } catch {}
@@ -1490,8 +1514,8 @@ export function useFlowSimulation(flow, allFlows) {
   // the business/outgoing side like a real agent takeover reply would) but
   // tagged `sender: 'Agent'` so it's distinguishable from the bot's own
   // scripted messages.
-  const injectAgentMessage = useCallback((text) => {
-    push('bot', text, { sender: 'Agent' })
+  const injectAgentMessage = useCallback((text, originId) => {
+    push('bot', text, { sender: 'Agent', originId })
   }, [push])
 
   return { messages, awaiting, ended, activity, activityOpen, setActivityOpen, reset, submitAsk, pickQuickReply, pickBranch, injectAgentMessage }

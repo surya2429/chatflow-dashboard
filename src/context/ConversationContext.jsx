@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { CONVERSATIONS, WEBCHAT_CONVERSATIONS } from '../constants/mockData'
 
 // Matches WebChatFlowBuilder.jsx's FLOW_TEST_STORE_KEY export — duplicated as
@@ -34,6 +34,13 @@ function matchChannelGroup(c, channelFilter) {
 export function ConversationProvider({ children }) {
   const [conversations, setConversations] = useState([...CONVERSATIONS, ...WEBCHAT_CONVERSATIONS])
   const [activeId, setActiveId] = useState(null)
+  // Latest conversations, readable from the plain (non-hook) action functions
+  // below without making them depend on render scope — used when persisting a
+  // Website Chat conversation that isn't in the store yet, so its existing
+  // history comes along rather than the stored record starting from just the
+  // one new message.
+  const conversationsRef = useRef(conversations)
+  useEffect(() => { conversationsRef.current = conversations }, [conversations])
   const [filter, setFilter] = useState('all')           // all | open | pending | bot | agent | resolved | closed
   const [agentFilter, setAgentFilter] = useState('all') // all | unassigned | admin | a1 | a2 | ...
   const [sourceFilter, setSourceFilter] = useState('all') // all | direct | ctwa | g-ctwa | t-ctwa | broadcast
@@ -131,31 +138,36 @@ export function ConversationProvider({ children }) {
     setConversations(prev => prev.map(c => c.id === id ? { ...c, unread: 0 } : c))
   }
 
-  // Website Chat conversations that live in FLOW_TEST_STORE_KEY rather than
-  // (only) React state — flow-test threads (`flowtest_...`, from the canvas
-  // Preview popup or the standalone Live Preview tab) and landing-page
-  // visitors (`landing_...`, see useLandingVisitorInboxSync in
-  // WebChatLandingPage.jsx). Any message appended to one of these
-  // conversations here in the dashboard MUST also be written back into that
-  // store, or it silently vanishes on the next reload — this tab's own
-  // React state is not these conversations' source of truth, the store is.
-  function isTestStoreConversationId(id) {
-    return id.startsWith('flowtest_') || id.startsWith('landing_')
-  }
-  function appendToTestStore(conversationId, message, { updateLastMessage = true } = {}) {
-    if (!isTestStoreConversationId(conversationId)) return
+  // Appends a message to a Website Chat conversation's PERSISTED record.
+  //
+  // React state here is not the source of truth for Website Chat: the
+  // conversation list is re-seeded from constants on every load, and the
+  // durable copy lives in this store (which the visitor-side surfaces — the
+  // Live Preview tab and the landing page — also read and write). So
+  // anything the dashboard appends to a Website Chat thread has to be
+  // written here too, or it looks right until the next reload and is then
+  // simply gone.
+  //
+  // This covers EVERY webchat conversation, not just the flow-test and
+  // landing-page ones: a reply, note or call event on any of them is just as
+  // real, and previously only the `flowtest_`-prefixed ones survived. A
+  // conversation that has no stored record yet gets one seeded from its
+  // current in-memory state, so its existing history is carried over rather
+  // than the stored copy starting at this single new message.
+  function persistWebchatMessage(conversationId, message, { updateLastMessage = true } = {}) {
     try {
       const store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}')
-      const conv = store[conversationId]
-      if (conv) {
-        store[conversationId] = {
-          ...conv,
-          messages: [...conv.messages, message],
-          ...(updateLastMessage ? { lastMessage: message.text } : null),
-          timestamp: new Date().toISOString(),
-        }
-        localStorage.setItem(FLOW_TEST_STORE_KEY, JSON.stringify(store))
+      const base = store[conversationId]
+        || conversationsRef.current.find(c => c.id === conversationId && c.channel === 'webchat')
+      if (!base) return // not a Website Chat conversation — nothing to persist
+      if ((base.messages || []).some(m => m.id === message.id)) return // already stored
+      store[conversationId] = {
+        ...base,
+        messages: [...(base.messages || []), message],
+        ...(updateLastMessage ? { lastMessage: message.text } : null),
+        timestamp: new Date().toISOString(),
       }
+      localStorage.setItem(FLOW_TEST_STORE_KEY, JSON.stringify(store))
     } catch {}
   }
 
@@ -183,46 +195,58 @@ export function ConversationProvider({ children }) {
     // instead of only ever landing in the Inbox's own record of the
     // conversation. (Landing-page visitors don't have a live chat
     // simulation to inject into, but still need the persistence.)
-    appendToTestStore(conversationId, newMsg)
+    persistWebchatMessage(conversationId, newMsg)
+  }
+
+  // Same durability problem as persistWebchatMessage, for the fields an agent
+  // changes rather than the message log. These have to be stored too: the
+  // visitor-side surfaces rewrite a thread's stored record whenever the
+  // visitor sends anything, carrying the stored values forward — so an
+  // unpersisted takeover/assignment/label would be reverted by the visitor's
+  // very next message, and lost outright on reload.
+  function persistWebchatPatch(conversationId, patch) {
+    try {
+      const store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}')
+      const base = store[conversationId]
+        || conversationsRef.current.find(c => c.id === conversationId && c.channel === 'webchat')
+      if (!base) return
+      store[conversationId] = { ...base, ...patch }
+      localStorage.setItem(FLOW_TEST_STORE_KEY, JSON.stringify(store))
+    } catch {}
+  }
+
+  function patchConversation(id, patch) {
+    setConversations(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c))
+    persistWebchatPatch(id, patch)
   }
 
   function takeoverConversation(id) {
-    setConversations(prev =>
-      prev.map(c => c.id === id ? { ...c, status: 'agent', agentId: 'admin', agentName: 'Deepak Kumar' } : c)
-    )
+    patchConversation(id, { status: 'agent', agentId: 'admin', agentName: 'Deepak Kumar' })
   }
 
   function resolveConversation(id) {
-    setConversations(prev =>
-      prev.map(c => c.id === id ? { ...c, status: 'resolved', unread: 0 } : c)
-    )
+    patchConversation(id, { status: 'resolved', unread: 0 })
   }
 
   function returnToBot(id) {
-    setConversations(prev =>
-      prev.map(c => c.id === id ? { ...c, status: 'bot', agentId: null, agentName: null } : c)
-    )
+    patchConversation(id, { status: 'bot', agentId: null, agentName: null })
   }
 
   function assignAgent(conversationId, agentId, agentName) {
-    setConversations(prev =>
-      prev.map(c => c.id === conversationId
-        ? { ...c, status: 'agent', agentId, agentName }
-        : c
-      )
-    )
+    patchConversation(conversationId, { status: 'agent', agentId, agentName })
   }
 
   function toggleStar(id) {
-    setConversations(prev => prev.map(c => c.id === id ? { ...c, starred: !c.starred } : c))
+    const current = conversationsRef.current.find(c => c.id === id)
+    patchConversation(id, { starred: !current?.starred })
   }
 
   function archiveConversation(id) {
-    setConversations(prev => prev.map(c => c.id === id ? { ...c, archived: true } : c))
+    patchConversation(id, { archived: true })
   }
 
   function snoozeConversation(id, until) {
-    setConversations(prev => prev.map(c => c.id === id ? { ...c, snoozed: until } : c))
+    patchConversation(id, { snoozed: until })
   }
 
   function addConversation(conv) {
@@ -271,19 +295,14 @@ export function ConversationProvider({ children }) {
   }, [syncFlowTest])
 
   function addLabel(id, label) {
-    setConversations(prev => prev.map(c =>
-      c.id === id && !c.labels?.includes(label)
-        ? { ...c, labels: [...(c.labels || []), label] }
-        : c
-    ))
+    const current = conversationsRef.current.find(c => c.id === id)
+    if (current?.labels?.includes(label)) return
+    patchConversation(id, { labels: [...(current?.labels || []), label] })
   }
 
   function removeLabel(id, label) {
-    setConversations(prev => prev.map(c =>
-      c.id === id
-        ? { ...c, labels: (c.labels || []).filter(l => l !== label) }
-        : c
-    ))
+    const current = conversationsRef.current.find(c => c.id === id)
+    patchConversation(id, { labels: (current?.labels || []).filter(l => l !== label) })
   }
 
   function addNote(id, text, sender) {
@@ -300,7 +319,7 @@ export function ConversationProvider({ children }) {
     // Same persistence gap as sendMessage/logEvent — a private note is still
     // a real message in the thread and must survive a reload, but (unlike a
     // reply) shouldn't overwrite the Inbox list's public lastMessage preview.
-    appendToTestStore(id, note, { updateLastMessage: false })
+    persistWebchatMessage(id, note, { updateLastMessage: false })
   }
 
   // A generic `type: 'event'` system message — same shape the mock call-log
@@ -320,12 +339,10 @@ export function ConversationProvider({ children }) {
     setConversations(prev => prev.map(c =>
       c.id === id ? { ...c, messages: [...c.messages, entry], lastMessage: text } : c
     ))
-    // Same reasoning as sendMessage's appendToTestStore call — a call event
-    // logged against a flow-test or landing-page conversation is exactly as
-    // real as any other message in that thread, and without this it
-    // silently disappeared on the next reload since this tab's React state
-    // isn't actually the source of truth for those conversations.
-    appendToTestStore(id, entry)
+    // Same reasoning as sendMessage's persist call — a logged call outcome is
+    // exactly as real as any other message in the thread, and without this it
+    // silently disappeared on the next reload.
+    persistWebchatMessage(id, entry)
   }
 
   return (
