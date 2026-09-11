@@ -145,6 +145,25 @@ export function ConversationProvider({ children }) {
         : c
       )
     )
+    // A flow-test thread (id prefixed `flowtest_`) has a real, currently
+    // running visitor-side widget somewhere — the standalone Live Preview
+    // tab, or the in-canvas Preview popup — that has no other way to learn
+    // an agent just replied. Writing this message into the same persisted
+    // store those surfaces already read/write lets WebChatFlowBuilder.jsx's
+    // useAgentReplyBridge (listening for `storage` events on this key)
+    // pick it up and inject it into that live session, so the reply
+    // actually reaches "the visitor" instead of only ever landing in the
+    // Inbox's own record of the conversation.
+    if (conversationId.startsWith('flowtest_')) {
+      try {
+        const store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}')
+        const conv = store[conversationId]
+        if (conv) {
+          store[conversationId] = { ...conv, messages: [...conv.messages, newMsg], lastMessage: text, timestamp: new Date().toISOString() }
+          localStorage.setItem(FLOW_TEST_STORE_KEY, JSON.stringify(store))
+        }
+      } catch {}
+    }
   }
 
   function takeoverConversation(id) {

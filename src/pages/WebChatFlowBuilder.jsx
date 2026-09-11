@@ -1095,7 +1095,10 @@ export function buildFlowTestConversation(flow, messages, source = 'canvas', bas
   // WEBCHAT_CONVERSATIONS mock data already uses for this.
   const mappedNew = messages.map(m => m.capturedAnswer
     ? { id: `ft${m.id}`, type: 'answer', questionType: m.capturedAnswer.questionType, label: m.capturedAnswer.label, value: m.text, time }
-    : { id: `ft${m.id}`, type: m.from === 'bot' ? 'outgoing' : 'incoming', text: m.text, time, sender: m.from === 'bot' ? 'Bot' : 'Visitor' }
+    // `m.sender` overrides the default Bot/Visitor label — used when this
+    // message was actually injected from an agent's Inbox reply (see
+    // injectAgentMessage below), so it reads as "Agent" rather than "Bot".
+    : { id: `ft${m.id}`, type: m.from === 'bot' ? 'outgoing' : 'incoming', text: m.text, time, sender: m.sender || (m.from === 'bot' ? 'Bot' : 'Visitor') }
   )
   const mapped = [...(baseline?.messages || []), ...mappedNew]
   const last = [...mapped].reverse().find(m => m.type !== 'answer') || mapped[mapped.length - 1]
@@ -1169,6 +1172,39 @@ export function recordFlowTestTurn(flow, messages, source = 'canvas') {
   const conv = buildFlowTestConversation(flow, messages, source, flowTestRunBaselines[id])
   saveFlowTestConversation(conv)
   return conv
+}
+
+// Delivers an agent's Inbox reply (see ConversationContext.jsx's
+// `sendMessage`, which appends it into FLOW_TEST_STORE_KEY for exactly this
+// purpose) into a LIVE running simulation, so a visitor testing the bot
+// actually sees the agent's reply appear instead of it only ever reaching
+// the Inbox's own record of the conversation. Cross-tab only by nature (a
+// `storage` event never fires in the tab that wrote it) — which matches the
+// realistic setup this bridges: the agent's Inbox in one tab, the visitor's
+// widget (the standalone Live Preview page, or another window onto the
+// canvas popup) in another. Call once per running simulation; pass the same
+// `source` used for that simulation's own recordFlowTestTurn calls.
+export function useAgentReplyBridge(flow, source, injectAgentMessage) {
+  const seenRef = useRef(new Set())
+  useEffect(() => {
+    const id = `flowtest_${source}_${flow.id}`
+    function checkForAgentReplies(e) {
+      if (e.key !== FLOW_TEST_STORE_KEY) return
+      try {
+        const store = JSON.parse(e.newValue || '{}')
+        const stored = store[id]
+        if (!stored) return
+        for (const m of stored.messages) {
+          if (m.type === 'outgoing' && m.sender === 'Agent' && !seenRef.current.has(m.id)) {
+            seenRef.current.add(m.id)
+            injectAgentMessage(m.value ?? m.text)
+          }
+        }
+      } catch {}
+    }
+    window.addEventListener('storage', checkForAgentReplies)
+    return () => window.removeEventListener('storage', checkForAgentReplies)
+  }, [flow.id, source, injectAgentMessage])
 }
 
 
@@ -1410,7 +1446,18 @@ export function useFlowSimulation(flow, allFlows) {
     finishOrAdvance(node.id, idx)
   }
 
-  return { messages, awaiting, ended, activity, activityOpen, setActivityOpen, reset, submitAsk, pickQuickReply, pickBranch }
+  // Lets an agent's reply typed in the Inbox appear live in this running
+  // session — see the `storage`-event listener in PreviewSimulator and
+  // LiveFlowPreview that calls this when it spots a new agent message
+  // targeting this exact thread. Pushed with `from: 'bot'` (so it renders on
+  // the business/outgoing side like a real agent takeover reply would) but
+  // tagged `sender: 'Agent'` so it's distinguishable from the bot's own
+  // scripted messages.
+  const injectAgentMessage = useCallback((text) => {
+    push('bot', text, { sender: 'Agent' })
+  }, [push])
+
+  return { messages, awaiting, ended, activity, activityOpen, setActivityOpen, reset, submitAsk, pickQuickReply, pickBranch, injectAgentMessage }
 }
 
 /* Renders whichever interactive control the simulation is currently awaiting
@@ -1480,8 +1527,9 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
      here at all, it's rendered by the real <WidgetPreview/> so there is zero
      visual drift from it. */
   const { cornerR, fs, dark } = useWidgetTheme(cfg)
-  const { messages, awaiting, ended, activity, activityOpen, setActivityOpen, reset, submitAsk, pickQuickReply, pickBranch } =
+  const { messages, awaiting, ended, activity, activityOpen, setActivityOpen, reset, submitAsk, pickQuickReply, pickBranch, injectAgentMessage } =
     useFlowSimulation(flow, allFlows)
+  useAgentReplyBridge(flow, 'canvas', injectAgentMessage)
 
   // Mirror this test session into the Website Chat Inbox as it runs, so
   // "testing a flow" produces a real, reviewable conversation instead of a

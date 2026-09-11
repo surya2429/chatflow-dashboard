@@ -16,7 +16,7 @@
 import { useState, useEffect } from 'react'
 import { MessageSquareText } from 'lucide-react'
 import { WidgetPreview, useWidgetTheme } from './WebChatAppearance'
-import { useFlowSimulation, renderFlowSimComposerControl, useWidgetCfg, FLOW_PREVIEW_STORAGE_KEY, recordFlowTestTurn } from './WebChatFlowBuilder'
+import { useFlowSimulation, renderFlowSimComposerControl, useWidgetCfg, FLOW_PREVIEW_STORAGE_KEY, recordFlowTestTurn, useAgentReplyBridge } from './WebChatFlowBuilder'
 
 function EmptyState() {
   return (
@@ -42,7 +42,8 @@ function EmptyState() {
 function LiveFlowPreview({ flow, allFlows }) {
   const cfg = useWidgetCfg()
   const { cornerR, fs, dark } = useWidgetTheme(cfg)
-  const { messages, awaiting, ended, reset, submitAsk, pickQuickReply, pickBranch } = useFlowSimulation(flow, allFlows)
+  const { messages, awaiting, ended, reset, submitAsk, pickQuickReply, pickBranch, injectAgentMessage } = useFlowSimulation(flow, allFlows)
+  useAgentReplyBridge(flow, 'live', injectAgentMessage)
 
   // This standalone tab has no ConversationContext (it's outside the
   // authenticated app entirely) to push straight into the Inbox, so it
