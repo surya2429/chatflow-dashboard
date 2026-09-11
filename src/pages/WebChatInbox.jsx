@@ -715,7 +715,7 @@ function ChatWindow({ conversation, adminOnline, showPanel, onTogglePanel }) {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-white min-w-0 relative">
+    <div className="flex-1 flex flex-col bg-white min-w-0 min-h-0 relative">
       {/* ── Chat header ── */}
       <div className="flex items-center px-3 py-2 border-b border-surface-border bg-white flex-shrink-0 gap-2 min-w-0">
 
@@ -872,8 +872,20 @@ function ChatWindow({ conversation, adminOnline, showPanel, onTogglePanel }) {
         </div>
       )}
 
-      {/* Messages */}
-      <div ref={msgsRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-2 bg-[#f0f4f8]">
+      {/* Messages — `min-h-0` is load-bearing here: a flex item's default
+          min-height is `auto` (its content size), which overrides `flex-1`
+          and `overflow-y-auto` and lets this pane grow to fit EVERY message
+          instead of being clipped to the space actually available. For a
+          short demo conversation that never showed — the content fit either
+          way — but once a thread gets long (many restarts of a flow test,
+          lots of Q&A), this pane silently stopped scrolling internally and
+          started growing the whole page instead, so the auto-scroll-to-
+          -newest-message effect below was setting `scrollTop` on an element
+          that was never actually the true scroll container. That's what
+          made a long-running flow test look like new messages "weren't
+          storing": they were, but nothing on screen was carrying you down
+          to them without a manual page-scroll. */}
+      <div ref={msgsRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-2 bg-[#f0f4f8]">
         {conversation.messages.map(m => renderMessage(m))}
       </div>
 
