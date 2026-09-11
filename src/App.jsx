@@ -39,6 +39,7 @@ import VoiceLanding from './pages/VoiceLanding'
 import InstagramOAuthCallback from './pages/InstagramOAuthCallback'
 import WebChatCallTester from './pages/WebChatCallTester'
 import WebChatLandingPage from './pages/WebChatLandingPage'
+import WebChatFlowLivePreview from './pages/WebChatFlowLivePreview'
 
 
 function AppRoutes() {
@@ -58,6 +59,12 @@ function AppRoutes() {
           Widget" button — bypasses login/layout since the whole point is a link anyone
           (no dashboard account) can open and land straight in the chat. */}
       <Route path="/webchat-landing" element={<WebChatLandingPage />} />
+      {/* The real, standalone full-page URL behind the Flow Builder canvas's
+          "Live Preview" toolbar button — runs the SPECIFIC flow that was open
+          in the canvas (via FLOW_PREVIEW_STORAGE_KEY in localStorage), unlike
+          /webchat-landing above which is just a generic static widget demo
+          with no flow logic. Bypasses login/layout for the same reason. */}
+      <Route path="/webchat-flow-preview" element={<WebChatFlowLivePreview />} />
       {/* Matches the Instagram Business Login redirect_uri exactly — must work whether or not the app session is authenticated */}
       <Route path="/instagramBusinessLoginSetup" element={<InstagramOAuthCallback />} />
       <Route

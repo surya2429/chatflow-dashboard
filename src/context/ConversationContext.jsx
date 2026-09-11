@@ -1,5 +1,11 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { CONVERSATIONS, WEBCHAT_CONVERSATIONS } from '../constants/mockData'
+
+// Matches WebChatFlowBuilder.jsx's FLOW_TEST_SYNC_KEY export — duplicated as
+// a literal (not imported) to avoid this context pulling in the entire flow
+// builder module just for one string constant. Keep these two in sync if
+// either changes.
+const FLOW_TEST_SYNC_KEY = 'webchat_flow_test_sync'
 
 const ConversationContext = createContext(null)
 
@@ -183,6 +189,43 @@ export function ConversationProvider({ children }) {
     setActiveId(conv.id)
   }
 
+  // Insert-or-update by id — unlike addConversation (always prepends a new
+  // record), this keeps re-syncing the SAME conversation in place instead of
+  // spawning a fresh duplicate every time it's called. Used to mirror a
+  // Flow Builder test session into the Inbox as one continuously-updated
+  // thread (see buildFlowTestConversation in WebChatFlowBuilder.jsx) rather
+  // than a new "chat" appearing every time someone re-runs Preview.
+  function upsertConversation(conv) {
+    setConversations(prev => {
+      const idx = prev.findIndex(c => c.id === conv.id)
+      if (idx === -1) return [conv, ...prev]
+      const next = [...prev]
+      next[idx] = { ...next[idx], ...conv }
+      return next
+    })
+  }
+
+  // Picks up a flow test running in the standalone /webchat-flow-preview tab
+  // (a separate, unauthenticated page with no access to this context — see
+  // the comment on FLOW_TEST_SYNC_KEY above). That page writes its running
+  // transcript to this localStorage key on every message; a `storage` event
+  // fires here in THIS tab whenever another tab changes it, so a flow tested
+  // in a fresh "Live Preview" tab shows up in the Inbox without needing a
+  // manual refresh. Also checked once on mount in case that tab wrote
+  // something before this one was even open.
+  const syncFlowTest = useCallback(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(FLOW_TEST_SYNC_KEY) || 'null')
+      if (raw && raw.id && Array.isArray(raw.messages)) upsertConversation(raw)
+    } catch {}
+  }, [])
+  useEffect(() => {
+    syncFlowTest()
+    const onStorage = e => { if (e.key === FLOW_TEST_SYNC_KEY) syncFlowTest() }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [syncFlowTest])
+
   function addLabel(id, label) {
     setConversations(prev => prev.map(c =>
       c.id === id && !c.labels?.includes(label)
@@ -260,6 +303,7 @@ export function ConversationProvider({ children }) {
       archiveConversation,
       snoozeConversation,
       addConversation,
+      upsertConversation,
       addLabel,
       removeLabel,
       addNote,

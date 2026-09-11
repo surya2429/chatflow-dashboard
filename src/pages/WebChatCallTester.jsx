@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Phone, PhoneOff, Video, VideoOff, Mic, MicOff, Wifi, WifiOff } from 'lucide-react'
-import { useCallSignaling } from '../hooks/useCallSignaling'
-import { useWebRTC } from '../hooks/useWebRTC'
+import {
+  useVisitorCall,
+  STATUS_IDLE, STATUS_RINGING_OUT, STATUS_RINGING_IN, STATUS_CONNECTING, STATUS_CONNECTED,
+} from '../hooks/useVisitorCall'
 import clsx from 'clsx'
 
 /**
@@ -14,7 +16,8 @@ import clsx from 'clsx'
  *
  * This is a test utility, not production UI — it talks directly to the
  * signaling relay (signaling-server/, ws://localhost:8788) as role=visitor
- * and drives useWebRTC() itself, independent of WebchatCallContext (which
+ * via the shared useVisitorCall() hook (also used by the real embeddable
+ * widget on /webchat-landing), independent of WebchatCallContext (which
  * is scoped to the authenticated dashboard's ConversationContext objects).
  */
 
@@ -29,160 +32,14 @@ function useQueryParam(name) {
   return value
 }
 
-const STATUS_IDLE = 'idle'
-const STATUS_RINGING_OUT = 'ringing-out'   // we called, waiting for accept
-const STATUS_RINGING_IN  = 'ringing-in'    // agent is calling us
-const STATUS_CONNECTING  = 'connecting'
-const STATUS_CONNECTED   = 'connected'
-
 export default function WebChatCallTester() {
   const visitorId = useQueryParam('visitorId')
 
-  const [status, setStatus]   = useState(STATUS_IDLE)
-  const [callVideo, setCallVideo] = useState(false)
-  const [muted, setMutedState] = useState(false)
-  const [videoOn, setVideoOnState] = useState(false)
-  const [duration, setDuration] = useState(0)
-  const [error, setError] = useState('')
-
-  const statusRef = useRef(status)
-  useEffect(() => { statusRef.current = status }, [status])
-  const callVideoRef = useRef(callVideo)
-  useEffect(() => { callVideoRef.current = callVideo }, [callVideo])
-
-  const timerRef = useRef(null)
-
-  const signaling = useCallSignaling(visitorId, 'visitor')
-
-  const webrtc = useWebRTC({
-    onIceCandidate: candidate => signaling.send({ type: 'ice-candidate', candidate }),
-    onConnectionStateChange: state => {
-      if (state === 'connected') setStatus(STATUS_CONNECTED)
-      else if ((state === 'failed' || state === 'closed') && statusRef.current !== STATUS_IDLE) {
-        endLocal()
-      }
-    },
-  })
-
-  useEffect(() => {
-    clearInterval(timerRef.current)
-    if (status === STATUS_CONNECTED) {
-      timerRef.current = setInterval(() => setDuration(d => d + 1), 1000)
-    } else {
-      setDuration(0)
-    }
-    return () => clearInterval(timerRef.current)
-  }, [status])
-
-  function endLocal() {
-    clearInterval(timerRef.current)
-    webrtc.endCall()
-    setStatus(STATUS_IDLE)
-    setDuration(0)
-  }
-
-  const handleMessage = useCallback(async msg => {
-    switch (msg.type) {
-      case 'call-request': {
-        if (statusRef.current !== STATUS_IDLE) {
-          signaling.send({ type: 'call-decline' })
-          return
-        }
-        setCallVideo(!!msg.video)
-        setStatus(STATUS_RINGING_IN)
-        break
-      }
-      case 'call-accept': {
-        if (statusRef.current !== STATUS_RINGING_OUT) return
-        setStatus(STATUS_CONNECTING)
-        try {
-          const sdp = await webrtc.startCall(callVideoRef.current)
-          signaling.send({ type: 'offer', sdp })
-        } catch (err) {
-          setError(err.message)
-          signaling.send({ type: 'hangup' })
-          endLocal()
-        }
-        break
-      }
-      case 'call-decline': {
-        if (statusRef.current === STATUS_RINGING_OUT) endLocal()
-        break
-      }
-      case 'offer': {
-        if (statusRef.current !== STATUS_CONNECTING) return
-        try {
-          const sdp = await webrtc.answerCall(msg.sdp, callVideoRef.current)
-          signaling.send({ type: 'answer', sdp })
-        } catch (err) {
-          setError(err.message)
-          signaling.send({ type: 'hangup' })
-          endLocal()
-        }
-        break
-      }
-      case 'answer': {
-        await webrtc.setRemoteAnswer(msg.sdp)
-        break
-      }
-      case 'ice-candidate': {
-        await webrtc.addIceCandidate(msg.candidate)
-        break
-      }
-      case 'hangup': {
-        if (statusRef.current !== STATUS_IDLE) endLocal()
-        break
-      }
-      default:
-        break
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    const unsubscribe = signaling.onMessage(handleMessage)
-    return unsubscribe
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signaling.onMessage, handleMessage])
-
-  async function callAgent(video) {
-    setError('')
-    setCallVideo(video)
-    setStatus(STATUS_RINGING_OUT)
-    signaling.send({ type: 'call-request', video })
-  }
-
-  async function answer() {
-    setError('')
-    setStatus(STATUS_CONNECTING)
-    signaling.send({ type: 'call-accept' })
-    // Wait for the caller's offer — handled in handleMessage's 'offer' case.
-  }
-
-  function decline() {
-    signaling.send({ type: 'call-decline' })
-    setStatus(STATUS_IDLE)
-  }
-
-  function hangup() {
-    signaling.send({ type: 'hangup' })
-    endLocal()
-  }
-
-  function toggleMute() {
-    const next = !muted
-    setMutedState(next)
-    webrtc.setMuted(next)
-  }
-  function toggleVideoOn() {
-    const next = !videoOn
-    setVideoOnState(next)
-    webrtc.setVideoEnabled(next)
-  }
-
-  useEffect(() => {
-    if (status === STATUS_CONNECTING || status === STATUS_CONNECTED) setVideoOnState(callVideo)
-  }, [status, callVideo])
+  const {
+    status, callVideo, muted, videoOn, duration, error,
+    localVideoRef, remoteVideoRef, signalingConnected, peerPresent,
+    callAgent, answer, decline, hangup, toggleMute, toggleVideoOn,
+  } = useVisitorCall(visitorId)
 
   if (!visitorId) {
     return (
@@ -208,16 +65,16 @@ export default function WebChatCallTester() {
             <p className="text-xs text-slate-400 font-mono">{visitorId}</p>
           </div>
           <div className={clsx('flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full',
-            signaling.connected ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500')}>
-            {signaling.connected ? <Wifi size={12} /> : <WifiOff size={12} />}
-            {signaling.connected ? 'Signaling connected' : 'Disconnected'}
+            signalingConnected ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500')}>
+            {signalingConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+            {signalingConnected ? 'Signaling connected' : 'Disconnected'}
           </div>
         </div>
 
         <div className="px-5 py-2 border-b border-slate-100">
           <p className="text-xs text-slate-500">
-            Agent side: <span className={clsx('font-semibold', signaling.peerPresent ? 'text-emerald-600' : 'text-slate-400')}>
-              {signaling.peerPresent ? 'present (open this conversation on the dashboard)' : 'not connected'}
+            Agent side: <span className={clsx('font-semibold', peerPresent ? 'text-emerald-600' : 'text-slate-400')}>
+              {peerPresent ? 'present (open this conversation on the dashboard)' : 'not connected'}
             </span>
           </p>
         </div>
@@ -229,9 +86,9 @@ export default function WebChatCallTester() {
         {/* Video area */}
         {(callVideo && (status === STATUS_CONNECTING || status === STATUS_CONNECTED)) && (
           <div className="relative w-full aspect-video bg-slate-900">
-            <video ref={webrtc.remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+            <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
             <video
-              ref={webrtc.localVideoRef} autoPlay muted playsInline
+              ref={localVideoRef} autoPlay muted playsInline
               className={clsx('absolute bottom-2 right-2 w-20 h-14 rounded-lg object-cover border border-white/30 shadow-md bg-slate-800 transition-opacity',
                 videoOn ? 'opacity-100' : 'opacity-0')}
             />
@@ -244,11 +101,11 @@ export default function WebChatCallTester() {
             <>
               <p className="text-sm text-slate-500">Not in a call</p>
               <div className="flex gap-3">
-                <button onClick={() => callAgent(false)} disabled={!signaling.connected}
+                <button onClick={() => callAgent(false)} disabled={!signalingConnected}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors">
                   <Phone size={15} /> Call agent
                 </button>
-                <button onClick={() => callAgent(true)} disabled={!signaling.connected}
+                <button onClick={() => callAgent(true)} disabled={!signalingConnected}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors">
                   <Video size={15} /> Video call agent
                 </button>

@@ -13,14 +13,15 @@ import {
   Search, Package, LifeBuoy, MessageCircleMore,
   Minus, VolumeX, Mic, Download, MoreVertical, MoreHorizontal, HelpCircle,
   CalendarDays, ShoppingBag, Layers, Maximize2, Minimize2, Type as TypeIcon,
-  ChevronLeft, RefreshCw, CheckCheck, Wand2, Rows3,
+  ChevronLeft, RefreshCw, CheckCheck, Wand2, Rows3, RotateCcw,
   Copy, Trash2, ImagePlus, Globe, QrCode, Link as LinkIcon, Droplet, Type,
-  Home, Inbox, CalendarCheck2,
+  Home, Inbox, CalendarCheck2, Phone, Video,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { QUESTION_TYPES, QUESTION_CATS } from '../constants/webchatQuestionTypes'
 import { GOOGLE_FONTS, FONT_CATEGORIES, fontStack } from '../constants/googleFonts'
 import { WIDGET_ID } from '../constants/webchat'
+import { AnswerControl } from '../components/webchat/AnswerControls'
 
 /* ─── Constants ─────────────────────────────────────────────── */
 const COLORS = ['#0066ff','#8B5CF6','#10B981','#F59E0B','#EF4444','#EC4899','#06B6D4','#1D4ED8']
@@ -108,60 +109,13 @@ const CORNER_PX  = { sharp: 6, soft: 14, round: 24 }
    The old 236/264/300 values were far too narrow and caused text to wrap badly. */
 const SIZE_PX    = { compact: 340, standard: 384, large: 420 }
 
-export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQType, activeTab, setActiveTab }) {
-  useGoogleFont(cfg.fontFamily)
-  const [maximized, setMaximized] = useState(false)
-  const [muted, setMuted] = useState(!cfg.sound)
-  const [moreOpen, setMoreOpen] = useState(false)
-  const [recording, setRecording] = useState(false)
-  const [savedFlash, setSavedFlash] = useState(false)
-  const [pickedChip, setPickedChip] = useState(null)
-  const [draft, setDraft] = useState('')
-  const draftRef = useRef(null)
-  const moreRef = useRef(null)
-  /* Close the overflow menu when clicking anywhere outside it — the menu is
-     positioned absolutely inside the header, so we check clicks against the
-     nearest `moreRef` ancestor. */
-  useEffect(() => {
-    function onDocClick(e) {
-      if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false)
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [])
-  /* Runs after React has actually committed the new value to the DOM, not inside
-     onChange itself — for a controlled textarea, the DOM's own text (and so its
-     scrollHeight) hasn't updated yet at the point onChange fires, so measuring
-     there reads the *previous* content and the box resizes one keystroke late.
-     Caps the grow at ~4.5 lines, then the textarea's own overflow-y takes over —
-     matches how real chat composers (iMessage, WhatsApp) behave: it expands with
-     the message, but doesn't take over the whole widget for a very long paste. */
-  useEffect(() => {
-    const el = draftRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 92) + 'px'
-  }, [draft])
-  /* activeTab is owned by the parent now (not local state) — it's the single
-     source of truth for which tab is showing, shared with the outer Home/Chat/
-     Closed switcher above the widget, so the two can never disagree about what's
-     actually on screen. */
-  /* Clicking a type in the Question Types list scrolls the already-open feed to
-     that message instead of re-filtering it, so the surrounding types stay
-     visible for comparison. */
-  useEffect(() => {
-    if (!scrollToQType) return
-    const el = document.getElementById(`qt-${scrollToQType}`)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [scrollToQType])
-  /* Which past conversation (if any) is open — null means "fresh chat" (the seeded
-     THREAD below); 'ended' opens the resolved one from the Messages list instead. */
-  const [openConvo, setOpenConvo] = useState(null)
-  const tabsCount = [cfg.showHomeTab, cfg.showChatTab, cfg.showMessagesTab, cfg.showFaqTab, cfg.showBookingTab].filter(Boolean).length
-  const tabsEnabled = tabsCount >= 2
-  const currentScreenKey = tabsEnabled ? activeTab : (screen === 'chat' ? 'chat' : 'home')
-
-  const isOpen = screen !== 'closed'
+/* Pure, cfg-only presentation logic behind the real widget's look — colors, shapes,
+   spacing and avatar rendering, all derived straight from the Widget Builder's `cfg`
+   with no chat state involved. Extracted out of WidgetPreview so any other surface
+   that wants to *look* like the real widget (e.g. the flow-builder's live
+   PreviewSimulator) can share the exact same theming instead of re-deriving a
+   simplified copy of it. */
+export function useWidgetTheme(cfg) {
   const dark = cfg.theme === 'dark'
   const initials = (cfg.botName||'Bot').slice(0,2).toUpperCase()
 
@@ -170,24 +124,6 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
   const brandBg = cfg.colorMode === 'gradient'
     ? `linear-gradient(135deg, ${cfg.color} 0%, ${cfg.colorEnd||cfg.color} 100%)`
     : cfg.color
-
-  /* Launcher icon — by default it mirrors the Profile Picture (launcherIconStyle
-     'match', the long-standing behavior), but can be set independently: its own
-     icon, emoji, or uploaded image. 'initials' has no launcher equivalent — that
-     branch (only reachable via 'match') falls through to the default chat icon,
-     same as before this was configurable at all. */
-  const effLauncherStyle = cfg.launcherIconStyle === 'match' ? cfg.avatarStyle : cfg.launcherIconStyle
-  const LauncherIconCmp = LAUNCHER_ICON_MAP[cfg.launcherIcon] || MessageCircleMore
-  const launcherIconEl =
-    effLauncherStyle === 'image' && (cfg.launcherIconStyle === 'match' ? cfg.avatarImage : cfg.launcherImage)
-      ? <img src={cfg.launcherIconStyle === 'match' ? cfg.avatarImage : cfg.launcherImage} alt="" className="w-full h-full object-cover"/>
-      : effLauncherStyle === 'emoji'
-      ? <span style={{fontSize: 27}}>{(cfg.launcherIconStyle === 'match' ? cfg.avatarEmoji : cfg.launcherEmoji) || '🤖'}</span>
-      : effLauncherStyle === 'icon'
-        ? (cfg.launcherIconStyle === 'match'
-            ? <Bot size={26} className="text-white"/>
-            : <LauncherIconCmp size={26} className="text-white"/>)
-        : <MessageCircleMore size={27} className="text-white"/>
 
   /* Header can now break away from the brand color entirely: keep it on brand,
      paint it a custom solid/gradient, or leave it a clean light surface. */
@@ -200,7 +136,6 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
       : brandBg
 
   const cornerR = CORNER_PX[cfg.corner] ?? 24
-  const winW = maximized ? 468 : (SIZE_PX[cfg.size] ?? 384)
 
   /* One slider drives every size in the widget (10-20px on the body text). */
   const fontScale = (Number(cfg.fontSizePx) || FONT_BASE_PX) / FONT_BASE_PX
@@ -264,6 +199,144 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
     if (style === 'icon')  return <Bot size={Math.round(px * 0.5)} className="text-white"/>
     return <span className="text-white font-black" style={{ fontSize: Math.round(px * 0.36) }}>{initials}</span>
   }
+
+  const DENSITY = cfg.density === 'compact'
+    ? { gap: 3, groupGap: 8, px: 12, py: 7, pad: 12 }
+    : { gap: 4, groupGap: 14, px: 14, py: 9, pad: 16 }
+
+  const BUBBLE_SHADOW = {
+    flat: 'none',
+    soft: '0 1px 2px rgba(15,23,42,0.06)',
+    elevated: '0 6px 16px -6px rgba(15,23,42,0.20), 0 1px 3px rgba(15,23,42,0.06)',
+  }[cfg.bubbleShadow] ?? '0 1px 2px rgba(15,23,42,0.06)'
+
+  /* Corner radii that respond to a message's position inside its run. */
+  function groupRadius(isUser, first, last) {
+    const R = cfg.bubbleStyle === 'ios' ? 18
+      : cfg.bubbleStyle === 'classic' ? 14
+      : cfg.bubbleStyle === 'minimal' ? cornerR * 0.7
+      : cornerR * 0.9
+    const tight = cfg.bubbleStyle === 'ios' ? 18 : 7
+    return isUser
+      ? { borderTopLeftRadius: R, borderBottomLeftRadius: R,
+          borderTopRightRadius: first ? R : tight, borderBottomRightRadius: last ? R : tight }
+      : { borderTopRightRadius: R, borderBottomRightRadius: R,
+          borderTopLeftRadius: first ? R : tight, borderBottomLeftRadius: last ? R : tight }
+  }
+
+  return {
+    dark, initials, brandBg, headerBg, cornerR, fs, fontFamilyCss,
+    headerBaseColor, headerLight, onHeader, onHeaderMuted, headerHoverBg,
+    botBubbleBg, botBubbleText, userBubbleBg, userBubbleText,
+    chatBackground, bubbleIsMinimal, bubbleRadius, DENSITY, BUBBLE_SHADOW, groupRadius,
+    AvatarFace,
+  }
+}
+
+export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQType, activeTab, setActiveTab, simThread, simComposerBanner, simComposerControl, setScreen: setScreenProp, onVoiceCall, onVideoCall, onRestartChat }) {
+  useGoogleFont(cfg.fontFamily)
+  // `setScreen` is only meaningful to callers that actually own a "screen"
+  // state to transition (the Appearance page's own live preview) — callers
+  // that don't (WebChatLandingPage.jsx, the Flow Builder's simulator, which
+  // maps it to onClose) simply don't pass it, so this falls back to a no-op
+  // rather than throwing ReferenceError on every "Close chat" click.
+  const setScreen = setScreenProp || (() => {})
+  const [maximized, setMaximized] = useState(false)
+  const [muted, setMuted] = useState(!cfg.sound)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [savedFlash, setSavedFlash] = useState(false)
+  const [pickedChip, setPickedChip] = useState(null)
+  /* Hoisted out of FaqScreen (below) — FaqScreen is now called as a plain
+     function (`FaqScreen()`, not `<FaqScreen/>`) so switching screens
+     doesn't force-remount the current one and reset its scroll position
+     (see the currentScreenKey render below); a hook call conditionally
+     nested inside a plain function call like that would violate the Rules
+     of Hooks, so it has to live up here unconditionally instead. */
+  const [openIdx, setOpenIdx] = useState(0)
+  const [draft, setDraft] = useState('')
+  const draftRef = useRef(null)
+  const moreRef = useRef(null)
+  const msgListRef = useRef(null)
+  /* Close the overflow menu when clicking anywhere outside it — the menu is
+     positioned absolutely inside the header, so we check clicks against the
+     nearest `moreRef` ancestor. */
+  useEffect(() => {
+    function onDocClick(e) {
+      if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [])
+  /* Runs after React has actually committed the new value to the DOM, not inside
+     onChange itself — for a controlled textarea, the DOM's own text (and so its
+     scrollHeight) hasn't updated yet at the point onChange fires, so measuring
+     there reads the *previous* content and the box resizes one keystroke late.
+     Caps the grow at ~4.5 lines, then the textarea's own overflow-y takes over —
+     matches how real chat composers (iMessage, WhatsApp) behave: it expands with
+     the message, but doesn't take over the whole widget for a very long paste. */
+  useEffect(() => {
+    const el = draftRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 92) + 'px'
+  }, [draft])
+  /* activeTab is owned by the parent now (not local state) — it's the single
+     source of truth for which tab is showing, shared with the outer Home/Chat/
+     Closed switcher above the widget, so the two can never disagree about what's
+     actually on screen. */
+  /* Clicking a type in the Question Types list scrolls the already-open feed to
+     that message instead of re-filtering it, so the surrounding types stay
+     visible for comparison. */
+  useEffect(() => {
+    if (!scrollToQType) return
+    const el = document.getElementById(`qt-${scrollToQType}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [scrollToQType])
+  /* Which past conversation (if any) is open — null means "fresh chat" (the seeded
+     THREAD below); 'ended' opens the resolved one from the Messages list instead. */
+  const [openConvo, setOpenConvo] = useState(null)
+  const tabsCount = [cfg.showHomeTab, cfg.showChatTab, cfg.showMessagesTab, cfg.showFaqTab, cfg.showBookingTab].filter(Boolean).length
+  const tabsEnabled = tabsCount >= 2
+  /* A live simThread (the flow-builder's PreviewSimulator) is always a floating
+     "conversation already in progress" widget — there's no Home/Messages/FAQ
+     tab to switch to, so it always renders the chat screen directly and the
+     tab bar never shows, regardless of how many tabs cfg has enabled. */
+  const currentScreenKey = simThread ? 'chat' : (tabsEnabled ? activeTab : (screen === 'chat' ? 'chat' : 'home'))
+
+  const isOpen = screen !== 'closed'
+
+  /* Pure cfg-derived theming (colors, shapes, spacing, avatar rendering) is shared
+     with any other surface that needs to look like the real widget — see
+     useWidgetTheme below. Everything here is a straight function of `cfg`; no
+     chat state is involved. */
+  const {
+    dark, initials, brandBg, headerBg, cornerR, fs, fontFamilyCss,
+    headerBaseColor, headerLight, onHeader, onHeaderMuted, headerHoverBg,
+    botBubbleBg, botBubbleText, userBubbleBg, userBubbleText,
+    chatBackground, bubbleIsMinimal, bubbleRadius, DENSITY, BUBBLE_SHADOW, groupRadius,
+    AvatarFace,
+  } = useWidgetTheme(cfg)
+
+  /* Launcher icon — by default it mirrors the Profile Picture (launcherIconStyle
+     'match', the long-standing behavior), but can be set independently: its own
+     icon, emoji, or uploaded image. 'initials' has no launcher equivalent — that
+     branch (only reachable via 'match') falls through to the default chat icon,
+     same as before this was configurable at all. */
+  const effLauncherStyle = cfg.launcherIconStyle === 'match' ? cfg.avatarStyle : cfg.launcherIconStyle
+  const LauncherIconCmp = LAUNCHER_ICON_MAP[cfg.launcherIcon] || MessageCircleMore
+  const launcherIconEl =
+    effLauncherStyle === 'image' && (cfg.launcherIconStyle === 'match' ? cfg.avatarImage : cfg.launcherImage)
+      ? <img src={cfg.launcherIconStyle === 'match' ? cfg.avatarImage : cfg.launcherImage} alt="" className="w-full h-full object-cover"/>
+      : effLauncherStyle === 'emoji'
+      ? <span style={{fontSize: 27}}>{(cfg.launcherIconStyle === 'match' ? cfg.avatarEmoji : cfg.launcherEmoji) || '🤖'}</span>
+      : effLauncherStyle === 'icon'
+        ? (cfg.launcherIconStyle === 'match'
+            ? <Bot size={26} className="text-white"/>
+            : <LauncherIconCmp size={26} className="text-white"/>)
+        : <MessageCircleMore size={27} className="text-white"/>
+
+  const winW = maximized ? 468 : (SIZE_PX[cfg.size] ?? 384)
 
   const Avatar = ({ size = 8 }) => (
     <div className={clsx('rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden',
@@ -378,34 +451,19 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
      consecutive messages from the same sender share one avatar, get tighter
      corner radii on the joined edge, and show a single timestamp on the last
      bubble of the run. Every element animates in on a stagger. ── */
-  const DENSITY = cfg.density === 'compact'
-    ? { gap: 3, groupGap: 8, px: 12, py: 7, pad: 12 }
-    : { gap: 4, groupGap: 14, px: 14, py: 9, pad: 16 }
-
-  const BUBBLE_SHADOW = {
-    flat: 'none',
-    soft: '0 1px 2px rgba(15,23,42,0.06)',
-    elevated: '0 6px 16px -6px rgba(15,23,42,0.20), 0 1px 3px rgba(15,23,42,0.06)',
-  }[cfg.bubbleShadow] ?? '0 1px 2px rgba(15,23,42,0.06)'
-
   const ANIM = { none: 'none', fade: 'wcFade', slide: 'wcSlideIn', pop: 'wcPop' }[cfg.msgAnimation] ?? 'wcSlideIn'
+  /* The stagger delay is capped, not proportional to the message's raw index
+     — otherwise every message's entrance delay keeps growing for the rest of
+     the conversation (message #20 wouldn't even start animating in until
+     1.6s after it's added), which makes text feel like it's "loading slow"
+     the longer a chat runs. A live simulation or a real back-and-forth with
+     the visitor can easily produce dozens of messages, so this has to stay
+     bounded — capping at a few messages' worth of stagger keeps the initial
+     "thread opens with a few messages cascading in" effect without letting
+     later replies lag further and further behind. */
   const animStyle = i => ANIM === 'none'
     ? {}
-    : { animation: `${ANIM} 0.42s cubic-bezier(0.16,1,0.3,1) both`, animationDelay: `${i * 80}ms` }
-
-  /* Corner radii that respond to a message's position inside its run. */
-  function groupRadius(isUser, first, last) {
-    const R = cfg.bubbleStyle === 'ios' ? 18
-      : cfg.bubbleStyle === 'classic' ? 14
-      : cfg.bubbleStyle === 'minimal' ? cornerR * 0.7
-      : cornerR * 0.9
-    const tight = cfg.bubbleStyle === 'ios' ? 18 : 7
-    return isUser
-      ? { borderTopLeftRadius: R, borderBottomLeftRadius: R,
-          borderTopRightRadius: first ? R : tight, borderBottomRightRadius: last ? R : tight }
-      : { borderTopRightRadius: R, borderBottomRightRadius: R,
-          borderTopLeftRadius: first ? R : tight, borderBottomLeftRadius: last ? R : tight }
-  }
+    : { animation: `${ANIM} 0.42s cubic-bezier(0.16,1,0.3,1) both`, animationDelay: `${Math.min(i, 4) * 80}ms` }
 
   const FRESH_THREAD = [
     { id: 1, from: 'bot',  text: cfg.greeting || 'Hi! 👋 How can I help you today?', time: '2:14 PM' },
@@ -430,7 +488,29 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
     id: `qt-${qt.id}`, from: 'bot', time: '2:14 PM',
     text: SAMPLE_QUESTIONS[qt.id] || qt.name, questionType: qt,
   })) : null
-  const THREAD = QUESTION_TYPE_THREAD || (openConvo === 'ended' ? ENDED_THREAD : FRESH_THREAD)
+  /* simThread (the flow-builder's live simulation) takes priority over every
+     other demo/preview thread when provided — see the `simThread` prop doc
+     above WidgetPreview's signature. */
+  const THREAD = simThread || QUESTION_TYPE_THREAD || (openConvo === 'ended' ? ENDED_THREAD : FRESH_THREAD)
+
+  /* Keep the message list pinned to its newest message whenever the SPACE
+     AVAILABLE to it changes — not just when its own content changes. The
+     composer/answer-control slot below it can grow taller on its own (an
+     auto-growing textarea as the visitor types a long answer, a choice
+     control expanding once an option is selected) entirely inside a CHILD
+     component's local state, which never re-renders this parent — so the
+     inline ref callback below (which only re-pins on THIS component's own
+     renders) goes stale and the last message ends up clipped under the
+     composer instead of scrolling into view. A ResizeObserver reacts to the
+     size change itself regardless of which component caused it. */
+  useEffect(() => {
+    if (QUESTION_TYPE_THREAD) return
+    const el = msgListRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => { el.scrollTop = el.scrollHeight })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [QUESTION_TYPE_THREAD])
 
   const BotAvatar = ({ visible }) => (
     <div className="flex-shrink-0" style={{ width: 28, height: 28 }}>
@@ -503,6 +583,22 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
 
           {/* Action buttons */}
           <div className="flex items-center gap-0.5 flex-shrink-0 relative">
+            {cfg.enableVoiceCall && (
+              <button title="Voice call" onClick={()=>onVoiceCall?.()} className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+                onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <Phone size={15}/>
+              </button>
+            )}
+            {cfg.enableVideoCall && (
+              <button title="Video call" onClick={()=>onVideoCall?.()} className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
+                style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
+                onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <Video size={15}/>
+              </button>
+            )}
             <button title="Minimize" onClick={()=>setMaximized(m=>!m)} className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
               style={{ color: onHeaderMuted, background: 'transparent', ['--wc-hover']: headerHoverBg }}
               onMouseEnter={e => e.currentTarget.style.background = headerHoverBg}
@@ -542,6 +638,11 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                       <Download size={13} className="text-slate-400"/> Save transcript
                     </button>
                   )}
+                  <button onClick={()=>{ onRestartChat?.(); setMoreOpen(false) }}
+                    className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t',
+                      dark ? 'text-slate-200 hover:bg-slate-700 border-slate-700' : 'text-slate-700 hover:bg-slate-50 border-slate-100')}>
+                    <RotateCcw size={13} className="text-slate-400"/> Restart chat
+                  </button>
                   <button onClick={()=>{ setScreen('closed'); setMoreOpen(false) }}
                     className={clsx('w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[11.5px] font-medium transition-colors border-t',
                       dark ? 'text-slate-200 hover:bg-slate-700 border-slate-700' : 'text-slate-700 hover:bg-slate-50 border-slate-100')}>
@@ -573,7 +674,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
            latest reply (and the typing indicator) sit below the fold. The one
            exception is the question-types feed, which opens at the top since
            there's no "latest" message to jump to — just a full catalog to scroll. */
-        ref={el => { if (el) el.scrollTop = QUESTION_TYPE_THREAD ? 0 : el.scrollHeight }}
+        ref={el => { msgListRef.current = el; if (el) el.scrollTop = QUESTION_TYPE_THREAD ? 0 : el.scrollHeight }}
         style={{ background: chatBackground, padding: DENSITY.pad, paddingTop: 12 }}>
 
         {/* Date chip */}
@@ -618,6 +719,16 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                       fontSize: fs(11.8),
                       padding: `${DENSITY.py}px ${DENSITY.px}px`,
                       boxShadow: BUBBLE_SHADOW,
+                      // A long answer with no spaces (someone holding a key
+                      // down, a pasted token/URL/ID, …) doesn't have a word
+                      // boundary to wrap at — without this, normal CSS text
+                      // wrapping leaves it as one unbroken run that stretches
+                      // the bubble past the widget's edge, forcing the whole
+                      // message list to scroll horizontally. Breaking mid-word
+                      // when nothing else fits keeps every bubble inside the
+                      // widget no matter what was typed.
+                      overflowWrap: 'break-word',
+                      wordBreak: 'break-word',
                       background: isUser
                         ? (bubbleIsMinimal ? 'transparent' : (userBubbleBg || brandBg))
                         : (bubbleIsMinimal ? 'transparent' : botBubbleBg),
@@ -653,9 +764,15 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                     </div>
                   )}
 
-                  {/* Question-type preview — the actual interactive control for
-                      whichever type is selected on the Question Types tab */}
-                  {m.questionType && renderAnswerControl(m.questionType)}
+                  {/* Question-type preview — the actual (shared) interactive
+                      control for whichever type is selected on the Question
+                      Types tab, rendered non-interactively (no onSubmit) since
+                      this is a design preview, not a live simulation. */}
+                  {m.questionType && (
+                    <div className="mt-2">
+                      <AnswerControl questionType={m.questionType.id} accent={cfg.color} dark={dark} interactive={false} googleMapsApiKey={cfg.googleMapsApiKey}/>
+                    </div>
+                  )}
 
                   {/* Rich plan cards — an example of a structured bot reply */}
                   {m.plans && (
@@ -698,7 +815,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         })}
 
         {/* Typing indicator — its own row, aligned with bot bubbles */}
-        {cfg.typingIndicator && openConvo !== 'ended' && !QUESTION_TYPE_THREAD && (
+        {cfg.typingIndicator && openConvo !== 'ended' && !QUESTION_TYPE_THREAD && !simThread && (
           <div className="flex items-end gap-2" style={{ marginTop: DENSITY.groupGap, ...animStyle(THREAD.length+1) }}>
             <BotAvatar visible/>
             <div className="inline-flex items-center gap-1"
@@ -725,6 +842,48 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
               boxShadow: `0 6px 16px -6px ${cfg.color}80` }}>
             <RefreshCw size={11}/> Reply to reopen
           </button>
+        </div>
+      ) : simComposerBanner ? (
+        /* Same visual pattern as the "conversation has ended" banner above,
+           just parameterized with the caller's own copy/action — used by the
+           flow-builder's PreviewSimulator to show a live simulation-ended
+           state without a fake chat bubble announcing it. */
+        <div className={clsx('flex-shrink-0 px-4 py-3.5 text-center', dark ? 'bg-slate-900' : 'bg-white')}
+          style={{ boxShadow: dark ? '0 -1px 0 rgba(255,255,255,0.06)' : '0 -1px 0 rgba(15,23,42,0.06)' }}>
+          <p className={clsx('text-[10.5px] font-semibold', dark ? 'text-slate-400' : 'text-slate-500')}>{simComposerBanner.text}</p>
+          <button onClick={simComposerBanner.onAction} className="wc-chip inline-flex items-center gap-1.5 mt-2 font-bold"
+            style={{ fontSize: fs(10.5), padding:'7px 16px', borderRadius:999, color:'#fff', background: brandBg,
+              boxShadow: `0 6px 16px -6px ${cfg.color}80` }}>
+            <RefreshCw size={11}/> {simComposerBanner.actionLabel}
+          </button>
+        </div>
+      ) : simComposerControl ? (
+        /* A message is currently awaiting an answer — instead of a free-text
+           composer, the interactive answer control (ask control, or the
+           quick-reply/branch chip row) renders full-width right here in the
+           composer slot, the single consistent location for every question
+           type rather than one attached under each message bubble. */
+        <div className={clsx('flex-shrink-0 px-3 pt-2.5 pb-2.5', dark ? 'bg-slate-900' : 'bg-white')}
+          style={{ boxShadow: dark ? '0 -1px 0 rgba(255,255,255,0.06)' : '0 -1px 0 rgba(15,23,42,0.06)' }}>
+          {simComposerControl}
+        </div>
+      ) : simThread ? (
+        /* A live simulation (PreviewSimulator) is active but not currently
+           awaiting an answer — this is the brief gap between one question's
+           answer being submitted and the next question actually landing
+           (auto-advancing nodes in between can take a beat). The composer
+           slot must NEVER fall through to the plain free-text composer here
+           — swapping to it and back for every single question read as the
+           whole widget "refreshing". Instead hold a fixed-height placeholder
+           with a small typing-style indicator so the transition is smooth. */
+        <div className={clsx('flex-shrink-0 px-3 pt-2 pb-2.5 flex items-center', dark ? 'bg-slate-900' : 'bg-white')}
+          style={{ boxShadow: dark ? '0 -1px 0 rgba(255,255,255,0.06)' : '0 -1px 0 rgba(15,23,42,0.06)', minHeight: 52 }}>
+          <div className="flex items-center gap-1 px-1">
+            {[0,1,2].map(d=>(
+              <span key={d} className="rounded-full" style={{ width:5, height:5, background: cfg.color, opacity:0.4,
+                animation:`wcDot 1.3s ease-in-out ${d*0.16}s infinite` }}/>
+            ))}
+          </div>
         </div>
       ) : (
       <div className={clsx('flex-shrink-0 px-3 pt-2 pb-2.5', dark ? 'bg-slate-900' : 'bg-white')}
@@ -932,7 +1091,6 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
     { q:'Do you ship internationally?', a:'Yes — we ship to 40+ countries. Shipping cost is calculated at checkout.' },
   ]
   const FaqScreen = () => {
-    const [openIdx, setOpenIdx] = useState(0)
     return (
       <div className="flex flex-col h-full">
         <div className="flex-shrink-0 relative z-20"
@@ -1242,13 +1400,26 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-slate-900 rounded-b-2xl z-40"/>
           )}
           <div className="flex-1 min-h-0" style={isMobile ? { paddingTop: 14 } : undefined}>
-            {currentScreenKey === 'home' ? <HomeScreen/>
-              : currentScreenKey === 'chat' ? <ChatScreen/>
-              : currentScreenKey === 'messages' ? <MessagesScreen/>
-              : currentScreenKey === 'faq' ? <FaqScreen/>
-              : <BookingScreen/>}
+            {/* Called as plain functions, NOT `<HomeScreen/>` etc. — each of
+                these is defined fresh on every WidgetPreview render, so
+                using them as JSX component types would make React treat
+                them as a brand-new component identity every render and
+                fully unmount+remount the current screen's entire DOM
+                subtree on every keystroke/toggle inside WidgetPreview
+                (draft text, mute, menu open, …). That was silently
+                resetting scroll position, textarea focus, and in-progress
+                animations on every state change. Calling them as functions
+                inlines their returned elements directly into this render
+                instead, so React reconciles by the real element tree
+                (divs etc.) and keeps DOM nodes — and their scroll
+                position — stable across re-renders. */}
+            {currentScreenKey === 'home' ? HomeScreen()
+              : currentScreenKey === 'chat' ? ChatScreen()
+              : currentScreenKey === 'messages' ? MessagesScreen()
+              : currentScreenKey === 'faq' ? FaqScreen()
+              : BookingScreen()}
           </div>
-          {tabsEnabled && <TabBar/>}
+          {tabsEnabled && !simThread && <TabBar/>}
           {/* One shared branding strip for the whole widget, not a copy on every
               screen — sits below the tab bar icons (or below the composer, on
               screens with no tab bar) so it's always the true last line rather
@@ -2167,6 +2338,39 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                 </div>
               ))}
             </div>
+            <div className="p-4 border-t border-surface-border space-y-1">
+              <label className="label">Calling</label>
+              <p className="text-[10px] text-slate-400 mb-2">Let visitors start a real voice or video call with your team, right from the widget.</p>
+              {[
+                {k:'enableVoiceCall', l:'Voice Call', sub:'Phone icon in the widget header', icon:Phone},
+                {k:'enableVideoCall', l:'Video Call', sub:'Video icon in the widget header', icon:Video},
+              ].map(item=>(
+                <div key={item.k} className="flex items-center justify-between py-1.5">
+                  <div className="flex items-center gap-2">
+                    <item.icon size={13} className="text-slate-400 flex-shrink-0"/>
+                    <div>
+                      <p className="text-xs font-medium text-slate-800">{item.l}</p>
+                      <p className="text-[10px] text-slate-400">{item.sub}</p>
+                    </div>
+                  </div>
+                  <Toggle checked={cfg[item.k]} onChange={v=>set(item.k,v)}/>
+                </div>
+              ))}
+            </div>
+            <div className="p-4 border-t border-surface-border space-y-1.5">
+              <label className="label flex items-center gap-1.5"><MapPin size={11}/>Location Search</label>
+              <p className="text-[10px] text-slate-400 mb-1">
+                Powers real address autocomplete on the "Location" question type. Needs your own Google Cloud
+                API key with the <span className="font-medium text-slate-500">Places API</span> and{' '}
+                <span className="font-medium text-slate-500">Geocoding API</span> enabled (billing required on
+                Google's side). Left blank, Location falls back to a plain address text field — nothing breaks.
+              </p>
+              <input type="password" autoComplete="off" className="input" placeholder="Google Maps API key (optional)"
+                value={cfg.googleMapsApiKey} onChange={e=>set('googleMapsApiKey', e.target.value)}/>
+              <p className="text-[9.5px] text-slate-400">
+                Get a key at <span className="font-mono">console.cloud.google.com/google/maps-apis</span> — restrict it to your domain before going live.
+              </p>
+            </div>
           </div>
         )}
 
@@ -2441,91 +2645,6 @@ const SAMPLE_QUESTIONS = {
   catalog: 'Browse our products',
 }
 
-/* The interactive control shown under a question's message bubble inside the
-   real widget preview — a plain, generic mockup (not restyled per theme colors)
-   since it represents a standard form field, matching how the composer's own
-   input stays neutral regardless of bubble theming. */
-function renderAnswerControl(type) {
-  const previewMap = {
-    'single':   <div className="mt-2 space-y-1.5">{['Option A','Option B','Option C'].map(o=><div key={o} className="border border-slate-200 rounded-lg px-3 py-1.5 text-[11px] text-slate-600 bg-white flex items-center gap-2"><div className="w-3 h-3 rounded-full border-2 border-slate-300 flex-shrink-0"/>{o}</div>)}</div>,
-    'multi':    <div className="mt-2 space-y-1.5">{['Option A','Option B','Option C'].map(o=><div key={o} className="border border-slate-200 rounded-lg px-3 py-1.5 text-[11px] text-slate-600 bg-white flex items-center gap-2"><div className="w-3 h-3 rounded border-2 border-slate-300 flex-shrink-0"/>{o}</div>)}</div>,
-    'dropdown': <div className="mt-2 border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white flex items-center justify-between"><span>Select an option</span><ChevronDown size={12}/></div>,
-    'yesno':    <div className="mt-2 grid grid-cols-2 gap-2"><div className="border-2 border-emerald-400 rounded-lg py-2 text-[11px] font-bold text-emerald-600 text-center bg-emerald-50">Yes</div><div className="border-2 border-slate-200 rounded-lg py-2 text-[11px] font-bold text-slate-500 text-center bg-white">No</div></div>,
-    'rating':   <div className="mt-2 flex gap-1">{[1,2,3,4,5].map(n=><Star key={n} size={22} className={n<=3?'text-amber-400 fill-amber-400':'text-slate-200'}/>)}</div>,
-    'nps':      <div className="mt-2"><div className="flex gap-0.5">{Array.from({length:11},(_,i)=>{const nc=i<=6?'bg-slate-50 border-slate-200 text-slate-600':i<=8?'bg-amber-50 border-amber-200 text-amber-600':'bg-emerald-50 border-emerald-200 text-emerald-600';return <div key={i} className={clsx('flex-1 py-1.5 text-[9px] font-bold text-center rounded border',nc)}>{i}</div>})}</div><div className="flex justify-between text-[9px] text-slate-400 mt-1"><span>Not likely</span><span>Very likely</span></div></div>,
-    'date':     <div className="mt-2 border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white flex items-center gap-2"><Calendar size={12}/><span>Pick a date</span></div>,
-    'daterange':<div className="mt-2 flex gap-2"><div className="flex-1 border border-slate-200 rounded-lg px-2 py-2 text-[11px] text-slate-400 bg-white flex items-center gap-1.5"><Calendar size={11}/>Start</div><div className="flex-1 border border-slate-200 rounded-lg px-2 py-2 text-[11px] text-slate-400 bg-white flex items-center gap-1.5"><Calendar size={11}/>End</div></div>,
-    'time':     <div className="mt-2 border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white flex items-center gap-2"><Clock size={12}/><span>Select time</span></div>,
-    'appt':     <AppointmentPicker/>,
-    'file':     <div className="mt-2 border-2 border-dashed border-slate-200 rounded-xl py-5 flex flex-col items-center gap-1.5 text-slate-400"><Upload size={18}/><span className="text-[10px]">Drop file or click to upload</span></div>,
-    'image':    <div className="mt-2 border-2 border-dashed border-slate-200 rounded-xl py-5 flex flex-col items-center gap-1.5 text-slate-400"><Image size={18}/><span className="text-[10px]">Upload image (PNG, JPG)</span></div>,
-    'signature':<div className="mt-2 border-2 border-dashed border-slate-200 rounded-xl py-6 flex flex-col items-center gap-1.5 text-slate-400"><Pencil size={18}/><span className="text-[10px]">Sign here</span></div>,
-    'location': <div className="mt-2 border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white flex items-center gap-2"><MapPin size={12}/><span>Search address or pin location</span></div>,
-    'payment':  <div className="mt-2 space-y-2"><div className="border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white flex items-center gap-2"><CreditCard size={12}/><span>Card number</span></div><div className="grid grid-cols-2 gap-2"><div className="border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white">MM/YY</div><div className="border border-slate-200 rounded-lg px-3 py-2 text-[11px] text-slate-400 bg-white">CVV</div></div></div>,
-    'otp':      <div className="mt-2 flex gap-2 justify-center">{[1,2,3,4,5,6].map(i=><div key={i} className="w-8 h-10 border-2 border-slate-200 rounded-lg flex items-center justify-center text-sm font-bold text-slate-700 bg-white">{i===1?'4':''}</div>)}</div>,
-    'form':     <div className="mt-2 border border-slate-200 rounded-xl bg-white p-3 space-y-2">
-      {[{l:'Full Name',ph:'Priya Sharma'},{l:'Email',ph:'priya@email.com'},{l:'Phone',ph:'+91 98765 43210'}].map(f=>(
-        <div key={f.l}>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">{f.l}</p>
-          <input readOnly placeholder={f.ph} className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-400 bg-slate-50"/>
-        </div>
-      ))}
-      <button className="w-full bg-primary text-white text-[11px] font-bold py-2 rounded-lg mt-1">Submit</button>
-    </div>,
-    'carousel': <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-      {[
-        {t:'Starter Plan',   d:'Best for individuals', c:'#93C5FD'},
-        {t:'Growth Plan',    d:'For growing teams',    c:'#C4B5FD'},
-        {t:'Enterprise Plan',d:'Custom & scalable',    c:'#6EE7B7'},
-      ].map(card=>(
-        <div key={card.t} className="w-32 flex-shrink-0 border border-slate-200 rounded-xl bg-white overflow-hidden shadow-sm">
-          <div className="h-16" style={{background:card.c}}/>
-          <div className="p-2">
-            <p className="text-[10.5px] font-bold text-slate-800 truncate">{card.t}</p>
-            <p className="text-[9px] text-slate-400 truncate mt-0.5">{card.d}</p>
-          </div>
-        </div>
-      ))}
-    </div>,
-    'carousel_buttons': <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-      {[
-        {t:'Starter',    p:'$19/mo', c:'#93C5FD'},
-        {t:'Growth',     p:'$49/mo', c:'#C4B5FD'},
-        {t:'Enterprise', p:'Custom', c:'#6EE7B7'},
-      ].map(card=>(
-        <div key={card.t} className="w-32 flex-shrink-0 border border-slate-200 rounded-xl bg-white overflow-hidden shadow-sm">
-          <div className="h-14 flex items-center justify-center" style={{background:card.c}}>
-            <p className="text-[13px] font-black text-white">{card.p}</p>
-          </div>
-          <div className="p-2">
-            <p className="text-[10.5px] font-bold text-slate-800 truncate mb-1.5">{card.t}</p>
-            <button className="w-full border border-primary text-primary text-[9.5px] font-bold py-1 rounded-md">Select</button>
-          </div>
-        </div>
-      ))}
-    </div>,
-    'catalog':  <div className="mt-2 grid grid-cols-2 gap-2">
-      {[
-        {n:'Classic Tee',   p:'₹799',  c:'#FDE68A'},
-        {n:'Denim Jacket',  p:'₹2,499',c:'#BFDBFE'},
-        {n:'Canvas Bag',    p:'₹999',  c:'#FBCFE8'},
-        {n:'Running Shoes', p:'₹3,199',c:'#C7D2FE'},
-      ].map(item=>(
-        <div key={item.n} className="border border-slate-200 rounded-xl bg-white overflow-hidden shadow-sm">
-          <div className="h-14" style={{background:item.c}}/>
-          <div className="p-1.5">
-            <p className="text-[10px] font-semibold text-slate-800 truncate">{item.n}</p>
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-[10px] font-bold text-slate-700">{item.p}</span>
-              <button className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center"><Plus size={10}/></button>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>,
-  }
-  return previewMap[type.id] || null
-}
 
 /* ─── Settings Tab ────────────────────────────────────────────── */
 function SettingsTab() {
@@ -2680,7 +2799,7 @@ const LANDING_HOST = 'https://page.smatbot.com'
    of it so the URL stays readable while remaining unique per bot. */
 export const LANDING_BOT_ID = WIDGET_ID.replace(/\D/g, '').slice(-5)
 
-function slugifyBotName(name) {
+export function slugifyBotName(name) {
   return (name || 'Chat_Bot').trim().replace(/[^\w\s-]/g, '').replace(/[\s-]+/g, '_').slice(0, 48) || 'Chat_Bot'
 }
 
@@ -2876,6 +2995,8 @@ export default function WebChatAppearance() {
     gifPicker: true, voiceInput: true, saveChat: true,
     // Widget tabs — Chat is always on by default
     showHomeTab: false, showChatTab: true, showMessagesTab: false, showFaqTab: false, showBookingTab: false,
+    enableVoiceCall: false, enableVideoCall: false,
+    googleMapsApiKey: '',
       // Lead capture
       leadName: true, leadEmail: true, leadPhone: false, leadTiming: 'before',
     }
@@ -3010,7 +3131,7 @@ export default function WebChatAppearance() {
               </div>
               <div className="flex-1 min-h-0 lg:overflow-visible overflow-y-auto overscroll-contain">
                 <WidgetPreview cfg={cfg} screen={screen} device={device}
-                  activeTab={activeTab} setActiveTab={setActiveTab}
+                  activeTab={activeTab} setActiveTab={setActiveTab} setScreen={setScreen}
                   previewQuestionTypes={section==='questions' ? filteredQuestionTypes : null}
                   scrollToQType={section==='questions' ? scrollToQType : null}/>
               </div>

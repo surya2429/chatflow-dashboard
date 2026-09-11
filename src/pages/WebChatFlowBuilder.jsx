@@ -10,11 +10,14 @@ import {
   Send, Image as ImageIcon, MessageCircle, MessageSquareText, Hash, Variable,
   AlertCircle, ExternalLink, Clock, GitBranch, Shuffle, Link2, Zap, Maximize2, ZoomIn, ZoomOut,
   Globe, LogOut, Star, UserPlus, PhoneForwarded, BookOpen, Eye, RotateCcw,
-  Calendar, MapPin, CreditCard, Pencil, Upload, Bot, CornerDownRight, Workflow, Crown,
+  Calendar, MapPin, CreditCard, Pencil, Upload, CornerDownRight, Workflow, Crown,
+  Sparkles, UserCheck,
 } from 'lucide-react'
 import { NativeSelect } from '../components/Select'
 import { QUESTION_TYPES as WEBCHAT_QUESTION_TYPES } from '../constants/webchatQuestionTypes'
-import { WIDGET_CFG_STORAGE_KEY } from './WebChatAppearance'
+import { WIDGET_CFG_STORAGE_KEY, useWidgetTheme, WidgetPreview, LANDING_BOT_ID, slugifyBotName } from './WebChatAppearance'
+import { AnswerControl, DEFAULT_FORM_FIELDS } from '../components/webchat/AnswerControls'
+import { useConversations } from '../context/ConversationContext'
 
 /* ─── one draggable palette block per question type — "ask_<id>" — instead ──
    of a single generic "Ask Question" block, mirroring Instagram's flow builder.
@@ -29,6 +32,7 @@ const ASK_DEFS = Object.fromEntries(WEBCHAT_QUESTION_TYPES.map(q => [
 /* ─── node definitions — trimmed to what a website widget flow can actually do ── */
 const DEFS = {
   start:        { label: 'Trigger',          icon: Zap,             color: '#0066ff', cat: 'system' },
+  quick_automation: { label: 'Quick Automation', icon: Sparkles,    color: '#f97316', cat: 'system' },
   end:          { label: 'End Flow',         icon: X,               color: '#64748b', cat: 'system' },
   send_text:    { label: 'Send Message',     icon: Send,            color: '#10b981', cat: 'send' },
   send_media:   { label: 'Send Image',       icon: ImageIcon,       color: '#10b981', cat: 'send' },
@@ -66,13 +70,21 @@ const TRIGGER_TYPES = [
   { v: 'keyword',      l: 'Message Keyword', icon: MessageSquareText },
   { v: 'idle_time',    l: 'Visitor Idle',   icon: Clock },
   { v: 'exit_intent',  l: 'Exit Intent',    icon: LogOut },
+  { v: 'returning_visitor', l: 'Returning Visitor', icon: UserCheck },
 ]
+// Quick Automation nodes only offer the 5 trigger kinds that make sense for a
+// standalone keyword/page/idle/exit-intent/returning-visitor → instant-reply
+// node (reuses TRIGGER_TYPES rather than a second hardcoded list — every value
+// here must also exist there). "Widget Opened" isn't included since that's
+// what the flow's own Trigger node already covers.
+const QUICK_AUTOMATION_TRIGGER_TYPES = TRIGGER_TYPES.filter(t => t.v !== 'widget_open')
 
 function makeDefaults(type) {
   const base = { name: DEFS[type]?.label || type }
   if (DEFS[type]?.cat === 'ask' && DEFS[type]?.questionType) return { ...base, questionType: DEFS[type].questionType, question: '', saveAs: '' }
   switch (type) {
     case 'start':         return { ...base, trigger: 'widget_open', keywords: '', pageUrl: '', idleSeconds: 30 }
+    case 'quick_automation': return { ...base, trigger: 'keyword', keywords: '', pageUrl: '', idleSeconds: 30, message: '', aiEnabled: false, aiInstructions: '' }
     case 'end':           return { ...base, endMessage: '' }
     case 'send_text':     return { ...base, message: '' }
     case 'send_media':    return { ...base, mediaType: 'image', caption: '' }
@@ -118,141 +130,211 @@ let _uid = 100
 const uid = () => `n${++_uid}`
 const bezier = (x1, y1, x2, y2) => { const dx = Math.abs(x2 - x1) * 0.5; return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}` }
 
-/* ─── the one Main Flow, and the subflows it routes into ─────────────────
-   Exactly one bot per channel: every trigger this bot responds to is a Start
-   node in this SAME Main Flow's canvas (never a separate top-level flow —
-   that's what made it look like several disconnected bots before). Anything
-   more than a couple of nodes long is factored out into a Subflow and
-   reached via "Go to Subflow", so the Main Flow itself stays a readable map
-   of "what triggers what" instead of one giant tangle. ── */
-function seedMainFlow(subflowIdByName) {
-  const nodes = [
-    // Visitor Idle → inline nudge (short enough to not need its own subflow)
-    { id: 'n1', type: 'start',        x: 40,  y: 160, data: { name: 'Visitor Idle', trigger: 'idle_time', keywords: '', pageUrl: '', idleSeconds: 45 } },
-    { id: 'n2', type: 'send_text',    x: 300, y: 160, data: { name: 'Nudge', message: 'Still there? 👋 Need help finding something?' } },
-    { id: 'n3', type: 'quick_replies', x: 560, y: 160, data: { name: 'Offer help', message: '', buttons: [{ id: '1', label: 'Yes, help me' }, { id: '2', label: 'No thanks' }] } },
-    { id: 'n4', type: 'notify',       x: 820, y: 60,  data: { name: 'Alert agent', note: 'Visitor requested help' } },
-    { id: 'n5', type: 'end',          x: 820, y: 260, data: { name: 'End', endMessage: '' } },
-    // Exit Intent → same nudge, via Jump to Step (not a separate trigger's worth of nodes)
-    { id: 'n6', type: 'start',        x: 40,  y: 360, data: { name: 'Exit Intent', trigger: 'exit_intent', keywords: '', pageUrl: '', idleSeconds: 30 } },
-    { id: 'n7', type: 'jump',         x: 300, y: 360, data: { name: 'Reuse nudge', targetNodeId: 'n2' } },
-    // The rest of this bot's triggers each route straight into a Subflow —
-    // this is the whole point: one Main Flow, several entry points, and the
-    // actual multi-step logic lives in reusable Subflows instead of more
-    // top-level flows.
-    { id: 'n8',  type: 'start',        x: 40,  y: 500, data: { name: 'Widget Opened', trigger: 'widget_open', keywords: '', pageUrl: '', idleSeconds: 30 } },
-    { id: 'n9',  type: 'goto_subflow', x: 300, y: 500, data: { name: 'Capture the lead', subflowId: subflowIdByName['Lead Capture Funnel'] } },
-    { id: 'n10', type: 'start',        x: 40,  y: 600, data: { name: 'Keyword Match', trigger: 'keyword', keywords: 'human, agent, support', pageUrl: '', idleSeconds: 30 } },
-    { id: 'n11', type: 'goto_subflow', x: 300, y: 600, data: { name: 'Hand off to support', subflowId: subflowIdByName['Support Handoff'] } },
-    { id: 'n12', type: 'start',        x: 40,  y: 700, data: { name: 'Test All Questions', trigger: 'keyword', keywords: 'test all questions, qa test', pageUrl: '', idleSeconds: 30 } },
-    { id: 'n13', type: 'goto_subflow', x: 300, y: 700, data: { name: 'Run question-type test', subflowId: subflowIdByName['Question Types Test (All 26)'] } },
-    { id: 'n14', type: 'start',        x: 40,  y: 800, data: { name: 'Demo Keyword', trigger: 'keyword', keywords: 'demo, book a demo, schedule a demo', pageUrl: '', idleSeconds: 30 } },
-    { id: 'n15', type: 'goto_subflow', x: 300, y: 800, data: { name: 'Book the demo', subflowId: subflowIdByName['Book a Product Demo'] } },
-  ]
-  const edges = [
-    { id: 'e1', fromId: 'n1', fromPort: 0, toId: 'n2' },
-    { id: 'e2', fromId: 'n2', fromPort: 0, toId: 'n3' },
-    { id: 'e3', fromId: 'n3', fromPort: 0, toId: 'n4' },
-    { id: 'e4', fromId: 'n3', fromPort: 1, toId: 'n5' },
-    { id: 'e5', fromId: 'n6', fromPort: 0, toId: 'n7' },
-    { id: 'e6', fromId: 'n8', fromPort: 0, toId: 'n9' },
-    { id: 'e7', fromId: 'n10', fromPort: 0, toId: 'n11' },
-    { id: 'e8', fromId: 'n12', fromPort: 0, toId: 'n13' },
-    { id: 'e9', fromId: 'n14', fromPort: 0, toId: 'n15' },
-  ]
+/* ─── Courier/logistics bot — the real Main Flow content ─────────────────
+   Translates the product owner's Mermaid flowchart (see WebChatFlowBuilder
+   task notes) 1:1 into this canvas's node/edge model: one flat graph (no
+   Subflows, since the diagram's loop-backs — booking → schedule pickup,
+   freight quote → booking, and every module's "Next Action?" menu — all
+   jump back into shared nodes in this same graph). A handful of `jump`
+   nodes are reused as shared landing points (e.g. one "back to End
+   Navigation" jump fed by every module's terminal step) instead of one
+   jump node per source edge, so the graph stays well under MAX_NODES
+   without changing the flow's actual behavior — a jump node's target is
+   just data, so any number of edges can point at the same jump node. ── */
+function buildCourierBotFlow() {
+  let _n = 0, _e = 0
+  const nid = () => `n${++_n}`
+  const eid = () => `ce${++_e}` // "courier edge" — distinct prefix from other seed builders' e1../ids
+  const nodes = [], edges = []
+  const addNode = (type, x, y, data) => { const id = nid(); nodes.push({ id, type, x, y, data }); return id }
+  const addEdge = (fromId, fromPort, toId) => edges.push({ id: eid(), fromId, fromPort, toId })
+
+  const addrFields = (prefix) => ([
+    { id: `${prefix}_name`, label: 'Full Name', type: 'text', enabled: true },
+    { id: `${prefix}_phone`, label: 'Phone', type: 'phone', enabled: true },
+    { id: `${prefix}_address`, label: 'Address Line', type: 'text', enabled: true },
+    { id: `${prefix}_pin`, label: 'PIN Code', type: 'text', enabled: true },
+  ])
+
+  /* ── Main Menu (hub) ── */
+  const mainMenu = addNode('quick_replies', 340, 40, {
+    name: 'Main Menu', message: "Hi there! 👋 Welcome to QuickShip. What would you like to do today?",
+    buttons: [
+      { id: '1', label: '📦 Courier Booking' },
+      { id: '2', label: '💰 Freight Calculation' },
+      { id: '3', label: '🗓️ Schedule Shipping' },
+      { id: '4', label: '🔍 Track Shipment' },
+      { id: '5', label: '👛 Wallet Management' },
+      { id: '6', label: '📍 Manage Address' },
+      { id: '7', label: '🧪 Test All Questions' },
+    ],
+  })
+
+  /* ── Module 1: Courier Booking ── */
+  const bPickup = addNode('quick_replies', 340, 280, { name: 'Pickup Address', message: "Let's get your courier booked. Where should we pick this up from?", buttons: [{ id: '1', label: 'Select Saved Address' }, { id: '2', label: 'Enter New Address' }] })
+  const bSavedPick = addNode('send_text', 620, 180, { name: 'Fetch Saved Pickup', message: 'Pulling up your saved pickup addresses now… 📇' })
+  const bNewPick = addNode('ask_form', 620, 380, { name: 'New Pickup Address', questionType: 'form', question: "No problem — let's add a new pickup address.", saveAs: 'pickup_address', formFields: addrFields('pickup') })
+  const bDrop = addNode('quick_replies', 900, 280, { name: 'Delivery Address', message: "Got the pickup sorted. Now, where's this parcel headed?", buttons: [{ id: '1', label: 'Select Saved Address' }, { id: '2', label: 'Enter New Address' }] })
+  const bSavedDrop = addNode('send_text', 1180, 180, { name: 'Fetch Saved Delivery', message: 'Pulling up your saved delivery addresses now… 📇' })
+  const bNewDrop = addNode('ask_form', 1180, 380, { name: 'New Delivery Address', questionType: 'form', question: "Let's add the delivery details.", saveAs: 'delivery_address', formFields: addrFields('delivery') })
+  const bParcel = addNode('ask_short', 1460, 280, { name: 'Parcel Specs', questionType: 'short', question: 'Tell us about the parcel — item type, approximate weight (kg), and dimensions (L×W×H cm).', saveAs: 'parcel_specs' })
+  const bService = addNode('quick_replies', 1740, 280, { name: 'Booking Service Type', message: "Which service would you like?", buttons: [{ id: '1', label: 'Standard' }, { id: '2', label: 'Express' }] })
+  const bSummary = addNode('send_text', 2020, 280, { name: 'Booking Summary', message: "Here's your booking summary: pickup → delivery, parcel details, and service level. Estimated rate: ₹{{rate}}. Ready to pay?" })
+  const bPay = addNode('quick_replies', 2300, 280, { name: 'Payment Method', message: 'How would you like to pay?', buttons: [{ id: '1', label: 'Wallet' }, { id: '2', label: 'Payment Gateway' }] })
+  const bWalletCheck = addNode('condition', 2580, 180, { name: 'Check Wallet Balance', variable: 'wallet_balance_sufficient', operator: 'equals', value: 'yes', trueLabel: 'Yes', falseLabel: 'No' })
+  const bGateway = addNode('send_text', 2580, 380, { name: 'Payment Gateway Redirect', message: 'Redirecting you to our secure payment page to complete your booking… 💳' })
+  const bDeduct = addNode('send_text', 2860, 180, { name: 'Deduct Wallet Funds', message: 'Done! ₹{{amount}} has been deducted from your wallet balance.' })
+  const bConfirm = addNode('send_text', 3140, 280, { name: 'Booking Reference', message: "You're booked! 📦 Your reference ID is BK-{{ref}} — we'll notify you once it's picked up." })
+  const bNextSlot = addNode('quick_replies', 3420, 280, { name: 'Schedule Pickup Now?', message: 'Would you like to schedule the pickup now?', buttons: [{ id: '1', label: 'Yes, schedule now' }, { id: '2', label: 'Not now' }] })
+
+  /* ── Module 2: Freight Calculation ── */
+  const fRoute = addNode('ask_short', 340, 560, { name: 'Freight Route', questionType: 'short', question: "Let's calculate freight charges. What's the origin and destination? (PIN code or city for both)", saveAs: 'freight_route' })
+  const fSpecs = addNode('ask_short', 620, 560, { name: 'Freight Specs', questionType: 'short', question: "What's the shipment's weight (kg) and dimensions (L×W×H cm)?", saveAs: 'freight_specs' })
+  const fService = addNode('quick_replies', 900, 560, { name: 'Freight Service Type', message: 'Which service type should we quote?', buttons: [{ id: '1', label: 'Standard' }, { id: '2', label: 'Express' }] })
+  const fQuote = addNode('send_text', 1180, 560, { name: 'Freight Estimate', message: "Here's your instant estimate: ₹{{estimate}} for this route and service level." })
+  const fProceed = addNode('quick_replies', 1460, 560, { name: 'Proceed to Book?', message: 'Would you like to go ahead and book this shipment?', buttons: [{ id: '1', label: 'Yes, book it' }, { id: '2', label: 'Not right now' }] })
+
+  /* ── Module 3: Schedule Shipping ── */
+  const sRef = addNode('ask_short', 340, 760, { name: 'Booking Reference', questionType: 'short', question: 'Which booking would you like to schedule? Select an active booking or enter its reference ID.', saveAs: 'schedule_ref' })
+  const sDate = addNode('ask_date', 620, 760, { name: 'Pickup Date', questionType: 'date', question: 'What date works for the pickup?', saveAs: 'pickup_date' })
+  const sTime = addNode('ask_time', 900, 760, { name: 'Pickup Time Window', questionType: 'time', question: 'And what time window suits you best?', saveAs: 'pickup_time' })
+  const sConfirm = addNode('send_text', 1180, 760, { name: 'Schedule Confirmed', message: "All set! Your pickup is scheduled — we've sent you a confirmation with the window we've locked in. ✅" })
+
+  /* ── Module 4: Track Shipment ── */
+  const tInput = addNode('ask_short', 340, 960, { name: 'Tracking Reference', questionType: 'short', question: "Sure — what's your tracking or booking reference ID?", saveAs: 'tracking_ref' })
+  const tValidate = addNode('condition', 620, 960, { name: 'Validate Reference', variable: 'tracking_ref_valid', operator: 'equals', value: 'yes', trueLabel: 'Valid Reference', falseLabel: 'Invalid Reference' })
+  const tDisplay = addNode('send_text', 900, 870, { name: 'Live Shipment Status', message: 'Your shipment is currently in transit 🚚 — here’s the live status, last known location, and delivery milestones.' })
+  const tRetry = addNode('send_text', 900, 1070, { name: 'Tracking Error', message: "Hmm, we couldn't find that reference. Please double-check the ID, or I can connect you with support if you'd like." })
+
+  /* ── Module 5: Wallet Management ── */
+  const wBal = addNode('send_text', 340, 1180, { name: 'Wallet Balance', message: 'Your current wallet balance is ₹{{balance}}.' })
+  const wAction = addNode('quick_replies', 620, 1180, { name: 'Wallet Action', message: 'What would you like to do?', buttons: [{ id: '1', label: 'Top-up Wallet' }, { id: '2', label: 'Transaction History' }, { id: '3', label: 'Back to Menu' }] })
+  const wAmount = addNode('ask_number', 900, 1090, { name: 'Top-up Amount', questionType: 'number', question: 'How much would you like to add?', saveAs: 'topup_amount' })
+  const wPay = addNode('send_text', 1180, 1090, { name: 'Wallet Payment Link', message: "Here's your secure payment link to complete the top-up 💳" })
+  const wSuccess = addNode('send_text', 1460, 1090, { name: 'Wallet Credited', message: 'Payment received! Your wallet has been credited and you’re all set. 🎉' })
+  const wHist = addNode('send_text', 900, 1270, { name: 'Transaction History', message: 'Here are your recent transactions — debits and credits from the last 30 days.' })
+
+  /* ── Module 6: Manage Address ── */
+  const aAction = addNode('quick_replies', 340, 1400, { name: 'Address Action', message: "Let's manage your saved addresses. What would you like to do?", buttons: [{ id: '1', label: 'View Addresses' }, { id: '2', label: 'Add New' }, { id: '3', label: 'Edit / Delete' }] })
+  const aList = addNode('send_text', 620, 1310, { name: 'List Addresses', message: 'Here are all your saved locations 📍' })
+  const aAdd = addNode('ask_form', 620, 1400, { name: 'Add Address', questionType: 'form', question: "Let's save a new address — fill in the details below.", saveAs: 'new_address', formFields: addrFields('addr') })
+  const aSave = addNode('send_text', 900, 1400, { name: 'Address Saved', message: 'Saved! That address is now in your profile for next time.' })
+  const aModify = addNode('ask_short', 620, 1490, { name: 'Select Address to Modify', questionType: 'short', question: 'Which saved address would you like to update or remove?', saveAs: 'address_to_modify' })
+  const aUpdate = addNode('send_text', 900, 1490, { name: 'Address Updated', message: 'Done — that address has been updated.' })
+
+  /* ── End Navigation hub + shared jump nodes ──
+     One jump node per distinct target, reused by every source edge that
+     needs it — e.g. every module's terminal step points at the same
+     `jToEndNav` node instead of each getting its own. */
+  const endNav = addNode('quick_replies', 620, 1650, { name: 'Next Action?', message: 'Anything else I can help with?', buttons: [{ id: '1', label: 'Main Menu' }, { id: '2', label: 'End Chat' }, { id: '3', label: 'Agent Escalation' }] })
+  const jToEndNav = addNode('jump', 340, 1650, { name: 'Back to End Navigation', targetNodeId: endNav })
+  const jToMainMenu = addNode('jump', 900, 1650, { name: 'Back to Main Menu', targetNodeId: mainMenu })
+  const jToSDate = addNode('jump', 1180, 1650, { name: 'Go to Schedule Pickup', targetNodeId: sDate })
+  const jToBPickup = addNode('jump', 1460, 1650, { name: 'Go to Courier Booking', targetNodeId: bPickup })
+  const close = addNode('end', 620, 1830, { name: 'Session Closed', endMessage: 'Thanks for chatting with us today — have a great day! 👋' })
+  const escalation = addNode('live_chat', 900, 1830, { name: 'Handover to Support', note: 'Visitor requested a human agent from the End Navigation menu.' })
+
+  /* ── Main Menu option 7: jumps into the "Question Types Test" Subflow —
+     a QA/demo entry point exercising all 26 Ask-Question controls, reusing
+     buildQuestionTypesTestFlow() (still defined below, just no longer the
+     Main Flow's own content since it became this courier bot). The target
+     subflow's id ('qtypes') is assigned when seedFlows() builds it. */
+  const testQuestions = addNode('goto_subflow', 1180, 40, { name: 'Test All Question Types', subflowId: 'qtypes' })
+
+  /* ── wiring ── */
+  // Module 1
+  addEdge(bPickup, 0, bSavedPick); addEdge(bPickup, 1, bNewPick)
+  addEdge(bSavedPick, 0, bDrop); addEdge(bNewPick, 0, bDrop)
+  addEdge(bDrop, 0, bSavedDrop); addEdge(bDrop, 1, bNewDrop)
+  addEdge(bSavedDrop, 0, bParcel); addEdge(bNewDrop, 0, bParcel)
+  addEdge(bParcel, 0, bService)
+  addEdge(bService, 0, bSummary); addEdge(bService, 1, bSummary)
+  addEdge(bSummary, 0, bPay)
+  addEdge(bPay, 0, bWalletCheck); addEdge(bPay, 1, bGateway)
+  addEdge(bWalletCheck, 0, bDeduct); addEdge(bWalletCheck, 1, bGateway)
+  addEdge(bDeduct, 0, bConfirm); addEdge(bGateway, 0, bConfirm)
+  addEdge(bConfirm, 0, bNextSlot)
+  addEdge(bNextSlot, 0, jToSDate); addEdge(bNextSlot, 1, jToEndNav)
+
+  // Module 2
+  addEdge(mainMenu, 1, fRoute)
+  addEdge(fRoute, 0, fSpecs); addEdge(fSpecs, 0, fService)
+  addEdge(fService, 0, fQuote); addEdge(fService, 1, fQuote)
+  addEdge(fQuote, 0, fProceed)
+  addEdge(fProceed, 0, jToBPickup); addEdge(fProceed, 1, jToEndNav)
+
+  // Module 3
+  addEdge(mainMenu, 2, sRef)
+  addEdge(sRef, 0, sDate); addEdge(sDate, 0, sTime); addEdge(sTime, 0, sConfirm)
+  addEdge(sConfirm, 0, jToEndNav)
+
+  // Module 4
+  addEdge(mainMenu, 3, tInput)
+  addEdge(tInput, 0, tValidate)
+  addEdge(tValidate, 0, tDisplay); addEdge(tValidate, 1, tRetry)
+  addEdge(tDisplay, 0, jToEndNav); addEdge(tRetry, 0, jToEndNav)
+
+  // Module 5
+  addEdge(mainMenu, 4, wBal)
+  addEdge(wBal, 0, wAction)
+  addEdge(wAction, 0, wAmount); addEdge(wAction, 1, wHist); addEdge(wAction, 2, jToEndNav)
+  addEdge(wAmount, 0, wPay); addEdge(wPay, 0, wSuccess)
+  addEdge(wSuccess, 0, jToEndNav); addEdge(wHist, 0, jToEndNav)
+
+  // Module 6
+  addEdge(mainMenu, 5, aAction)
+  addEdge(aAction, 0, aList); addEdge(aAction, 1, aAdd); addEdge(aAction, 2, aModify)
+  addEdge(aList, 0, jToEndNav)
+  addEdge(aAdd, 0, aSave); addEdge(aSave, 0, jToEndNav)
+  addEdge(aModify, 0, aUpdate); addEdge(aUpdate, 0, jToEndNav)
+
+  // Module 1's own entry edge from the Main Menu
+  addEdge(mainMenu, 0, bPickup)
+  // Option 7: Test All Questions
+  addEdge(mainMenu, 6, testQuestions)
+
+  // End Navigation hub
+  addEdge(endNav, 0, jToMainMenu); addEdge(endNav, 1, close); addEdge(endNav, 2, escalation)
+
   return { nodes, edges }
 }
 
-function seedSubflows() {
-  const leadCapture = {
-    nodes: [
-      { id: 'n1', type: 'send_text',    x: 40,  y: 160, data: { name: 'Greeting', message: "Hi there! 👋 I'm here to help — mind sharing a few details first?" } },
-      { id: 'n2', type: 'lead_capture', x: 300, y: 160, data: { name: 'Capture lead', captureName: true, captureEmail: true, capturePhone: false, message: '' } },
-      { id: 'n3', type: 'crm',          x: 560, y: 160, data: { name: 'Push lead', note: 'Push visitor + collected fields to CRM' } },
-    ],
-    edges: [
-      { id: 'e1', fromId: 'n1', fromPort: 0, toId: 'n2' },
-      { id: 'e2', fromId: 'n2', fromPort: 0, toId: 'n3' },
-    ],
-  }
-  const supportHandoff = {
-    nodes: [
-      { id: 'n1', type: 'send_text', x: 40,  y: 160, data: { name: 'Bridge message', message: "Sure — connecting you to our support team now..." } },
-      { id: 'n2', type: 'live_chat', x: 300, y: 160, data: { name: 'Handover', note: 'Pauses the bot and assigns this conversation to a human agent' } },
-    ],
-    edges: [
-      { id: 'e1', fromId: 'n1', fromPort: 0, toId: 'n2' },
-    ],
-  }
-  const questionTypesTest = buildQuestionTypesTestFlow()
-  const demoBooking = buildDemoBookingFlow()
-  return [
-    { id: 's1', kind: 'subflow', name: 'Lead Capture Funnel',           active: true,  graph: leadCapture,      stats: { triggered: 1530, completed: 1120 } },
-    { id: 's2', kind: 'subflow', name: 'Support Handoff',               active: true,  graph: supportHandoff,   stats: { triggered: 0,    completed: 0 } },
-    { id: 's3', kind: 'subflow', name: 'Question Types Test (All 26)', active: true,  graph: questionTypesTest, stats: { triggered: 0,    completed: 0 } },
-    { id: 's4', kind: 'subflow', name: 'Book a Product Demo',           active: true,  graph: demoBooking,      stats: { triggered: 340,  completed: 251 } },
+/* ─── the one Main Flow ────────────────────────────────────────────────
+   Exactly one bot per channel, exactly one trigger: a single keyword
+   Trigger node ("hi"/"menu"/etc.) feeding straight into the courier/
+   logistics bot graph above. No pre-seeded Subflows — "Go to Subflow"/
+   "Create Subflow" stay fully functional for whatever the user builds
+   on their own. ── */
+function seedMainFlow() {
+  const bot = buildCourierBotFlow()
+  const start = { id: 'trigger', type: 'start', x: 40, y: 40, data: { name: 'Courier Bot Welcome', trigger: 'keyword', keywords: 'hi, menu, hello, start', pageUrl: '', idleSeconds: 30 } }
+  const firstNode = bot.nodes[0]
+  const nodes = [start, ...bot.nodes]
+  const edges = [
+    { id: 'e-trigger', fromId: start.id, fromPort: 0, toId: firstNode.id },
+    ...bot.edges,
   ]
+  return { nodes, edges }
 }
 
 function seedFlows() {
-  const subflows = seedSubflows()
-  const byName = Object.fromEntries(subflows.map(s => [s.name, s.id]))
   const mainFlow = {
     id: 'main', kind: 'main', name: 'Main Flow', active: true,
-    trigger: 'Visitor Idle · Exit Intent · Widget Opened · Message Keyword',
-    graph: seedMainFlow(byName),
-    stats: { triggered: 862 + 1530 + 340, completed: 640 + 1120 + 251 },
+    trigger: 'Hi / Menu',
+    graph: seedMainFlow(),
+    stats: { triggered: 1240, completed: 918 },
   }
-  return [mainFlow, ...subflows]
-}
-
-/* ─── Book a Product Demo — a realistic end-to-end use case, not just a
-   question-type showcase: qualifies the visitor by team size and branches
-   into an Enterprise handoff path (talk to a human AE) vs. a Self-Serve path
-   (pick a date/time and get an automatic confirmation), then tags + pushes
-   the lead to CRM. Exercises 6 different question types plus branching
-   logic, send/action/utility nodes — one coherent story end to end. ── */
-function buildDemoBookingFlow() {
-  const nodes = [
-    { id: 'n2',  type: 'send_text',  x: 300,  y: 220, data: { name: 'Kick off', message: "Awesome — let's get a demo on the calendar! Just need a few quick details." } },
-    { id: 'n3',  type: 'ask_short',  x: 560,  y: 220, data: { name: 'Name',       questionType: 'short', question: "What's your name?", saveAs: 'name' } },
-    { id: 'n4',  type: 'ask_email',  x: 820,  y: 220, data: { name: 'Work email', questionType: 'email', question: "What's your work email?", saveAs: 'email' } },
-    { id: 'n5',  type: 'ask_single', x: 1080, y: 220, data: { name: 'Team size',  questionType: 'single', question: 'How big is your team? (1–10 / 11–50 / 51–200 / 200+)', saveAs: 'team_size' } },
-    { id: 'n6',  type: 'condition',  x: 1340, y: 220, data: { name: 'Qualify lead', variable: 'team_size', operator: 'contains', value: '200+', trueLabel: 'Enterprise', falseLabel: 'Self-Serve' } },
-
-    // Enterprise branch (condition port 0 = true) — routes to a human AE, no self-serve booking
-    { id: 'n7',  type: 'send_text',  x: 1600, y: 60,  data: { name: 'Enterprise reply', message: "Got it — for teams your size we'll connect you directly with our Enterprise team." } },
-    { id: 'n8',  type: 'notify',     x: 1860, y: 60,  data: { name: 'Alert AE', note: 'Enterprise lead — team_size 200+, route to an Account Executive' } },
-    { id: 'n9',  type: 'live_chat',  x: 2120, y: 60,  data: { name: 'Handover', note: 'Pauses the bot and hands the visitor to a live Enterprise sales agent' } },
-
-    // Self-Serve branch (condition port 1 = false) — books the slot itself
-    { id: 'n10', type: 'ask_phone',  x: 1600, y: 380, data: { name: 'Phone',      questionType: 'phone', question: "What's the best number for a reminder call?", saveAs: 'phone' } },
-    { id: 'n11', type: 'ask_date',   x: 1860, y: 380, data: { name: 'Demo date',  questionType: 'date',  question: 'What date works best for your demo?', saveAs: 'demo_date' } },
-    { id: 'n12', type: 'ask_time',   x: 2120, y: 380, data: { name: 'Demo time',  questionType: 'time',  question: 'And what time?', saveAs: 'demo_time' } },
-    { id: 'n13', type: 'ask_appt',   x: 2380, y: 380, data: { name: 'Confirm slot', questionType: 'appt', question: 'Confirm your demo slot', saveAs: 'demo_slot' } },
-    { id: 'n14', type: 'send_text',  x: 2640, y: 380, data: { name: 'Confirmation', message: "You're all set! We'll send a calendar invite to your email shortly. See you then 🎉" } },
-    { id: 'n15', type: 'tag',        x: 2900, y: 380, data: { name: 'Tag lead', tagName: 'demo-booked' } },
-    { id: 'n16', type: 'crm',        x: 3160, y: 380, data: { name: 'Push to CRM', note: 'Push visitor + name/email/team_size/demo_date/demo_time to CRM' } },
-    { id: 'n17', type: 'end',        x: 3420, y: 380, data: { name: 'End', endMessage: '' } },
-  ]
-  const edges = [
-    { id: 'e2',  fromId: 'n2',  fromPort: 0, toId: 'n3'  },
-    { id: 'e3',  fromId: 'n3',  fromPort: 0, toId: 'n4'  },
-    { id: 'e4',  fromId: 'n4',  fromPort: 0, toId: 'n5'  },
-    { id: 'e5',  fromId: 'n5',  fromPort: 0, toId: 'n6'  },
-    { id: 'e6',  fromId: 'n6',  fromPort: 0, toId: 'n7'  }, // Enterprise
-    { id: 'e7',  fromId: 'n7',  fromPort: 0, toId: 'n8'  },
-    { id: 'e8',  fromId: 'n8',  fromPort: 0, toId: 'n9'  },
-    { id: 'e9',  fromId: 'n6',  fromPort: 1, toId: 'n10' }, // Self-Serve
-    { id: 'e10', fromId: 'n10', fromPort: 0, toId: 'n11' },
-    { id: 'e11', fromId: 'n11', fromPort: 0, toId: 'n12' },
-    { id: 'e12', fromId: 'n12', fromPort: 0, toId: 'n13' },
-    { id: 'e13', fromId: 'n13', fromPort: 0, toId: 'n14' },
-    { id: 'e14', fromId: 'n14', fromPort: 0, toId: 'n15' },
-    { id: 'e15', fromId: 'n15', fromPort: 0, toId: 'n16' },
-    { id: 'e16', fromId: 'n16', fromPort: 0, toId: 'n17' },
-  ]
-  return { nodes, edges }
+  // Reached from Main Menu option 7 ("🧪 Test All Questions") via
+  // goto_subflow — exercises every one of the 26 Ask-Question controls
+  // back-to-back. `buildQuestionTypesTestFlow()` is defined further down
+  // this file; it has no trigger of its own (subflows never do — entry is
+  // whatever "Go to Subflow" jumps into it).
+  const qTypesFlow = {
+    id: 'qtypes', kind: 'subflow', name: 'Question Types Test (All 26)', active: true,
+    graph: buildQuestionTypesTestFlow(),
+    stats: { triggered: 0, completed: 0 },
+  }
+  return [mainFlow, qTypesFlow]
 }
 
 /* Hand-written prompt text per question type — realistic bot copy rather than
@@ -493,6 +575,106 @@ function Minimap({ nodes, edges, zoom, pan, svgRef }) {
 }
 
 /* ─── node properties editor (modal) — lean, per-type field sets ───────── */
+/* ─── multi-field Form node: per-field editor (label/type/options/enabled) ──
+   The 3 default fields (name/email/phone) can be relabelled and toggled off
+   but never deleted — same "required, can't remove" convention as the
+   Widget Tabs list's `always` rows in WebChatAppearance.jsx. Custom fields
+   the author adds (text or dropdown) can be freely deleted. ── */
+const DEFAULT_FORM_FIELD_IDS = new Set(DEFAULT_FORM_FIELDS.map(f => f.id))
+/* OTP node config — both the resend countdown and the resend option itself
+   are independently optional, so a flow author can turn either off (e.g. a
+   flat "Resend code" with no wait, or just a countdown with no resend at
+   all). Defaults (timer on, resend on, 30s) match OtpAnswer's own defaults
+   in AnswerControls.jsx, used whenever a node hasn't set `otpConfig` yet. */
+const DEFAULT_OTP_CONFIG = { showTimer: true, showResend: true, seconds: 30 }
+function OtpConfigEditor({ config, onChange }) {
+  const cfg = { ...DEFAULT_OTP_CONFIG, ...config }
+  const set = (k, v) => onChange({ ...cfg, [k]: v })
+  return (
+    <div className="space-y-1.5">
+      <label className="label">Resend options</label>
+      <p className="text-[9px] text-slate-400 -mt-0.5">Both are optional and can be turned off independently.</p>
+      <label className="flex items-center justify-between p-2.5 rounded-xl border border-surface-border">
+        <div>
+          <span className="text-[12px] font-semibold text-slate-700 block">Show countdown timer</span>
+          <span className="text-[9.5px] text-slate-400">e.g. "Resend code in 0:30"</span>
+        </div>
+        <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={cfg.showTimer} onChange={e => set('showTimer', e.target.checked)}/>
+      </label>
+      {cfg.showTimer && (
+        <div className="space-y-1 pl-1"><label className="label">Countdown duration (seconds)</label>
+          <input type="number" min={5} max={300} className="input-sm w-28" value={cfg.seconds}
+            onChange={e => set('seconds', Math.max(5, +e.target.value || 5))}/>
+        </div>
+      )}
+      <label className="flex items-center justify-between p-2.5 rounded-xl border border-surface-border">
+        <div>
+          <span className="text-[12px] font-semibold text-slate-700 block">Allow resend</span>
+          <span className="text-[9.5px] text-slate-400">
+            {cfg.showTimer ? 'Resend button appears once the countdown reaches 0' : 'Resend button is available immediately'}
+          </span>
+        </div>
+        <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={cfg.showResend} onChange={e => set('showResend', e.target.checked)}/>
+      </label>
+    </div>
+  )
+}
+function FormFieldsEditor({ fields, onChange }) {
+  const update = (id, patch) => onChange(fields.map(f => f.id === id ? { ...f, ...patch } : f))
+  const remove = id => onChange(fields.filter(f => f.id !== id))
+  const addField = type => onChange([...fields, {
+    id: `field_${Date.now()}`, label: type === 'dropdown' ? 'New dropdown' : 'New field',
+    type, enabled: true, options: type === 'dropdown' ? ['Option A', 'Option B'] : undefined,
+  }])
+  return (
+    <div className="space-y-1.5">
+      <label className="label">Form fields</label>
+      <p className="text-[9px] text-slate-400 -mt-0.5">Toggle a field off to hide it from the widget's form. The 3 default fields can be disabled but not removed.</p>
+      <div className="space-y-2">
+        {fields.map(f => {
+          const isDefault = DEFAULT_FORM_FIELD_IDS.has(f.id)
+          return (
+            <div key={f.id} className="p-2.5 rounded-xl border border-surface-border space-y-1.5" style={{ opacity: f.enabled === false ? 0.55 : 1 }}>
+              <div className="flex items-center gap-1.5">
+                <input className="input-sm flex-1" value={f.label} placeholder="Field label"
+                  onChange={e => update(f.id, { label: e.target.value })}/>
+                {isDefault ? (
+                  <span className="text-[9px] font-semibold text-slate-400 px-1.5 flex-shrink-0">
+                    {f.type === 'phone' ? 'Phone' : f.type === 'email' ? 'Email' : 'Text'} · required
+                  </span>
+                ) : (
+                  <div className="flex-shrink-0" style={{ width: 96 }}>
+                    <NativeSelect sm value={f.type} onChange={e => update(f.id, { type: e.target.value, options: e.target.value === 'dropdown' ? (f.options && f.options.length ? f.options : ['Option A', 'Option B']) : undefined })}>
+                      <option value="text">Text</option>
+                      <option value="dropdown">Dropdown</option>
+                    </NativeSelect>
+                  </div>
+                )}
+                <label className="flex items-center flex-shrink-0" title={f.enabled === false ? 'Enable field' : 'Disable field'}>
+                  <input type="checkbox" className="w-4 h-4 rounded accent-primary" checked={f.enabled !== false}
+                    onChange={e => update(f.id, { enabled: e.target.checked })}/>
+                </label>
+                {!isDefault && (
+                  <button onClick={() => remove(f.id)} className="p-1 text-slate-400 hover:text-red-500 flex-shrink-0"><X size={13}/></button>
+                )}
+              </div>
+              {f.type === 'dropdown' && (
+                <input className="input-sm w-full" placeholder="Comma-separated options, e.g. Small, Medium, Large"
+                  value={(f.options || []).join(', ')}
+                  onChange={e => update(f.id, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}/>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex gap-2">
+        <button onClick={() => addField('text')} className="text-[11px] text-primary font-semibold hover:underline flex items-center gap-1"><Plus size={11}/> Add text field</button>
+        <button onClick={() => addField('dropdown')} className="text-[11px] text-primary font-semibold hover:underline flex items-center gap-1"><Plus size={11}/> Add dropdown field</button>
+      </div>
+    </div>
+  )
+}
+
 function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOptions }) {
   const def = DEFS[node.type] || { label: node.type, icon: Zap, color: '#0066ff', cat: 'system' }
   const Icon = def.icon
@@ -553,6 +735,50 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
               {d.trigger === 'idle_time' && (
                 <div className="space-y-1"><label className="label">Idle for (seconds)</label>
                   <input type="number" className="input" value={d.idleSeconds ?? 30} onChange={e => set('idleSeconds', +e.target.value)}/>
+                </div>
+              )}
+            </>
+          )}
+
+          {node.type === 'quick_automation' && (
+            <>
+              <div className="space-y-1">
+                <label className="label">Trigger</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {QUICK_AUTOMATION_TRIGGER_TYPES.map(t => (
+                    <button key={t.v} onClick={() => set('trigger', t.v)}
+                      className={clsx('flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] font-semibold transition-colors',
+                        d.trigger === t.v ? 'border-primary bg-primary-50 text-primary' : 'border-surface-border text-slate-600 hover:bg-surface-hover')}>
+                      <t.icon size={11}/> {t.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {d.trigger === 'page_visit' && (
+                <div className="space-y-1"><label className="label">Page URL contains</label>
+                  <input className="input" placeholder="e.g. /pricing" value={d.pageUrl || ''} onChange={e => set('pageUrl', e.target.value)}/>
+                </div>
+              )}
+              {d.trigger === 'keyword' && (
+                <div className="space-y-1"><label className="label">Keywords</label>
+                  <input className="input" placeholder="e.g. price, cost, refund" value={d.keywords || ''} onChange={e => set('keywords', e.target.value)}/>
+                </div>
+              )}
+              {d.trigger === 'idle_time' && (
+                <div className="space-y-1"><label className="label">Idle for (seconds)</label>
+                  <input type="number" className="input" value={d.idleSeconds ?? 30} onChange={e => set('idleSeconds', +e.target.value)}/>
+                </div>
+              )}
+              <div className="space-y-1"><label className="label">Reply message</label>
+                <textarea className="textarea" rows={3} placeholder="What the bot instantly replies with" value={d.message || ''} onChange={e => set('message', e.target.value)}/>
+              </div>
+              <label className="flex items-center justify-between p-2.5 rounded-xl border border-surface-border">
+                <span className="text-[12px] font-semibold text-slate-700">Let AI write the reply</span>
+                <input type="checkbox" className="w-4 h-4 rounded accent-primary" checked={Boolean(d.aiEnabled)} onChange={e => set('aiEnabled', e.target.checked)}/>
+              </label>
+              {d.aiEnabled && (
+                <div className="space-y-1"><label className="label">AI instructions</label>
+                  <textarea className="textarea" rows={2} placeholder="e.g. Mention the 14-day refund window" value={d.aiInstructions || ''} onChange={e => set('aiInstructions', e.target.value)}/>
                 </div>
               )}
             </>
@@ -631,6 +857,12 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
               <div className="space-y-1"><label className="label">Save answer as</label>
                 <input className="input" placeholder="e.g. email" value={d.saveAs || ''} onChange={e => set('saveAs', e.target.value)}/>
               </div>
+              {def.questionType === 'form' && (
+                <FormFieldsEditor fields={d.formFields || DEFAULT_FORM_FIELDS} onChange={v => set('formFields', v)}/>
+              )}
+              {def.questionType === 'otp' && (
+                <OtpConfigEditor config={d.otpConfig} onChange={v => set('otpConfig', v)}/>
+              )}
             </>
           )}
 
@@ -792,6 +1024,89 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
    evaluated. ── */
 const SIM_AUTO_MESSAGE = ['send_text', 'send_media', 'show_article']
 const SIM_AUTO_LOG = ['tag', 'untag', 'setfield', 'notify', 'crm', 'lead_capture', 'csat_rating', 'delay', 'setvar', 'webhook']
+// Node types that can serve as a flow's entry point — used to pick which node
+// Preview starts simulating from (always the first one found, never a picker).
+const ENTRY_TYPES = ['start', 'quick_automation']
+
+// localStorage bridge between the canvas's "Live Preview" toolbar button and
+// the standalone /webchat-flow-preview route (see WebChatFlowLivePreview.jsx)
+// — carries the CURRENT in-canvas flow + allFlows (including any unsaved
+// edits) since a new tab has no other way to see the builder's in-memory
+// state. Mirrors the WIDGET_CFG_STORAGE_KEY bridge pattern used for
+// merchant branding between the Widget Builder and /webchat-landing.
+export const FLOW_PREVIEW_STORAGE_KEY = 'webchat_flow_live_preview'
+
+// Same "?name=...&id=..." shareable-link shape the Widget Builder already
+// generates for its Landing Page (buildLocalLandingUrl in WebChatAppearance.jsx)
+// — a real, presentable, copyable URL instead of a bare path, so "Live
+// Preview" hands back a link that reads/behaves like every other link this
+// app generates, not a one-off. `id` combines this widget's stable
+// LANDING_BOT_ID with the specific flow's own id so the same bot's Main Flow
+// and each Subflow each get a distinct, stable link.
+export function buildFlowPreviewUrl(flow) {
+  return `/webchat-flow-preview?name=${encodeURIComponent(slugifyBotName(flow.name))}&id=${LANDING_BOT_ID}-${flow.id}`
+}
+
+// Turns a live test session (the flow being tested + its running transcript)
+// into a Website Chat Inbox conversation record, same shape — and same
+// look — as WEBCHAT_CONVERSATIONS in constants/mockData.js, indistinguishable
+// from a real visitor's thread (no "test"/"internal" labeling anywhere
+// visible: no special name prefix, no tag, ordinary page/browser/os fields).
+// `id`/`visitorId` are DERIVED FROM THE FLOW's OWN id, not the current
+// timestamp or a random visitor number — every call for the same flow
+// produces the same id, so re-testing (restarting Preview, stepping through
+// again) keeps updating that ONE thread via upsertConversation instead of
+// spawning a fresh "chat" each time. The visible visitor number IS random
+// per flow (stable via a simple hash of flow.id, not Date.now()) purely so
+// two different flows don't show up with the identical "Visitor #____".
+function hashToVisitorNumber(str) {
+  let h = 0
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0
+  return 1000 + (h % 9000)
+}
+const TEST_BROWSERS = [{ browser: 'Chrome', os: 'Windows' }, { browser: 'Safari', os: 'macOS' }, { browser: 'Chrome', os: 'Android' }, { browser: 'Edge', os: 'Windows' }]
+const TEST_LOCATIONS = ['Mumbai, India', 'Bengaluru, India', 'Delhi, India', 'Austin, USA', 'London, UK']
+export function buildFlowTestConversation(flow, messages) {
+  const id = `flowtest_${flow.id}`
+  const num = hashToVisitorNumber(flow.id)
+  const env = TEST_BROWSERS[num % TEST_BROWSERS.length]
+  const location = TEST_LOCATIONS[num % TEST_LOCATIONS.length]
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const mapped = messages.map(m => ({
+    id: `ft${m.id}`,
+    type: m.from === 'bot' ? 'outgoing' : 'incoming',
+    text: m.text,
+    time,
+    sender: m.from === 'bot' ? 'Bot' : 'Visitor',
+  }))
+  const last = mapped[mapped.length - 1]
+  return {
+    id,
+    visitorId: `v_${num}`,
+    name: `Visitor #${num}`,
+    avatar: `V${String(num)[0]}`,
+    channel: 'webchat',
+    page: '/', browser: env.browser, os: env.os, location,
+    referrer: 'Direct', firstSeen: 'Just now', visits: 1,
+    lastMessage: last?.text || '',
+    time: 'Just now',
+    unread: 0,
+    status: 'bot',
+    tags: [], labels: [],
+    agentId: null, agentName: null,
+    source: 'direct', starred: false, archived: false, snoozed: null,
+    timestamp: new Date().toISOString(),
+    messages: mapped,
+  }
+}
+
+// localStorage bridge so a flow test run on the standalone /webchat-flow-preview
+// page (a separate, unauthenticated tab with no access to ConversationContext)
+// can still reach the Inbox — the dashboard tab listens for `storage` events
+// on this key (see ConversationContext.jsx) and upserts whatever lands here,
+// the same cross-tab pattern FLOW_PREVIEW_STORAGE_KEY already uses to hand
+// the flow itself to that page in the first place.
+export const FLOW_TEST_SYNC_KEY = 'webchat_flow_test_sync'
 
 
 function simBotText(node) {
@@ -820,266 +1135,82 @@ function simLogText(node) {
   }
 }
 
-/* ─── Interactive answer control per question type ────────────────────────
-   WebChatAppearance.jsx's own renderAnswerControl() draws what each of the
-   26 question types LOOKS like, but every one of those is a static, inert
-   mockup (no onClick/onChange at all) — it's a design preview, not something
-   you can actually answer. This is the interactive equivalent so the flow
-   Preview simulator can be driven through every question type for real,
-   styled to match the same look instead of one generic text box for all 26. ── */
-function AskAnswerControl({ questionType, accent, onSubmit }) {
-  const [val, setVal] = useState('')
-  const [multi, setMulti] = useState([])
-  const [range, setRange] = useState({ a: '', b: '' })
-  const btn = 'text-[11px] font-semibold px-3 py-1.5 rounded-lg transition-colors'
-  const primaryBtn = { background: accent, color: '#fff' }
-
-  const OPTIONS = ['Option A', 'Option B', 'Option C']
-
-  switch (questionType) {
-    case 'short': case 'number': case 'email': case 'phone': case 'url': {
-      const type = { number: 'number', email: 'email', phone: 'tel', url: 'url' }[questionType] || 'text'
-      return (
-        <div className="flex items-center gap-1.5">
-          <input autoFocus type={type} value={val} onChange={e => setVal(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && val.trim() && onSubmit(val.trim())}
-            placeholder="Type an answer…"
-            className="flex-1 rounded-xl border border-surface-border px-3 py-2 text-[12px] outline-none focus:border-primary/40"/>
-          <button onClick={() => val.trim() && onSubmit(val.trim())} className="p-2 rounded-xl flex-shrink-0" style={primaryBtn}><Send size={13}/></button>
-        </div>
-      )
-    }
-    case 'long':
-      return (
-        <div className="flex items-end gap-1.5">
-          <textarea autoFocus rows={2} value={val} onChange={e => setVal(e.target.value)}
-            placeholder="Type an answer…"
-            className="flex-1 rounded-xl border border-surface-border px-3 py-2 text-[12px] outline-none focus:border-primary/40 resize-none"/>
-          <button onClick={() => val.trim() && onSubmit(val.trim())} className="p-2 rounded-xl flex-shrink-0" style={primaryBtn}><Send size={13}/></button>
-        </div>
-      )
-    case 'single':
-      return (
-        <div className="space-y-1.5">
-          {OPTIONS.map(o => (
-            <button key={o} onClick={() => onSubmit(o)}
-              className={clsx(btn, 'w-full flex items-center gap-2 border border-slate-200 bg-white text-slate-600 hover:border-primary/40 text-left')}>
-              <div className="w-3 h-3 rounded-full border-2 border-slate-300 flex-shrink-0"/>{o}
-            </button>
-          ))}
-        </div>
-      )
-    case 'multi':
-      return (
-        <div className="space-y-1.5">
-          {OPTIONS.map(o => {
-            const on = multi.includes(o)
-            return (
-              <button key={o} onClick={() => setMulti(p => on ? p.filter(x => x !== o) : [...p, o])}
-                className={clsx(btn, 'w-full flex items-center gap-2 border text-left', on ? 'border-primary/40 bg-primary-50 text-primary' : 'border-slate-200 bg-white text-slate-600')}>
-                <div className={clsx('w-3 h-3 rounded border-2 flex-shrink-0', on ? 'bg-primary border-primary' : 'border-slate-300')}/>{o}
-              </button>
-            )
-          })}
-          <button onClick={() => onSubmit(multi.length ? multi.join(', ') : '(none selected)')} className={clsx(btn, 'w-full text-center')} style={primaryBtn}>Done</button>
-        </div>
-      )
-    case 'dropdown':
-      return (
-        <div className="flex items-center gap-1.5">
-          <select value={val} onChange={e => setVal(e.target.value)}
-            className="flex-1 rounded-xl border border-surface-border px-3 py-2 text-[12px] outline-none focus:border-primary/40 bg-white">
-            <option value="">Select an option</option>
-            {OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-          </select>
-          <button onClick={() => val && onSubmit(val)} disabled={!val} className={clsx(btn, !val && 'opacity-40')} style={primaryBtn}>Go</button>
-        </div>
-      )
-    case 'yesno':
-      return (
-        <div className="grid grid-cols-2 gap-2">
-          <button onClick={() => onSubmit('Yes')} className={clsx(btn, 'border-2 border-emerald-400 bg-emerald-50 text-emerald-600')}>Yes</button>
-          <button onClick={() => onSubmit('No')} className={clsx(btn, 'border-2 border-slate-200 bg-white text-slate-500')}>No</button>
-        </div>
-      )
-    case 'rating':
-      return (
-        <div className="flex gap-1 justify-center">
-          {[1, 2, 3, 4, 5].map(n => (
-            <button key={n} onClick={() => onSubmit(`${n} star${n === 1 ? '' : 's'}`)}>
-              <Star size={24} className="text-amber-400 hover:fill-amber-400 transition-colors"/>
-            </button>
-          ))}
-        </div>
-      )
-    case 'nps':
-      return (
-        <div>
-          <div className="flex gap-0.5">
-            {Array.from({ length: 11 }, (_, i) => (
-              <button key={i} onClick={() => onSubmit(String(i))}
-                className={clsx('flex-1 py-1.5 text-[9px] font-bold text-center rounded border transition-colors',
-                  i <= 6 ? 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100' : i <= 8 ? 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100' : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100')}>
-                {i}
-              </button>
-            ))}
-          </div>
-          <div className="flex justify-between text-[9px] text-slate-400 mt-1"><span>Not likely</span><span>Very likely</span></div>
-        </div>
-      )
-    case 'date':
-      return (
-        <div className="flex items-center gap-1.5">
-          <input autoFocus type="date" value={val} onChange={e => setVal(e.target.value)}
-            className="flex-1 rounded-xl border border-surface-border px-3 py-2 text-[12px] outline-none focus:border-primary/40"/>
-          <button onClick={() => val && onSubmit(val)} disabled={!val} className={clsx(btn, !val && 'opacity-40')} style={primaryBtn}>Go</button>
-        </div>
-      )
-    case 'daterange':
-      return (
-        <div className="space-y-1.5">
-          <div className="flex gap-1.5">
-            <input type="date" value={range.a} onChange={e => setRange(p => ({ ...p, a: e.target.value }))} className="flex-1 rounded-lg border border-surface-border px-2 py-1.5 text-[11px]"/>
-            <input type="date" value={range.b} onChange={e => setRange(p => ({ ...p, b: e.target.value }))} className="flex-1 rounded-lg border border-surface-border px-2 py-1.5 text-[11px]"/>
-          </div>
-          <button onClick={() => range.a && range.b && onSubmit(`${range.a} → ${range.b}`)} disabled={!range.a || !range.b}
-            className={clsx(btn, 'w-full', (!range.a || !range.b) && 'opacity-40')} style={primaryBtn}>Go</button>
-        </div>
-      )
-    case 'time':
-      return (
-        <div className="flex items-center gap-1.5">
-          <input autoFocus type="time" value={val} onChange={e => setVal(e.target.value)}
-            className="flex-1 rounded-xl border border-surface-border px-3 py-2 text-[12px] outline-none focus:border-primary/40"/>
-          <button onClick={() => val && onSubmit(val)} disabled={!val} className={clsx(btn, !val && 'opacity-40')} style={primaryBtn}>Go</button>
-        </div>
-      )
-    case 'appt':
-      return (
-        <div className="grid grid-cols-3 gap-1.5">
-          {['Mon 10 AM', 'Tue 2 PM', 'Wed 11 AM'].map(s => (
-            <button key={s} onClick={() => onSubmit(s)} className={clsx(btn, 'border border-slate-200 bg-white text-slate-600 hover:border-primary/40')}>{s}</button>
-          ))}
-        </div>
-      )
-    case 'file':
-      return <button onClick={() => onSubmit('📎 sample-file.pdf')} className={clsx(btn, 'w-full flex items-center justify-center gap-1.5 border-2 border-dashed border-slate-300 text-slate-500')}><Upload size={13}/> Simulate upload</button>
-    case 'image':
-      return <button onClick={() => onSubmit('🖼️ screenshot.png')} className={clsx(btn, 'w-full flex items-center justify-center gap-1.5 border-2 border-dashed border-slate-300 text-slate-500')}><ImageIcon size={13}/> Simulate upload</button>
-    case 'signature':
-      return <button onClick={() => onSubmit('✍️ Signed')} className={clsx(btn, 'w-full flex items-center justify-center gap-1.5 border-2 border-dashed border-slate-300 text-slate-500')}><Pencil size={13}/> Sign</button>
-    case 'location':
-      return (
-        <div className="flex items-center gap-1.5">
-          <input autoFocus value={val} onChange={e => setVal(e.target.value)} placeholder="Search address…"
-            className="flex-1 rounded-xl border border-surface-border px-3 py-2 text-[12px] outline-none focus:border-primary/40"/>
-          <button onClick={() => onSubmit(val.trim() || '📍 Shared current location')} className="p-2 rounded-xl flex-shrink-0" style={primaryBtn}><MapPin size={13}/></button>
-        </div>
-      )
-    case 'payment':
-      return <button onClick={() => onSubmit('💳 Payment completed')} className={clsx(btn, 'w-full flex items-center justify-center gap-1.5')} style={primaryBtn}><CreditCard size={13}/> Pay now</button>
-    case 'otp':
-      return (
-        <div className="flex items-center gap-1.5">
-          <input autoFocus maxLength={6} value={val} onChange={e => setVal(e.target.value.replace(/\D/g, ''))} placeholder="6-digit code"
-            className="flex-1 rounded-xl border border-surface-border px-3 py-2 text-[12px] outline-none focus:border-primary/40 tracking-widest text-center font-mono"/>
-          <button onClick={() => val && onSubmit(val)} disabled={!val} className={clsx(btn, !val && 'opacity-40')} style={primaryBtn}>Verify</button>
-        </div>
-      )
-    case 'form':
-      return <button onClick={() => onSubmit('Priya Sharma · priya@email.com · +91 98765 43210')} className={clsx(btn, 'w-full')} style={primaryBtn}>Submit details</button>
-    case 'carousel':
-      return (
-        <div className="flex gap-1.5">
-          {['Starter Plan', 'Growth Plan', 'Enterprise Plan'].map(p => (
-            <button key={p} onClick={() => onSubmit(p)} className={clsx(btn, 'flex-1 border border-slate-200 bg-white text-slate-600 hover:border-primary/40 text-[10px]')}>{p}</button>
-          ))}
-        </div>
-      )
-    case 'carousel_buttons':
-      return (
-        <div className="flex gap-1.5">
-          {['Starter', 'Growth', 'Enterprise'].map(p => (
-            <button key={p} onClick={() => onSubmit(`Selected: ${p}`)} className={clsx(btn, 'flex-1 border border-slate-200 bg-white text-slate-600 hover:border-primary/40')}>{p}</button>
-          ))}
-        </div>
-      )
-    case 'catalog':
-      return (
-        <div className="flex gap-1.5">
-          {['Classic Tee', 'Denim Jacket'].map(p => (
-            <button key={p} onClick={() => onSubmit(`Added to cart: ${p}`)} className={clsx(btn, 'flex-1 border border-slate-200 bg-white text-slate-600 hover:border-primary/40 text-[10px]')}>{p}</button>
-          ))}
-        </div>
-      )
-    default:
-      return (
-        <div className="flex items-center gap-1.5">
-          <input autoFocus value={val} onChange={e => setVal(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && val.trim() && onSubmit(val.trim())}
-            placeholder="Type an answer…"
-            className="flex-1 rounded-xl border border-surface-border px-3 py-2 text-[12px] outline-none focus:border-primary/40"/>
-          <button onClick={() => val.trim() && onSubmit(val.trim())} className="p-2 rounded-xl flex-shrink-0" style={primaryBtn}><Send size={13}/></button>
-        </div>
-      )
-  }
-}
 
 /* Same look as the real widget — reads the Widget Builder's live settings
    from localStorage (the same bridge WebChatLandingPage.jsx uses) so this
    simulator isn't a visually-disconnected second UI. */
-function useWidgetCfg() {
+export function useWidgetCfg() {
   const [cfg, setCfg] = useState(null)
   useEffect(() => {
     try { setCfg(JSON.parse(localStorage.getItem(WIDGET_CFG_STORAGE_KEY) || 'null')) } catch { setCfg(null) }
   }, [])
   return cfg || {
     colorMode: 'gradient', color: '#0066ff', colorEnd: '#8B5CF6',
-    botName: 'ChatBot', avatarStyle: 'icon', avatarEmoji: '🤖', avatarImage: '',
+    theme: 'light', corner: 'round', bubbleStyle: 'ios', fontFamily: 'Inter', fontSizePx: 12,
+    headerMode: 'brand', headerColor: '#0066ff', headerColorEnd: '#8B5CF6', headerGradient: false,
+    botBubbleBg: '', botBubbleText: '', userBubbleBg: '', userBubbleText: '', chatBackground: '#ffffff',
+    bubbleShadow: 'soft', density: 'comfortable', quickReplyStyle: 'pill',
+    botName: 'ChatBot', tagline: 'We reply instantly',
+    avatarStyle: 'icon', avatarEmoji: '🤖', avatarImage: '',
+    threadAvatarStyle: 'emoji', threadAvatarEmoji: '🤖', threadAvatarImage: '',
+    enableVoiceCall: false, enableVideoCall: false,
+    googleMapsApiKey: '',
   }
 }
 
-function PreviewSimulator({ flow, allFlows, onClose }) {
-  const cfg = useWidgetCfg()
-  const brandBg = cfg.colorMode === 'gradient' ? `linear-gradient(135deg, ${cfg.color} 0%, ${cfg.colorEnd || cfg.color} 100%)` : cfg.color
+/* ─── flow simulation engine — the state machine that steps through a flow
+   graph (quick replies, conditions, ask-question nodes, jumps, subflow
+   switches, the works), extracted out of PreviewSimulator so it can be
+   driven by more than one renderer: the dashboard's floating popup preview
+   AND the standalone full-page live-preview route both use this same hook
+   so there is exactly one implementation of "how a flow actually runs". */
+export function useFlowSimulation(flow, allFlows) {
   const [graph, setGraph] = useState(flow.graph)
   const [graphLabel, setGraphLabel] = useState(flow.name)
   const [currentId, setCurrentId] = useState(null)
-  const [messages, setMessages] = useState([])
-  const [awaiting, setAwaiting] = useState(null) // { type: 'ask'|'quick_replies'|'branch', node }
+  const [messages, setMessages] = useState([]) // { id, from: 'bot'|'user', text }
+  const [awaiting, setAwaiting] = useState(null) // { type: 'ask'|'quick_replies'|'branch', node, msgId }
   const [ended, setEnded] = useState(false)
-  const [input, setInput] = useState('')
+  /* Backstage debug trail for the flow author — everything that used to leak
+     into the visible chat as a fake "system" bubble (tag/webhook/notify/jump/
+     subflow-switch events) now lands here instead. Never rendered inside the
+     widget frame; shown in its own clearly-separate collapsible strip below it. */
+  const [activity, setActivity] = useState([])
+  const [activityOpen, setActivityOpen] = useState(false)
   const timerRef = useRef(null)
   const midRef = useRef(0)
-  const listRef = useRef(null)
+  const lastMsgIdRef = useRef(null)
+  const actIdRef = useRef(0)
 
-  // A flow can have more than one Trigger/Start node (several independent entry
-  // points sharing downstream logic) — when it does, ask which one to simulate
-  // instead of silently picking the first. Computed from flow.graph (not the
-  // possibly-swapped `graph` state) since this only makes sense for the top
-  // of the flow being previewed, not a subflow jumped into mid-simulation.
-  const starts = useMemo(() => flow.graph.nodes.filter(n => n.type === 'start'), [flow])
-  const [pickingStart, setPickingStart] = useState(starts.length > 1)
+  const push = useCallback((from, text) => {
+    const id = ++midRef.current
+    lastMsgIdRef.current = id
+    setMessages(m => [...m, { id, from, text }])
+    return id
+  }, [])
 
-  const push = useCallback((type, text) => setMessages(m => [...m, { id: ++midRef.current, type, text }]), [])
+  const logActivity = useCallback((text) => {
+    setActivity(a => [...a, { id: ++actIdRef.current, text }])
+  }, [])
 
   const beginFrom = useCallback((startId) => {
     clearTimeout(timerRef.current)
-    setMessages([]); setAwaiting(null); setEnded(false); setInput(''); setPickingStart(false)
+    setMessages([]); setAwaiting(null); setEnded(false); setActivity([])
+    lastMsgIdRef.current = null
     setGraph(flow.graph); setGraphLabel(flow.name)
     setCurrentId(startId)
   }, [flow])
 
+  // Always simulate starting from the flow's first entry node — "the first
+  // question in the main flow is the first trigger" — no picker, ever.
   const reset = useCallback(() => {
-    if (starts.length > 1) { setPickingStart(true); clearTimeout(timerRef.current); setMessages([]); setAwaiting(null); setEnded(false); setInput(''); setCurrentId(null); return }
-    const s = starts[0] || flow.graph.nodes[0] || null
+    const s = flow.graph.nodes.find(n => ENTRY_TYPES.includes(n.type)) || flow.graph.nodes[0] || null
     if (s) beginFrom(s.id)
-    else { clearTimeout(timerRef.current); setMessages([]); setAwaiting(null); setInput(''); setEnded(true) }
-  }, [starts, flow, beginFrom])
+    else { clearTimeout(timerRef.current); setMessages([]); setAwaiting(null); setActivity([]); setEnded(true) }
+  }, [flow, beginFrom])
 
   useEffect(() => { reset() }, [reset])
   useEffect(() => () => clearTimeout(timerRef.current), [])
-  useEffect(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight }, [messages, awaiting])
 
   const nextFrom = useCallback((nodeId, port) => {
     const e = graph.edges.find(x => x.fromId === nodeId && (x.fromPort || 0) === port)
@@ -1089,16 +1220,25 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
   const finishOrAdvance = useCallback((nodeId, port) => {
     const nid = nextFrom(nodeId, port)
     if (nid) setCurrentId(nid)
-    else { setEnded(true); push('system', '⏹️ Flow ended (no further nodes)') }
-  }, [nextFrom, push])
+    else setEnded(true)
+  }, [nextFrom])
 
   useEffect(() => {
     if (!currentId || ended || awaiting) return
     const node = graph.nodes.find(n => n.id === currentId)
-    if (!node) { setEnded(true); push('system', '⚠️ Flow ended — node not found'); return }
+    if (!node) { setEnded(true); return }
 
     if (node.type === 'start') {
       timerRef.current = setTimeout(() => finishOrAdvance(node.id, 0), 250)
+      return
+    }
+    if (node.type === 'quick_automation') {
+      // A trigger + instant reply bundled into one node — fires its reply the
+      // same way a send_text node would, then advances (or ends if nothing's
+      // wired to its output), whether reached as the flow's entry node or
+      // further downstream.
+      if (node.data?.message) push('bot', node.data.message)
+      timerRef.current = setTimeout(() => finishOrAdvance(node.id, 0), 700)
       return
     }
     if (SIM_AUTO_MESSAGE.includes(node.type)) {
@@ -1107,62 +1247,72 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
       return
     }
     if (SIM_AUTO_LOG.includes(node.type)) {
-      push('system', simLogText(node))
+      // Backstage only — a real visitor never sees tag/webhook/CRM/etc. activity.
+      logActivity(simLogText(node))
       timerRef.current = setTimeout(() => finishOrAdvance(node.id, 0), 500)
       return
     }
     if (node.type.startsWith('ask_')) {
-      push('bot', node.data?.question || 'Please answer:')
-      setAwaiting({ type: 'ask', node })
+      const id = push('bot', node.data?.question || 'Please answer:')
+      setAwaiting({ type: 'ask', node, msgId: id })
       return
     }
     if (node.type === 'quick_replies') {
-      if (node.data?.message) push('bot', node.data.message)
-      setAwaiting({ type: 'quick_replies', node })
+      // Attach the chips to the question message when there is one; otherwise
+      // attach to whatever bot/user message already came before, so the chips
+      // never need a fabricated bubble of their own to hang off of.
+      const id = node.data?.message ? push('bot', node.data.message) : lastMsgIdRef.current
+      setAwaiting({ type: 'quick_replies', node, msgId: id })
       return
     }
     if (node.type === 'condition' || node.type === 'split') {
-      setAwaiting({ type: 'branch', node })
+      setAwaiting({ type: 'branch', node, msgId: lastMsgIdRef.current })
       return
     }
     if (node.type === 'jump') {
+      // Still actually switches the simulation forward — just never announces
+      // it in the visible transcript, so a jump reads as one continuous reply.
       const target = graph.nodes.find(n => n.id === node.data?.targetNodeId)
-      if (!target) { setEnded(true); push('system', '⚠️ Jump target not set/found — simulation ends here.'); return }
-      push('system', `↪️ Jumping to: ${target.data?.name || target.type}`)
+      if (!target) { setEnded(true); return }
       timerRef.current = setTimeout(() => setCurrentId(target.id), 400)
       return
     }
     if (node.type === 'goto_subflow') {
+      // Same as `jump` — the graph/label really do switch to the subflow (the
+      // simulation keeps working exactly as before), it's just invisible to
+      // the visible chat: the bot architecture (one chatbot, many subflows)
+      // must never leak into the widget UI.
       const sub = (allFlows || []).find(f => f.id === node.data?.subflowId && f.kind === 'subflow')
-      if (!sub) { setEnded(true); push('system', '⚠️ Subflow not set/found — simulation ends here.'); return }
-      push('system', `↪️ Jumping to subflow: ${sub.name}`)
+      if (!sub) { setEnded(true); return }
       timerRef.current = setTimeout(() => {
-        const s = sub.graph.nodes.find(n => n.type === 'start') || sub.graph.nodes[0] || null
+        const s = sub.graph.nodes.find(n => ENTRY_TYPES.includes(n.type)) || sub.graph.nodes[0] || null
         setGraph(sub.graph); setGraphLabel(sub.name)
-        if (s) setCurrentId(s.id); else { setEnded(true); push('system', '⚠️ Subflow is empty — simulation ends here.') }
+        if (s) setCurrentId(s.id); else setEnded(true)
       }, 500)
       return
     }
     if (node.type === 'live_chat') {
-      push('system', '🧑‍💼 Handed over to a live agent — simulation ends here.')
       setEnded(true)
       return
     }
     if (node.type === 'end') {
+      // The end node's own configured message (if any) is real bot-visible
+      // copy and still gets pushed as a normal message — only the extra
+      // "✅ Flow ended" system bubble that used to follow it is gone; the
+      // ended state is now communicated by the composer banner instead.
       if (node.data?.endMessage) push('bot', node.data.endMessage)
-      push('system', '✅ Flow ended')
       setEnded(true)
       return
     }
     // unhandled node type — treat as a silent passthrough so the sim never gets stuck
     timerRef.current = setTimeout(() => finishOrAdvance(node.id, 0), 300)
-  }, [currentId, graph, ended, awaiting, allFlows, push, finishOrAdvance])
+  }, [currentId, graph, ended, awaiting, allFlows, push, logActivity, finishOrAdvance])
 
   const submitAsk = (value) => {
     if (!awaiting || awaiting.type !== 'ask') return
     push('user', (value ?? '').trim() || '(skipped)')
     const node = awaiting.node
-    setInput(''); setAwaiting(null)
+    setAwaiting(null)
     finishOrAdvance(node.id, 0)
   }
   const pickQuickReply = (idx, label) => {
@@ -1172,100 +1322,153 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
     finishOrAdvance(node.id, idx)
   }
   const pickBranch = (idx, label) => {
-    push('user', `🧪 Testing path: ${label}`)
+    push('user', label || `Option ${idx + 1}`)
     const node = awaiting.node
     setAwaiting(null)
     finishOrAdvance(node.id, idx)
   }
 
-  return (
-    <div className="fixed bottom-5 right-5 z-[70] w-[360px] h-[560px] bg-white rounded-2xl shadow-2xl border border-surface-border flex flex-col overflow-hidden" style={{ boxShadow: '0 32px 70px -16px rgba(15,23,42,0.35), 0 10px 24px -8px rgba(15,23,42,0.18)' }}>
-      <div className="flex items-center gap-2 px-3.5 py-3 flex-shrink-0 text-white" style={{ background: brandBg }}>
-        <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
-          {cfg.avatarStyle === 'image' && cfg.avatarImage
-            ? <img src={cfg.avatarImage} alt="" className="w-full h-full object-cover"/>
-            : cfg.avatarStyle === 'emoji'
-            ? <span style={{ fontSize: 15 }}>{cfg.avatarEmoji || '🤖'}</span>
-            : <Bot size={15}/>}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[12.5px] font-bold truncate">{cfg.botName || graphLabel}</p>
-          <p className="text-[10px] text-white/75 truncate">{pickingStart ? 'Pick a trigger to test' : ended ? 'Simulation ended' : `Testing "${graphLabel}"…`}</p>
-        </div>
-        <button onClick={reset} title="Restart" className="p-1.5 rounded-lg hover:bg-white/15 transition-colors flex-shrink-0"><RotateCcw size={13}/></button>
-        <button onClick={onClose} title="Close" className="p-1.5 rounded-lg hover:bg-white/15 transition-colors flex-shrink-0"><X size={14}/></button>
-      </div>
+  return { messages, awaiting, ended, activity, activityOpen, setActivityOpen, reset, submitAsk, pickQuickReply, pickBranch }
+}
 
-      {pickingStart ? (
-        <div className="flex-1 overflow-y-auto px-3 py-3 bg-slate-50">
-          <p className="text-[11px] text-slate-500 mb-2.5">This flow has {starts.length} independent triggers sharing downstream logic — which one do you want to simulate?</p>
-          <div className="space-y-1.5">
-            {starts.map(s => {
-              const trig = TRIGGER_TYPES.find(t => t.v === s.data?.trigger)
-              return (
-                <button key={s.id} onClick={() => beginFrom(s.id)}
-                  className="w-full flex items-center gap-2.5 p-3 rounded-xl border border-surface-border bg-white hover:border-primary/40 transition-colors text-left">
-                  {trig?.icon && <trig.icon size={14} className="text-primary flex-shrink-0"/>}
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-semibold text-slate-700 truncate">{s.data?.name || 'Trigger'}</p>
-                    <p className="text-[10px] text-slate-400 truncate">{trig?.l || s.data?.trigger}</p>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ) : (
-      <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 bg-slate-50">
-        {messages.map(m => (
-          m.type === 'system' ? (
-            <div key={m.id} className="text-center text-[10px] text-slate-400 font-medium py-0.5">{m.text}</div>
-          ) : (
-            <div key={m.id} className={clsx('flex', m.type === 'bot' ? 'justify-start' : 'justify-end')}>
-              <div className={clsx('max-w-[80%] rounded-2xl px-3 py-2 text-[12px] leading-relaxed shadow-sm whitespace-pre-wrap',
-                m.type === 'bot' ? 'bg-white text-slate-700 rounded-bl-sm' : 'text-white rounded-br-sm')}
-                style={m.type === 'bot' ? undefined : { background: brandBg }}>
-                {m.text}
-              </div>
-            </div>
-          )
+/* Renders whichever interactive control the simulation is currently awaiting
+   an answer for — quick-reply chips, branch-test chips, or the real shared
+   answer control for an `ask_*` node — for the widget's bottom composer slot
+   (`simComposerControl`) instead of attaching it under the question's own
+   bubble, so every question type answers from one consistent location. Pure
+   function of the hook's own outputs plus the small bit of widget theming
+   needed to match the chip look exactly — shared by both the popup preview
+   and the standalone full-page live preview so there's exactly one
+   implementation of "what does the composer show right now". */
+export function renderFlowSimComposerControl({ awaiting, submitAsk, pickQuickReply, pickBranch, accent, dark, cornerR, fs, quickReplyStyle, googleMapsApiKey }) {
+  if (!awaiting) return null
+
+  const quickReplyRadius = quickReplyStyle === 'square' ? cornerR * 0.5 : 999
+  const chipStyle = {
+    fontSize: fs(10.5), padding: '6px 12px', borderRadius: quickReplyRadius,
+    border: `1.5px solid ${dark ? '#334155' : '#e2e8f0'}`,
+    background: dark ? '#1e293b' : '#fff', color: accent,
+  }
+
+  if (awaiting.type === 'ask') {
+    // `key` is essential here, not decorative: two consecutive questions
+    // can resolve to the exact same underlying control component (e.g.
+    // any two free-text types both render FreeTextAnswer). Without a key
+    // that changes per-question, React treats that as the SAME component
+    // instance across the question change and keeps its old internal
+    // state (whatever text was left typed/half-entered) instead of
+    // starting fresh — so leftover input from the previous question was
+    // silently carrying over, and in some cases getting submitted again
+    // as the answer to the new question. Keying on the node id forces a
+    // clean remount every time the simulation moves to a new question.
+    return <AnswerControl key={awaiting.node.id} questionType={awaiting.node.data?.questionType} accent={accent || '#0066ff'} dark={dark} onSubmit={submitAsk} interactive
+      formFields={awaiting.node.data?.formFields} otpConfig={awaiting.node.data?.otpConfig} googleMapsApiKey={googleMapsApiKey}/>
+  }
+  if (awaiting.type === 'quick_replies') {
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {getOutputPorts(awaiting.node).map((p, i) => (
+          <button key={i} onClick={() => pickQuickReply(i, p.label)} className="font-semibold transition-colors" style={chipStyle}>
+            {p.label}
+          </button>
         ))}
-        {!messages.length && !ended && <p className="text-[11px] text-slate-400 text-center pt-6">Starting simulation…</p>}
       </div>
-      )}
+    )
+  }
+  if (awaiting.type === 'branch') {
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {getOutputPorts(awaiting.node).map((p, i) => (
+          <button key={i} onClick={() => pickBranch(i, p.label)} className="font-semibold transition-colors" style={chipStyle}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+    )
+  }
+  return null
+}
 
-      <div className="flex-shrink-0 border-t border-surface-border bg-white p-2.5">
-        {pickingStart ? (
-          <p className="text-[10px] text-slate-300 text-center py-1.5">Pick a trigger above to begin…</p>
-        ) : ended ? (
-          <div className="flex items-center justify-center gap-1.5 text-[11px] font-semibold text-slate-400 py-1.5">
-            <X size={12}/> Flow ended — press Restart to try again
+function PreviewSimulator({ flow, allFlows, onClose }) {
+  const cfg = useWidgetCfg()
+  /* Only pulled for the small set of values needed to make the simulator's own
+     quick-reply / branch chip rows (rendered via the shared composer-control
+     renderer below) match the widget's own chip look exactly — the
+     header/message-list/composer chrome itself is no longer reimplemented
+     here at all, it's rendered by the real <WidgetPreview/> so there is zero
+     visual drift from it. */
+  const { cornerR, fs, dark } = useWidgetTheme(cfg)
+  const { messages, awaiting, ended, activity, activityOpen, setActivityOpen, reset, submitAsk, pickQuickReply, pickBranch } =
+    useFlowSimulation(flow, allFlows)
+
+  // Mirror this test session into the Website Chat Inbox as it runs, so
+  // "testing a flow" produces a real, reviewable conversation instead of a
+  // transcript that vanishes when the popup closes. Keyed off the flow's own
+  // id (via upsertConversation) so re-testing keeps updating the SAME
+  // thread rather than creating a new one on every run.
+  const { upsertConversation } = useConversations()
+  useEffect(() => {
+    if (!messages.length) return
+    upsertConversation(buildFlowTestConversation(flow, messages))
+    // `upsertConversation` is intentionally excluded — it's a plain function
+    // redefined on every ConversationProvider render (not useCallback'd), so
+    // depending on it would re-fire this effect on every render triggered by
+    // the very state update it causes. Only `messages`/`flow` need to be
+    // reactive here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, flow])
+
+  const simComposerBanner = ended ? { text: 'This simulation has ended', actionLabel: '↻ Restart', onAction: reset } : null
+  const simComposerControl = awaiting
+    ? renderFlowSimComposerControl({ awaiting, submitAsk, pickQuickReply, pickBranch, accent: cfg.color, dark, cornerR, fs, quickReplyStyle: cfg.quickReplyStyle, googleMapsApiKey: cfg.googleMapsApiKey })
+    : null
+
+  return (
+    <div className="fixed bottom-5 right-5 z-[70] flex flex-col items-end gap-2">
+      {/* Restart/Close sit in their own row ABOVE the widget frame — not
+          overlaid on top of it — so they never collide with the widget's
+          own header controls (Minimize/More options/Close). Preview always
+          starts simulating from the flow's first entry node (see `reset`) —
+          no "which trigger" picker. `setScreen` maps the widget's own
+          "Close chat" menu action to this popup's Close button, so using
+          either one closes the simulator the same way. */}
+      <div className="flex items-center gap-1.5">
+        <button onClick={reset} title="Restart simulation"
+          className="w-7 h-7 rounded-full bg-white shadow-md border border-slate-200/70 flex items-center justify-center text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors">
+          <RotateCcw size={13}/>
+        </button>
+        <button onClick={onClose} title="Close preview"
+          className="w-7 h-7 rounded-full bg-white shadow-md border border-slate-200/70 flex items-center justify-center text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors">
+          <X size={14}/>
+        </button>
+      </div>
+
+      {/* The real widget — pixel-identical to /webchat/appearance's own
+          preview, its own frame/header left completely untouched. */}
+      <div className="relative" style={{ width: 400, height: 'min(620px, calc(100vh - 170px))' }}>
+        <WidgetPreview cfg={cfg} screen="open" device="desktop"
+          activeTab="chat" setActiveTab={() => {}}
+          setScreen={s => { if (s === 'closed') onClose() }}
+          simThread={messages} simComposerBanner={simComposerBanner}
+          simComposerControl={simComposerControl}
+          onRestartChat={reset}/>
+      </div>
+
+      {/* Backstage activity trail — deliberately plain/monospace, no bubble
+          styling, no avatar, collapsed by default: a debug aid for the flow
+          author, never part of the chat widget itself. */}
+      <div className="w-[400px] rounded-lg border border-slate-200 bg-slate-50 overflow-hidden">
+        <button onClick={() => setActivityOpen(o => !o)}
+          className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] font-semibold text-slate-400 hover:text-slate-600 transition-colors">
+          <span>Backstage activity {activity.length > 0 && `(${activity.length})`}</span>
+          {activityOpen ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
+        </button>
+        {activityOpen && (
+          <div className="max-h-[140px] overflow-y-auto px-3 pb-2 space-y-1 font-mono">
+            {activity.length === 0
+              ? <p className="text-[10px] text-slate-300">Nothing logged yet — tags, webhooks, jumps and subflow switches will show up here as they happen.</p>
+              : activity.map(a => <p key={a.id} className="text-[10px] text-slate-500 leading-snug">{a.text}</p>)}
           </div>
-        ) : awaiting?.type === 'ask' ? (
-          <AskAnswerControl questionType={awaiting.node.data?.questionType} accent={cfg.color || '#0066ff'} onSubmit={submitAsk}/>
-        ) : awaiting?.type === 'quick_replies' ? (
-          <div className="flex flex-wrap gap-1.5">
-            {getOutputPorts(awaiting.node).map((p, i) => (
-              <button key={i} onClick={() => pickQuickReply(i, p.label)}
-                className="px-3 py-1.5 rounded-full border border-primary/30 bg-primary-50 text-primary text-[11px] font-semibold hover:bg-primary/10 transition-colors">
-                {p.label}
-              </button>
-            ))}
-          </div>
-        ) : awaiting?.type === 'branch' ? (
-          <div className="space-y-1.5">
-            <p className="text-[9.5px] text-slate-400 font-medium">Pick a path to test — no real condition is evaluated</p>
-            <div className="flex gap-1.5">
-              {getOutputPorts(awaiting.node).map((p, i) => (
-                <button key={i} onClick={() => pickBranch(i, p.label)}
-                  className="flex-1 px-2.5 py-1.5 rounded-xl border border-surface-border text-slate-700 text-[11px] font-semibold hover:bg-slate-50 transition-colors">
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <p className="text-[10px] text-slate-300 text-center py-1.5">Auto-advancing…</p>
         )}
       </div>
     </div>
@@ -1410,6 +1613,32 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
 
   const handleSave = () => { onSave({ name: flowName, graph: { nodes, edges } }); setSaved(true); setTimeout(() => setSaved(false), 1500) }
 
+  // Hands the CURRENT in-canvas graph (including unsaved edits — same live
+  // nodes/edges/flowName handleSave above would persist) off to the
+  // standalone full-page live-preview route via localStorage, then opens it
+  // in a new tab. allFlows is passed through too (for goto_subflow jumps to
+  // resolve), but with this flow's own entry replaced by the live canvas
+  // state so a subflow jump back into "this same flow" — or the simulator
+  // simply reading `flow` itself — reflects the unsaved edits too.
+  const [linkCopied, setLinkCopied] = useState(false)
+  const openLivePreview = () => {
+    const liveFlow = { id: flow.id, name: flowName, kind: flow.kind, graph: { nodes, edges } }
+    const liveAllFlows = (allFlows || []).map(f => f.id === flow.id ? { ...f, ...liveFlow } : f)
+    try {
+      localStorage.setItem(FLOW_PREVIEW_STORAGE_KEY, JSON.stringify({ flow: liveFlow, allFlows: liveAllFlows }))
+    } catch {}
+    const url = buildFlowPreviewUrl(liveFlow)
+    // Copied automatically, not just opened — the whole point of a proper
+    // "?name=...&id=..." link (matching the Landing Page tab's own pattern)
+    // is that it's something the flow author can hand to someone else, not
+    // just a button that opens a tab for them personally.
+    navigator.clipboard?.writeText(`${window.location.origin}${url}`).then(
+      () => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) },
+      () => {}
+    )
+    window.open(url, '_blank', 'noopener')
+  }
+
   const edgePaths = useMemo(() => edges.map(e => {
     const from = nodes.find(n => n.id === e.fromId), to = nodes.find(n => n.id === e.toId)
     if (!from || !to) return null
@@ -1443,6 +1672,11 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
         <button onClick={() => setShowPreview(true)} className={clsx('text-[11px] border rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1 font-semibold',
           showPreview ? 'border-primary bg-primary-50 text-primary' : 'border-surface-border text-slate-600 hover:bg-slate-50')}>
           <Eye size={12}/> Preview
+        </button>
+        <button onClick={openLivePreview} title="Opens this flow as a real, full-page chatbot in a new tab — its shareable link is copied to your clipboard too"
+          className={clsx('text-[11px] border rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1 font-semibold',
+            linkCopied ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-surface-border text-slate-600 hover:bg-slate-50')}>
+          {linkCopied ? <><Check size={12}/> Link copied!</> : <><ExternalLink size={12}/> Live Preview</>}
         </button>
         <button onClick={handleSave} className={clsx('text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all', saved ? 'bg-emerald-500 text-white' : 'bg-primary text-white hover:bg-primary/90')}>
           {saved ? <><Check size={12}/> Saved!</> : <><Save size={12}/> Save</>}
@@ -1531,7 +1765,7 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
       </div>
 
       {showPreview && (
-        <PreviewSimulator flow={{ name: flowName, graph: { nodes, edges } }} allFlows={allFlows || []} onClose={() => setShowPreview(false)}/>
+        <PreviewSimulator flow={{ id: flow.id, name: flowName, kind: flow.kind, graph: { nodes, edges } }} allFlows={allFlows || []} onClose={() => setShowPreview(false)}/>
       )}
     </div>
   )
