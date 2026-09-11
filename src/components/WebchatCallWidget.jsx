@@ -30,30 +30,49 @@ function Waveform({ active }) {
   )
 }
 
+// Failure reasons that get a distinct, explanatory error card instead of the
+// normal "Call ended / Completed" summary — each one is otherwise a silent
+// dead end that reads identically to "calling doesn't work at all" (see the
+// timeouts in WebchatCallContext.jsx that produce them).
+const CALL_ERROR_COPY = {
+  'signaling-unreachable': {
+    title: "Couldn't reach calling service",
+    body: "No response from the signaling server (ws://localhost:8788). Make sure it's running, then try the call again.",
+  },
+  'no-peer': {
+    title: 'No one answered',
+    body: "No visitor-side tab is connected for this conversation right now. There's no real deployed widget in this build — open this visitor's Live Preview link (or /call-test) in another tab first, then call again.",
+  },
+  'no-answer': {
+    title: 'No answer',
+    body: 'The call rang for 30 seconds with no response. The visitor-side tab may be open but idle — try again once it is actively being watched.',
+  },
+  'media-error': {
+    title: "Couldn't access microphone/camera",
+    body: 'Check that this browser has permission to use the microphone and camera, then try the call again.',
+  },
+}
+
 // Summary shown after call ends
 function CallSummary({ summary, onDismiss }) {
   if (!summary) return null
-  // Distinguishes "the calling service itself is unreachable" (see the
-  // ringing-timeout in WebchatCallContext.jsx) from a normal completed/
-  // missed call — otherwise this silently reads as "Completed · 0:00",
-  // which gives no hint that signaling-server/ needs to be started.
-  const unreachable = summary.endReason === 'signaling-unreachable'
+  const err = CALL_ERROR_COPY[summary.endReason]
   return (
     <div className="fixed bottom-6 right-6 z-[90] animate-fade-in">
       <div className="bg-white border border-surface-border rounded-2xl shadow-modal p-4 w-72">
         <div className="flex items-center gap-2 mb-3">
-          <div className={clsx('w-8 h-8 rounded-full flex items-center justify-center', unreachable ? 'bg-red-50' : 'bg-slate-100')}>
-            <Phone size={14} className={unreachable ? 'text-red-500' : 'text-slate-500'} />
+          <div className={clsx('w-8 h-8 rounded-full flex items-center justify-center', err ? 'bg-red-50' : 'bg-slate-100')}>
+            <Phone size={14} className={err ? 'text-red-500' : 'text-slate-500'} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-slate-800 truncate">{unreachable ? "Couldn't reach calling service" : 'Call ended'}</p>
+            <p className="text-xs font-bold text-slate-800 truncate">{err ? err.title : 'Call ended'}</p>
             <p className="text-[10px] text-slate-400">{summary.contact?.name || 'Website Visitor'}</p>
           </div>
           <button onClick={onDismiss} className="text-slate-300 hover:text-slate-500 text-lg leading-none">×</button>
         </div>
-        {unreachable ? (
+        {err ? (
           <p className="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2 mb-3 leading-relaxed">
-            No response from the signaling server (ws://localhost:8788). Make sure it's running, then try the call again.
+            {err.body}
           </p>
         ) : (
           <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 rounded-xl px-3 py-2 mb-3">
@@ -63,7 +82,7 @@ function CallSummary({ summary, onDismiss }) {
           </div>
         )}
         <div className="flex gap-2">
-          {!unreachable && (
+          {!err && (
             <button onClick={onDismiss} className="btn-secondary text-xs flex-1 flex items-center justify-center gap-1.5">
               <MessageSquare size={11} /> Add note
             </button>

@@ -103,6 +103,41 @@ export function WebchatCallProvider({ children }) {
     return () => clearTimeout(t)
   }, [activeCall?.callId, activeCall?.status, signaling.connected])
 
+  // ── Give up if nobody's even there to answer ────────────────────────────────
+  // Signaling being reachable only proves the relay itself is up — it says
+  // nothing about whether any visitor-side page (the standalone Live Preview
+  // tab, or /call-test) is actually open and connected to this exact room.
+  // There is no real deployed widget anywhere for a call to reach in this
+  // codebase (see the plan this call feature was built from) — someone has to
+  // deliberately have a visitor-side tab open for a test call to have anyone
+  // to ring. Without this, calling a visitor with no such tab open just rings
+  // forever with no signal that anything's actually wrong, which reads
+  // identically to the feature being broken.
+  useEffect(() => {
+    if (!activeCall || activeCall.status !== 'ringing' || !signaling.connected) return
+    const callId = activeCall.callId
+    // A short grace period covers the normal case where the visitor tab's own
+    // signaling socket is still mid-handshake when this call starts.
+    const t = setTimeout(() => {
+      if (activeCallRef.current?.callId === callId && !signaling.peerPresent) {
+        finishCall('no-peer')
+      }
+    }, 4000)
+    return () => clearTimeout(t)
+  }, [activeCall?.callId, activeCall?.status, signaling.connected, signaling.peerPresent])
+
+  // ── Give up if someone's there but never answers ────────────────────────────
+  // Mirrors a real phone call timing out unanswered, so a forgotten/AFK
+  // visitor tab doesn't leave the agent's call widget ringing indefinitely.
+  useEffect(() => {
+    if (!activeCall || activeCall.status !== 'ringing') return
+    const callId = activeCall.callId
+    const t = setTimeout(() => {
+      if (activeCallRef.current?.callId === callId) finishCall('no-answer')
+    }, 30000)
+    return () => clearTimeout(t)
+  }, [activeCall?.callId, activeCall?.status])
+
   function finishCall(reason) {
     clearInterval(timerRef.current)
     const current = activeCallRef.current
