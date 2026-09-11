@@ -26,7 +26,7 @@ import { useSearchParams } from 'react-router-dom'
 import { WidgetPreview, WIDGET_CFG_STORAGE_KEY } from './WebChatAppearance'
 import { useVisitorCall } from '../hooks/useVisitorCall'
 import { VisitorCallOverlay } from '../components/webchat/VisitorCallOverlay'
-import { saveFlowTestConversation, hashToVisitorNumber, detectBrowserOS, detectTimezone, detectReferrer } from './WebChatFlowBuilder'
+import { saveFlowTestConversation, hashToVisitorNumber, detectBrowserOS, detectTimezone, detectReferrer, FLOW_TEST_STORE_KEY } from './WebChatFlowBuilder'
 
 const DEFAULT_CFG = {
   colorMode: 'gradient', color: '#0066ff', colorEnd: '#8B5CF6',
@@ -72,24 +72,49 @@ function getOrCreateVisitorId() {
 function useLandingVisitorInboxSync(visitorId, cfg) {
   useEffect(() => {
     if (!visitorId) return
+    const id = `landing_${visitorId}`
     const num = hashToVisitorNumber(visitorId)
     const env = detectBrowserOS()
     try {
+      // Merge onto whatever this returning visitor's thread already holds
+      // rather than writing a fresh record. `visitorId` is persisted per
+      // browser, so coming back here lands on the SAME thread — which is the
+      // whole point, and is defeated by replacing it: every return visit
+      // would wipe the agent's replies, notes, call history, takeover and
+      // labels, and reset the visit count to 1.
+      const store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}')
+      const existing = store[id]
+      const prevMessages = existing?.messages || []
+      // One "opened" marker per arrival, not per render — cfg loads
+      // asynchronously (so this effect runs again once the real bot name is
+      // known) and a refresh shouldn't stack duplicates either.
+      const lastWasOpen = prevMessages[prevMessages.length - 1]?.event === 'opened'
+      const messages = lastWasOpen ? prevMessages : [...prevMessages, {
+        id: `open_${Date.now()}`,
+        type: 'event',
+        event: 'opened',
+        text: existing ? 'Returning visitor opened the chat widget' : 'Visitor opened the chat widget',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }]
       saveFlowTestConversation({
-        id: `landing_${visitorId}`,
+        unread: 0, status: 'bot', tags: [], labels: [],
+        agentId: null, agentName: null, source: 'direct',
+        starred: false, archived: false, snoozed: null,
+        ...existing,
+        id,
         visitorId,
-        name: `Visitor #${num}`,
-        avatar: `V${String(num)[0]}`,
+        name: existing?.name || `Visitor #${num}`,
+        avatar: existing?.avatar || `V${String(num)[0]}`,
         channel: 'webchat',
         page: (typeof window !== 'undefined' && window.location?.pathname) || '/',
         browser: env.browser, os: env.os, location: detectTimezone(),
-        referrer: detectReferrer(), firstSeen: 'Just now', visits: 1,
-        lastMessage: `Opened ${cfg.botName || 'the chat widget'}`,
-        time: 'Just now', unread: 0, status: 'bot',
-        tags: [], labels: [], agentId: null, agentName: null,
-        source: 'direct', starred: false, archived: false, snoozed: null,
+        referrer: detectReferrer(),
+        firstSeen: existing?.firstSeen || 'Just now',
+        visits: lastWasOpen ? (existing?.visits || 1) : (existing?.visits || 0) + 1,
+        lastMessage: messages[messages.length - 1]?.text || `Opened ${cfg.botName || 'the chat widget'}`,
+        time: 'Just now',
         timestamp: new Date().toISOString(),
-        messages: [{ id: 'm1', type: 'event', event: 'opened', text: 'Visitor opened the chat widget', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }],
+        messages,
       })
     } catch {}
     // Deliberately only on mount (visitorId/cfg.botName) — this just needs to
