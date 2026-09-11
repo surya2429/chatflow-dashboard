@@ -1072,20 +1072,33 @@ function hashToVisitorNumber(str) {
 }
 const TEST_BROWSERS = [{ browser: 'Chrome', os: 'Windows' }, { browser: 'Safari', os: 'macOS' }, { browser: 'Chrome', os: 'Android' }, { browser: 'Edge', os: 'Windows' }]
 const TEST_LOCATIONS = ['Mumbai, India', 'Bengaluru, India', 'Delhi, India', 'Austin, USA', 'London, UK']
-export function buildFlowTestConversation(flow, messages, source = 'canvas') {
+// `baseline` is whatever this exact thread's history already looked like the
+// moment the CURRENT run started (see recordFlowTestTurn below) — restarting
+// the simulator, or closing the popup/tab and reopening it, clears the
+// running simulation's own transcript back to empty and starts over from the
+// flow's first node (by design, so a fresh test run isn't polluted by
+// however far a previous run got). Without folding that snapshot back in,
+// every run would overwrite this thread's PERSISTED history with just its
+// own — shorter — transcript so far, so previously-captured messages and
+// answers appeared to vanish from the Inbox the moment you restarted or
+// reopened. Folding it in means each restart reads as a new visit
+// continuing the same conversation, never erasing what came before.
+export function buildFlowTestConversation(flow, messages, source = 'canvas', baseline = null) {
   const id = `flowtest_${source}_${flow.id}`
   const num = hashToVisitorNumber(`${source}:${flow.id}`)
   const env = TEST_BROWSERS[num % TEST_BROWSERS.length]
   const location = TEST_LOCATIONS[num % TEST_LOCATIONS.length]
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  const mapped = messages.map(m => ({
-    id: `ft${m.id}`,
-    type: m.from === 'bot' ? 'outgoing' : 'incoming',
-    text: m.text,
-    time,
-    sender: m.from === 'bot' ? 'Bot' : 'Visitor',
-  }))
-  const last = mapped[mapped.length - 1]
+  // An `ask_*` node's answer is tagged by submitAsk (questionType/label) so it
+  // renders as a "Captured from Chat" answer card (and feeds the Visitor
+  // panel's Phone/Email prefill) instead of a plain chat bubble — same shape
+  // WEBCHAT_CONVERSATIONS mock data already uses for this.
+  const mappedNew = messages.map(m => m.isAnswer
+    ? { id: `ft${m.id}`, type: 'answer', questionType: m.questionType, label: m.label, value: m.text, time }
+    : { id: `ft${m.id}`, type: m.from === 'bot' ? 'outgoing' : 'incoming', text: m.text, time, sender: m.from === 'bot' ? 'Bot' : 'Visitor' }
+  )
+  const mapped = [...(baseline?.messages || []), ...mappedNew]
+  const last = [...mapped].reverse().find(m => m.type !== 'answer') || mapped[mapped.length - 1]
   return {
     id,
     visitorId: `v_${num}`,
@@ -1093,8 +1106,8 @@ export function buildFlowTestConversation(flow, messages, source = 'canvas') {
     avatar: `V${String(num)[0]}`,
     channel: 'webchat',
     page: '/', browser: env.browser, os: env.os, location,
-    referrer: 'Direct', firstSeen: 'Just now', visits: 1,
-    lastMessage: last?.text || '',
+    referrer: 'Direct', firstSeen: 'Just now', visits: baseline?.visits || 1,
+    lastMessage: last?.text || last?.value || '',
     time: 'Just now',
     unread: 0,
     status: 'bot',
@@ -1128,6 +1141,34 @@ export function saveFlowTestConversation(conv) {
     store[conv.id] = conv
     localStorage.setItem(FLOW_TEST_STORE_KEY, JSON.stringify(store))
   } catch {}
+}
+
+// One entry point both flow-test surfaces call on every `messages` change —
+// centralizes the "restart shouldn't erase history" logic (see the comment
+// on buildFlowTestConversation) so it only has to be gotten right once.
+// `messages.length === 0` is precisely the instant a run (re)starts —
+// initial mount and every explicit restart both clear the simulator's
+// transcript back to empty before rebuilding it — so that's exactly when we
+// snapshot whatever's currently persisted as this run's baseline to build on
+// top of; every later call in the same run reuses that same frozen snapshot
+// so growth within a run replaces only its own tail, never re-appends the
+// baseline again.
+const flowTestRunBaselines = {}
+export function recordFlowTestTurn(flow, messages, source = 'canvas') {
+  const id = `flowtest_${source}_${flow.id}`
+  if (!messages.length) {
+    try {
+      const store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}')
+      const prior = store[id]
+      flowTestRunBaselines[id] = { messages: prior?.messages || [], visits: (prior?.visits || 0) + 1 }
+    } catch {
+      flowTestRunBaselines[id] = { messages: [], visits: 1 }
+    }
+    return null
+  }
+  const conv = buildFlowTestConversation(flow, messages, source, flowTestRunBaselines[id])
+  saveFlowTestConversation(conv)
+  return conv
 }
 
 
@@ -1203,11 +1244,15 @@ export function useFlowSimulation(flow, allFlows) {
   const midRef = useRef(0)
   const lastMsgIdRef = useRef(null)
   const actIdRef = useRef(0)
+  // Per-mount-instance prefix so message ids never collide with a previous
+  // run's ids once merged with persisted history across a close/reopen (a
+  // fresh mount always restarts midRef from 0) — see recordFlowTestTurn.
+  const runTagRef = useRef(Math.random().toString(36).slice(2, 8))
 
-  const push = useCallback((from, text) => {
-    const id = ++midRef.current
+  const push = useCallback((from, text, meta) => {
+    const id = `${runTagRef.current}${++midRef.current}`
     lastMsgIdRef.current = id
-    setMessages(m => [...m, { id, from, text }])
+    setMessages(m => [...m, { id, from, text, ...(meta || {}) }])
     return id
   }, [])
 
@@ -1332,8 +1377,15 @@ export function useFlowSimulation(flow, allFlows) {
 
   const submitAsk = (value) => {
     if (!awaiting || awaiting.type !== 'ask') return
-    push('user', (value ?? '').trim() || '(skipped)')
     const node = awaiting.node
+    const text = (typeof value === 'string' ? value : value != null ? JSON.stringify(value) : '').trim() || '(skipped)'
+    // Tag this as a captured answer (questionType/label) so it renders as a
+    // "Captured from Chat" card in the Inbox's Visitor panel — same as a
+    // real visitor's answers — instead of a plain chat bubble; see
+    // buildFlowTestConversation's use of `m.isAnswer`.
+    const questionType = node.data?.questionType
+    const label = node.data?.name || ASK_DEFS[`ask_${questionType}`]?.label || 'Answer'
+    push('user', text, questionType ? { isAnswer: true, questionType, label } : undefined)
     setAwaiting(null)
     finishOrAdvance(node.id, 0)
   }
@@ -1430,13 +1482,12 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
   // thread rather than creating a new one on every run.
   const { upsertConversation } = useConversations()
   useEffect(() => {
-    if (!messages.length) return
-    const conv = buildFlowTestConversation(flow, messages, 'canvas')
-    upsertConversation(conv)
-    // Also persist, not just update in-memory state — otherwise this thread
-    // only ever lived in this tab's React state and vanished on reload (see
-    // the comment on FLOW_TEST_STORE_KEY above).
-    saveFlowTestConversation(conv)
+    // recordFlowTestTurn handles the empty-array (run just (re)started) case
+    // itself — snapshotting whatever's already persisted so a restart or a
+    // close/reopen folds onto that history instead of erasing it — and
+    // returns null when there's nothing new to upsert yet.
+    const conv = recordFlowTestTurn(flow, messages, 'canvas')
+    if (conv) upsertConversation(conv)
     // `upsertConversation` is intentionally excluded — it's a plain function
     // redefined on every ConversationProvider render (not useCallback'd), so
     // depending on it would re-fire this effect on every render triggered by

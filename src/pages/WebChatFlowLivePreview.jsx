@@ -16,7 +16,7 @@
 import { useState, useEffect } from 'react'
 import { MessageSquareText } from 'lucide-react'
 import { WidgetPreview, useWidgetTheme } from './WebChatAppearance'
-import { useFlowSimulation, renderFlowSimComposerControl, useWidgetCfg, FLOW_PREVIEW_STORAGE_KEY, buildFlowTestConversation, saveFlowTestConversation } from './WebChatFlowBuilder'
+import { useFlowSimulation, renderFlowSimComposerControl, useWidgetCfg, FLOW_PREVIEW_STORAGE_KEY, recordFlowTestTurn } from './WebChatFlowBuilder'
 
 function EmptyState() {
   return (
@@ -51,8 +51,11 @@ function LiveFlowPreview({ flow, allFlows }) {
   // it (see ConversationContext.jsx), the same cross-tab bridge pattern
   // FLOW_PREVIEW_STORAGE_KEY already uses in the other direction.
   useEffect(() => {
-    if (!messages.length) return
-    saveFlowTestConversation(buildFlowTestConversation(flow, messages, 'live'))
+    // recordFlowTestTurn snapshots this thread's already-persisted history
+    // the instant a run (re)starts (messages.length === 0 — initial mount,
+    // a restart, or reopening this tab after closing it) so restarting
+    // never erases what was captured before; see its comment for why.
+    recordFlowTestTurn(flow, messages, 'live')
   }, [messages, flow])
 
   const simComposerBanner = ended ? { text: 'This simulation has ended', actionLabel: '↻ Restart', onAction: reset } : null
