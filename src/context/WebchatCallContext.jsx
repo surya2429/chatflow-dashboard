@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import { useCallSignaling } from '../hooks/useCallSignaling'
 import { useWebRTC } from '../hooks/useWebRTC'
+import { useConversations } from './ConversationContext'
+import { fmtCallDuration } from '../components/webchat/VisitorCallOverlay'
 
 const WebchatCallContext = createContext()
 export const useWebchatCall = () => useContext(WebchatCallContext)
@@ -42,6 +44,35 @@ export function WebchatCallProvider({ children }) {
 
   useEffect(() => { activeCallRef.current = activeCall }, [activeCall])
   useEffect(() => { incomingCallRef.current = incomingCall }, [incomingCall])
+
+  // Logs every call outcome (answered, missed, declined, cancelled, or
+  // failed to connect at all) as a real `type: 'event'` message in the
+  // visitor's own conversation thread — same shape the seeded call entries
+  // in constants/mockData.js already use — so reviewing that conversation
+  // later shows the call actually happened instead of leaving zero trace
+  // of it, which is what every real call did before this existed.
+  const { everyConversation, logEvent } = useConversations()
+  const everyConversationRef = useRef(everyConversation)
+  useEffect(() => { everyConversationRef.current = everyConversation }, [everyConversation])
+
+  const OUTCOME_TEXT = {
+    declined: 'Declined', 'no-answer': 'No answer', 'no-peer': 'No answer',
+    'signaling-unreachable': 'Failed — calling service unreachable',
+    'media-error': 'Failed — microphone/camera unavailable',
+    'remote-hangup': 'Missed', 'caller-cancelled': 'Missed', 'connection-lost': 'Disconnected',
+    'local-hangup': 'Cancelled',
+  }
+  const logCallEvent = useCallback((visitorId, { direction, video, duration = 0, endReason }) => {
+    const conv = everyConversationRef.current.find(c => c.visitorId === visitorId)
+    if (!conv) return // no Inbox conversation for this visitor to log against
+    const dir = direction === 'outbound' ? 'Outbound' : 'Inbound'
+    const kind = video ? 'video call' : 'voice call'
+    if (duration > 0) {
+      logEvent(conv.id, 'call_answered', `${dir} ${kind} · ${fmtCallDuration(duration)} · Answered`)
+    } else {
+      logEvent(conv.id, 'call_missed', `${dir} ${kind} · ${OUTCOME_TEXT[endReason] || 'Missed'}`)
+    }
+  }, [logEvent])
 
   // Which room the signaling socket should be connected to right now.
   const roomId = activeCall?.contact?.visitorId || incomingCall?.contact?.visitorId || watchedVisitorId || null
@@ -146,6 +177,7 @@ export function WebchatCallProvider({ children }) {
       const summary = { ...current, status: 'ended', endReason: reason, endedAt: new Date() }
       setCallLog(prev => [summary, ...prev])
       setCallSummary(summary)
+      logCallEvent(current.contact?.visitorId, { direction: current.direction, video: current.video, duration: current.duration, endReason: reason })
     }
     setActiveCall(null)
     requestSentForRef.current = null
@@ -218,7 +250,13 @@ export function WebchatCallProvider({ children }) {
 
       case 'hangup': {
         if (activeCallRef.current) finishCall('remote-hangup')
-        if (incomingCallRef.current) setIncomingCall(null)
+        // The caller hung up before we ever answered — finishCall never
+        // runs for this path (no activeCall was ever set), so without this
+        // it's the one call outcome that logged nothing at all.
+        if (incomingCallRef.current) {
+          logCallEvent(incomingCallRef.current.contact?.visitorId, { direction: 'inbound', video: incomingCallRef.current.video, endReason: 'caller-cancelled' })
+          setIncomingCall(null)
+        }
         break
       }
 
@@ -274,6 +312,7 @@ export function WebchatCallProvider({ children }) {
   function declineCall() {
     if (!incomingCall) return
     signaling.send({ type: 'call-decline' })
+    logCallEvent(incomingCall.contact?.visitorId, { direction: 'inbound', video: incomingCall.video, endReason: 'declined' })
     setIncomingCall(null)
   }
 

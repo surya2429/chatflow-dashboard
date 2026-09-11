@@ -131,6 +131,34 @@ export function ConversationProvider({ children }) {
     setConversations(prev => prev.map(c => c.id === id ? { ...c, unread: 0 } : c))
   }
 
+  // Website Chat conversations that live in FLOW_TEST_STORE_KEY rather than
+  // (only) React state — flow-test threads (`flowtest_...`, from the canvas
+  // Preview popup or the standalone Live Preview tab) and landing-page
+  // visitors (`landing_...`, see useLandingVisitorInboxSync in
+  // WebChatLandingPage.jsx). Any message appended to one of these
+  // conversations here in the dashboard MUST also be written back into that
+  // store, or it silently vanishes on the next reload — this tab's own
+  // React state is not these conversations' source of truth, the store is.
+  function isTestStoreConversationId(id) {
+    return id.startsWith('flowtest_') || id.startsWith('landing_')
+  }
+  function appendToTestStore(conversationId, message, { updateLastMessage = true } = {}) {
+    if (!isTestStoreConversationId(conversationId)) return
+    try {
+      const store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}')
+      const conv = store[conversationId]
+      if (conv) {
+        store[conversationId] = {
+          ...conv,
+          messages: [...conv.messages, message],
+          ...(updateLastMessage ? { lastMessage: message.text } : null),
+          timestamp: new Date().toISOString(),
+        }
+        localStorage.setItem(FLOW_TEST_STORE_KEY, JSON.stringify(store))
+      }
+    } catch {}
+  }
+
   function sendMessage(conversationId, text) {
     const newMsg = {
       id: `m${Date.now()}`,
@@ -145,25 +173,17 @@ export function ConversationProvider({ children }) {
         : c
       )
     )
-    // A flow-test thread (id prefixed `flowtest_`) has a real, currently
-    // running visitor-side widget somewhere — the standalone Live Preview
-    // tab, or the in-canvas Preview popup — that has no other way to learn
-    // an agent just replied. Writing this message into the same persisted
-    // store those surfaces already read/write lets WebChatFlowBuilder.jsx's
-    // useAgentReplyBridge (listening for `storage` events on this key)
-    // pick it up and inject it into that live session, so the reply
-    // actually reaches "the visitor" instead of only ever landing in the
-    // Inbox's own record of the conversation.
-    if (conversationId.startsWith('flowtest_')) {
-      try {
-        const store = JSON.parse(localStorage.getItem(FLOW_TEST_STORE_KEY) || '{}')
-        const conv = store[conversationId]
-        if (conv) {
-          store[conversationId] = { ...conv, messages: [...conv.messages, newMsg], lastMessage: text, timestamp: new Date().toISOString() }
-          localStorage.setItem(FLOW_TEST_STORE_KEY, JSON.stringify(store))
-        }
-      } catch {}
-    }
+    // A flow-test thread has a real, currently running visitor-side widget
+    // somewhere — the standalone Live Preview tab, or the in-canvas Preview
+    // popup — that has no other way to learn an agent just replied. Writing
+    // this message into the same persisted store those surfaces already
+    // read/write lets WebChatFlowBuilder.jsx's useAgentReplyBridge
+    // (listening for `storage` events on this key) pick it up and inject it
+    // into that live session, so the reply actually reaches "the visitor"
+    // instead of only ever landing in the Inbox's own record of the
+    // conversation. (Landing-page visitors don't have a live chat
+    // simulation to inject into, but still need the persistence.)
+    appendToTestStore(conversationId, newMsg)
   }
 
   function takeoverConversation(id) {
@@ -277,6 +297,35 @@ export function ConversationProvider({ children }) {
     setConversations(prev => prev.map(c =>
       c.id === id ? { ...c, messages: [...c.messages, note] } : c
     ))
+    // Same persistence gap as sendMessage/logEvent — a private note is still
+    // a real message in the thread and must survive a reload, but (unlike a
+    // reply) shouldn't overwrite the Inbox list's public lastMessage preview.
+    appendToTestStore(id, note, { updateLastMessage: false })
+  }
+
+  // A generic `type: 'event'` system message — same shape the mock call-log
+  // entries in constants/mockData.js already use (call_missed/call_answered/
+  // assigned/bot_handover), now the real path WebchatCallContext.jsx logs
+  // actual Website Chat calls through. Also bumps `lastMessage` so the
+  // Inbox list preview reflects it, matching how a real call shows up there
+  // (e.g. "📞 Inbound call · 5m 40s · Answered").
+  function logEvent(id, event, text) {
+    const entry = {
+      id: `e${Date.now()}`,
+      type: 'event',
+      event,
+      text,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    }
+    setConversations(prev => prev.map(c =>
+      c.id === id ? { ...c, messages: [...c.messages, entry], lastMessage: text } : c
+    ))
+    // Same reasoning as sendMessage's appendToTestStore call — a call event
+    // logged against a flow-test or landing-page conversation is exactly as
+    // real as any other message in that thread, and without this it
+    // silently disappeared on the next reload since this tab's React state
+    // isn't actually the source of truth for those conversations.
+    appendToTestStore(id, entry)
   }
 
   return (
@@ -331,6 +380,7 @@ export function ConversationProvider({ children }) {
       addLabel,
       removeLabel,
       addNote,
+      logEvent,
     }}>
       {children}
     </ConversationContext.Provider>

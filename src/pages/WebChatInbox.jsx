@@ -644,6 +644,8 @@ function ChatWindow({ conversation, adminOnline, showPanel, onTogglePanel }) {
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-xs text-slate-500">
             {m.event === 'assigned'     && <UserCheck size={11} className="text-emerald-500" />}
             {m.event === 'bot_handover' && <Bot size={11} className="text-primary" />}
+            {m.event === 'call_answered' && <Phone size={11} className="text-emerald-500" />}
+            {m.event === 'call_missed'   && <Phone size={11} className="text-red-400" />}
             {m.text}
           </div>
         </div>

@@ -73,6 +73,15 @@ function AppRoutes() {
           isAuthenticated
             ? (
               <CallProvider>
+              {/* ConversationProvider now wraps WebchatCallProvider (not the
+                  other way around) so WebchatCallContext can call
+                  useConversations() itself — it needs to log a real
+                  call_missed/call_answered event into the visitor's own
+                  conversation thread when a Website Chat call ends, the same
+                  way constants/mockData.js's seeded call entries already
+                  look, instead of a call leaving no trace in the Inbox at
+                  all. */}
+              <ConversationProvider>
               <WebchatCallProvider>
                 {/* Global call overlays — visible on every page */}
                 <IncomingCallBanner />
@@ -80,7 +89,6 @@ function AppRoutes() {
                 <WebchatIncomingCallBanner />
                 <WebchatCallWidget />
 
-                <ConversationProvider>
                   <Routes>
                     <Route path="/" element={<MainLayout />}>
                       <Route index element={<Home />} />
@@ -109,8 +117,8 @@ function AppRoutes() {
                       <Route path="tickets" element={<Tickets />} />
                     </Route>
                   </Routes>
-                </ConversationProvider>
               </WebchatCallProvider>
+              </ConversationProvider>
               </CallProvider>
             )
             : <Navigate to="/signin" replace />
