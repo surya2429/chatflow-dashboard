@@ -1652,23 +1652,14 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
 
   return (
     <div className="fixed bottom-5 right-5 z-[70] flex flex-col items-end gap-2">
-      {/* Restart/Close sit in their own row ABOVE the widget frame — not
-          overlaid on top of it — so they never collide with the widget's
-          own header controls (Minimize/More options/Close). Preview always
-          starts simulating from the flow's first entry node (see `reset`) —
-          no "which trigger" picker. `setScreen` maps the widget's own
-          "Close chat" menu action to this popup's Close button, so using
-          either one closes the simulator the same way. */}
-      <div className="flex items-center gap-1.5">
-        <button onClick={reset} title="Restart simulation"
-          className="w-7 h-7 rounded-full bg-white shadow-md border border-slate-200/70 flex items-center justify-center text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors">
-          <RotateCcw size={13}/>
-        </button>
-        <button onClick={onClose} title="Close preview"
-          className="w-7 h-7 rounded-full bg-white shadow-md border border-slate-200/70 flex items-center justify-center text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors">
-          <X size={14}/>
-        </button>
-      </div>
+      {/* No separate Restart/Close pair floating above the frame — the
+          widget's own header already carries both, wired to the same
+          handlers below: its ✕ ("Close chat") and its ⋯ menu's "Close chat"
+          both reach onClose via `setScreen`, and that menu's "Restart chat"
+          is `reset`. A second, duplicate set hovering outside the widget
+          just reads as two stray unexplained icons. Preview always starts
+          simulating from the flow's first entry node (see `reset`) — no
+          "which trigger" picker. */}
 
       {/* The real widget — pixel-identical to /webchat/appearance's own
           preview, its own frame/header left completely untouched. */}
