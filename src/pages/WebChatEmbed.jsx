@@ -46,7 +46,23 @@ const DEFAULT_CFG = {
    visible target when the merchant turns it on. */
 const CLOSED_BOX      = { w: 92,  h: 92  }
 const CLOSED_TEXT_BOX = { w: 280, h: 164 }
-const OPEN_BOX        = { w: 420, h: 640 }
+
+/* Breathing room around the open panel, so the ambient bloom it casts (see
+   wcBloom in WebChatAppearance.jsx) fades out naturally instead of being
+   sliced off square at the iframe's edge. The panel is centred in the box, so
+   this margin exists on all four sides without any padding. */
+const GLOW_HALO = 44
+/* Mirrors SIZE_PX in WebChatAppearance.jsx — the panel's width is fixed per
+   size, and its height caps at the desktop shell maximum. */
+const PANEL_W   = { compact: 340, standard: 384, large: 420 }
+const PANEL_H   = 580
+
+function openBox(cfg) {
+  return {
+    w: (PANEL_W[cfg.size] ?? PANEL_W.standard) + GLOW_HALO * 2,
+    h: PANEL_H + GLOW_HALO * 2,
+  }
+}
 
 export const EMBED_MESSAGE_NAMESPACE = 'chatflow-widget'
 
@@ -76,9 +92,9 @@ export default function WebChatEmbed() {
 
   useEffect(() => {
     const open = screen !== 'closed'
-    const box = open ? OPEN_BOX : (cfg.launcherText ? CLOSED_TEXT_BOX : CLOSED_BOX)
+    const box = open ? openBox(cfg) : (cfg.launcherText ? CLOSED_TEXT_BOX : CLOSED_BOX)
     post({ type: 'state', open, w: box.w, h: box.h })
-  }, [screen, cfg.launcherText, post])
+  }, [screen, cfg.launcherText, cfg.size, post])
 
   useEffect(() => {
     try {
@@ -119,7 +135,9 @@ export default function WebChatEmbed() {
 
   return (
     <div className="w-screen h-screen overflow-hidden" style={{ background: 'transparent' }}>
-      <div className={open ? 'w-full h-full p-2.5' : 'w-full h-full'}>
+      {/* No padding: WidgetPreview centres the panel in whatever box it gets, so
+          the box being GLOW_HALO bigger than the panel IS the halo margin. */}
+      <div className="w-full h-full">
         <WidgetPreview cfg={cfg} screen={screen} device="desktop"
           activeTab={activeTab} setActiveTab={setActiveTab} setScreen={setScreen}
           previewQuestionTypes={undefined} scrollToQType={undefined}

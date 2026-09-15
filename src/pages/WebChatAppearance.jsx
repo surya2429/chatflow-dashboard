@@ -107,6 +107,16 @@ const LAUNCHER_FX_OPTIONS = [
 ]
 
 const CORNER_PX  = { sharp: 6, soft: 14, round: 24 }
+
+/* Which corner the opening panel scales out of — always the one the launcher
+   occupies, so the widget looks like it unfolded from the button the visitor
+   just pressed rather than materialising over it. */
+const PANEL_ORIGIN = {
+  'bottom-right': '100% 100%',
+  'bottom-left':  '0% 100%',
+  'top-right':    '100% 0%',
+  'top-left':     '0% 0%',
+}
 /* Real-world messenger widths — Intercom ≈ 400px, chatbot.com ≈ 380px.
    The old 236/264/300 values were far too narrow and caused text to wrap badly. */
 const SIZE_PX    = { compact: 340, standard: 384, large: 420 }
@@ -369,9 +379,18 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
       {/* Compact header — color/gradient is an accent band, not the dominant surface.
           Layered soft circles fake the depth real widgets get from a photo header. */}
       <div className="flex-shrink-0 relative overflow-hidden px-5 pt-4 pb-11" style={{background: headerBg}}>
-        <div className="absolute -top-12 -right-12 w-36 h-36 rounded-full bg-white/10"/>
-        <div className="absolute top-8 -right-2 w-16 h-16 rounded-full bg-white/10"/>
-        <div className="absolute bottom-0 left-10 w-10 h-10 rounded-full bg-black/5"/>
+        {/* The same three circles that already faked depth here, now drifting on
+            three different periods — a slow-moving colour field instead of a
+            static gradient. They're behind the text and clipped by the header's
+            own overflow-hidden, so nothing can escape the band. */}
+        <div className="wc-aurora-1 absolute -top-12 -right-12 w-36 h-36 rounded-full bg-white/10"/>
+        <div className="wc-aurora-2 absolute top-8 -right-2 w-16 h-16 rounded-full bg-white/10"/>
+        <div className="wc-aurora-3 absolute bottom-0 left-10 w-10 h-10 rounded-full bg-black/5"/>
+        {/* Specular sweep on open — purely decorative, so it takes no space and
+            never intercepts a click. */}
+        <div className="wc-sheen absolute inset-y-0 pointer-events-none"
+          style={{ left: '-45%', width: '45%',
+            background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.30), transparent)' }}/>
         <div className="flex items-center justify-between mb-4 relative">
           <Avatar size={8} textSize="12px"/>
           <button className="w-6 h-6 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors flex-shrink-0">
@@ -390,7 +409,10 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
       <div className={clsx('flex-1 -mt-6 overflow-y-auto relative flex flex-col', dark ? 'bg-slate-900' : 'bg-white')}
         style={{ borderTopLeftRadius: cornerR*1.3, borderTopRightRadius: cornerR*1.3, fontFamily: fontFamilyCss }}>
 
-        <div className="px-4 pt-5 flex-1">
+        {/* wc-stagger cascades these direct children in one after another. Safe
+            to replay on screen changes: these nodes only mount when the home
+            screen does, so a re-render inside the widget never restarts it. */}
+        <div className="wc-stagger px-4 pt-5 flex-1">
           {/* Primary action as a CARD with a team avatar cluster — not a solid button */}
           <button style={{borderRadius: cornerR*0.8, boxShadow: dark ? '0 8px 24px -6px rgba(0,0,0,0.5)' : '0 12px 28px -8px rgba(15,23,42,0.16)'}}
             className={clsx('w-full flex items-center gap-3 p-4 border text-left transition-transform hover:-translate-y-0.5',
@@ -1413,9 +1435,15 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
             maxHeight: shellMaxH,
             borderRadius: isMobile ? 36 : shellRadius,
             background: dark ? '#0b1220' : '#fff',
-            boxShadow: '0 32px 70px -16px rgba(15,23,42,0.30), 0 10px 24px -8px rgba(15,23,42,0.14)',
+            /* Resting state of the bloom below, so there is no jump when the
+               one-shot animation hands back control. The third layer is the
+               ambient one: brand-tinted and very wide, it reads as the panel
+               casting light on the page rather than as a drop shadow. */
+            boxShadow: `0 32px 70px -16px rgba(15,23,42,0.30), 0 10px 24px -8px rgba(15,23,42,0.14), 0 0 64px -12px ${cfg.color}42`,
+            /* Grow out of whichever corner the launcher occupies. */
+            transformOrigin: PANEL_ORIGIN[cfg.position] || '100% 100%',
             transition: 'width 0.3s cubic-bezier(0.16,1,0.3,1), height 0.3s cubic-bezier(0.16,1,0.3,1), max-height 0.3s cubic-bezier(0.16,1,0.3,1)',
-            animation: 'wcWindowIn 0.42s cubic-bezier(0.16,1,0.3,1) both',
+            animation: 'wcWindowIn 0.46s cubic-bezier(0.16,1,0.3,1) both, wcBloom 1.5s ease-out both',
           }}>
           {isMobile && (
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-slate-900 rounded-b-2xl z-40"/>
@@ -1476,8 +1504,47 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         @keyframes wcFade    { from { opacity:0 } to { opacity:1 } }
         @keyframes wcPop     { from { opacity:0; transform: scale(0.9) translateY(6px) } to { opacity:1; transform:none } }
         @keyframes wcMenuIn  { from { opacity:0; transform: scale(0.94) translateY(-4px) } to { opacity:1; transform:none } }
-        @keyframes wcWindowIn{ from { opacity:0; transform: translateY(18px) scale(0.97) } to { opacity:1; transform:none } }
+        /* The panel grows OUT OF the launcher rather than appearing over it —
+           transform-origin is set inline from cfg.position, so the corner it
+           expands from is always the corner the launcher sits in. The slight
+           overshoot at 78% is what stops it reading as a linear zoom. */
+        @keyframes wcWindowIn{
+          0%   { opacity:0; transform: translateY(16px) scale(0.86) }
+          78%  { opacity:1; transform: translateY(0)    scale(1.012) }
+          100% { opacity:1; transform:none }
+        }
         @keyframes wcLauncherIn { from { opacity:0; transform: scale(0.6) } to { opacity:1; transform:none } }
+
+        /* ── Ambient lighting ──
+           A one-shot bloom as the widget "turns on": brand light swells out of
+           the panel onto the page behind it, then settles to a resting glow.
+           Deliberately a bloom and not an infinite pulse — a box that breathes
+           forever in the corner of someone's site is a distraction, whereas the
+           drifting colour field in the header (below) reads as alive without
+           ever asking for attention. */
+        @keyframes wcBloom {
+          0%   { box-shadow: 0 32px 70px -16px rgba(15,23,42,0.30), 0 10px 24px -8px rgba(15,23,42,0.14), 0 0 0px -12px ${cfg.color}00 }
+          45%  { box-shadow: 0 32px 70px -16px rgba(15,23,42,0.30), 0 10px 24px -8px rgba(15,23,42,0.14), 0 0 110px -10px ${cfg.color}7a }
+          100% { box-shadow: 0 32px 70px -16px rgba(15,23,42,0.30), 0 10px 24px -8px rgba(15,23,42,0.14), 0 0 64px -12px ${cfg.color}42 }
+        }
+
+        /* The header's decorative circles drift on different periods, so the
+           colour field behind the greeting never sits still or visibly loops. */
+        @keyframes wcAurora1 { 0%,100%{transform:translate3d(0,0,0) scale(1)}   50%{transform:translate3d(-18px,12px,0) scale(1.22)} }
+        @keyframes wcAurora2 { 0%,100%{transform:translate3d(0,0,0) scale(1)}   50%{transform:translate3d(14px,-16px,0) scale(0.82)} }
+        @keyframes wcAurora3 { 0%,100%{transform:translate3d(0,0,0) scale(1)}   50%{transform:translate3d(22px,-8px,0) scale(1.35)} }
+
+        /* One-shot specular sweep — a highlight travelling across the header as
+           the panel opens, the way light crosses a piece of glass being turned. */
+        @keyframes wcSheen {
+          0%   { transform: translateX(-140%) skewX(-18deg); opacity:0 }
+          14%  { opacity:1 }
+          100% { transform: translateX(340%)  skewX(-18deg); opacity:0 }
+        }
+
+        /* Content arrives just behind the shell, in sequence, so the widget
+           assembles itself instead of snapping in fully formed. */
+        @keyframes wcRise { from { opacity:0; transform: translateY(10px) } to { opacity:1; transform:none } }
 
         /* ── Ambient loops ── */
         @keyframes bounce    { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-4px)} }
@@ -1530,6 +1597,25 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         .wc-launcher:hover { transform: scale(1.07) translateY(-2px); }
         .wc-launcher:active { transform: scale(.94); }
 
+        /* ── Opening choreography ── */
+        .wc-sheen { animation: wcSheen 1.25s cubic-bezier(.3,0,.2,1) .16s both; }
+        .wc-aurora-1 { animation: wcAurora1 11s ease-in-out infinite; }
+        .wc-aurora-2 { animation: wcAurora2 14s ease-in-out infinite; }
+        .wc-aurora-3 { animation: wcAurora3  9s ease-in-out infinite; }
+
+        /* Cascade: each direct child enters one beat after the last. The shell
+           lands at ~0.46s, so the first child starts just before it settles and
+           the whole sequence is done inside ~0.75s — long enough to read as
+           deliberate, short enough that nobody waits for it. */
+        .wc-stagger > * { animation: wcRise .40s cubic-bezier(.16,1,.3,1) both; }
+        .wc-stagger > *:nth-child(1) { animation-delay: .20s }
+        .wc-stagger > *:nth-child(2) { animation-delay: .26s }
+        .wc-stagger > *:nth-child(3) { animation-delay: .32s }
+        .wc-stagger > *:nth-child(4) { animation-delay: .38s }
+        .wc-stagger > *:nth-child(5) { animation-delay: .44s }
+        .wc-stagger > *:nth-child(6) { animation-delay: .50s }
+        .wc-stagger > *:nth-child(n+7) { animation-delay: .56s }
+
         /* ── Slim scrollbars, like real widgets ── */
         .wc-scroll { scrollbar-width: thin; scrollbar-color: ${dark ? '#334155' : '#d8dee9'} transparent; }
         .wc-scroll::-webkit-scrollbar { width:5px; height:5px }
@@ -1538,6 +1624,13 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
 
         @media (prefers-reduced-motion: reduce) {
           .wc-bubble, .wc-chip, .wc-card, .wc-send, .wc-launcher { transition: none !important; }
+          /* Everything the opening choreography adds is decoration, so none of
+             it survives here: the drifting field and the light sweep stop
+             outright, and the cascade collapses to "already in place" rather
+             than a faster version of itself. */
+          .wc-aurora-1, .wc-aurora-2, .wc-aurora-3 { animation: none !important; }
+          .wc-sheen { display: none !important; }
+          .wc-stagger > * { animation: none !important; }
         }
       `}</style>
     </div>
