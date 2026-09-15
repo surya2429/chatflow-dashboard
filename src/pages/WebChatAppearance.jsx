@@ -23,6 +23,7 @@ import { GOOGLE_FONTS, FONT_CATEGORIES, fontStack } from '../constants/googleFon
 import { WIDGET_ID } from '../constants/webchat'
 import { AnswerControl } from '../components/webchat/AnswerControls'
 import { PoweredByDemoModal } from '../components/webchat/PoweredByDemoModal'
+import { useSpeechToText } from '../hooks/useSpeechToText'
 
 /* ─── Constants ─────────────────────────────────────────────── */
 const COLORS = ['#0066ff','#8B5CF6','#10B981','#F59E0B','#EF4444','#EC4899','#06B6D4','#1D4ED8']
@@ -245,7 +246,6 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
   const [maximized, setMaximized] = useState(false)
   const [muted, setMuted] = useState(!cfg.sound)
   const [moreOpen, setMoreOpen] = useState(false)
-  const [recording, setRecording] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
   const [pickedChip, setPickedChip] = useState(null)
   /* Hoisted out of FaqScreen (below) — FaqScreen is now called as a plain
@@ -259,6 +259,17 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
   const draftRef = useRef(null)
   const moreRef = useRef(null)
   const msgListRef = useRef(null)
+  /* Whatever was already typed when the mic was tapped — dictation is
+     appended to it rather than wiping a half-written message, and each
+     interim result replaces the last one instead of stacking up. */
+  const draftBeforeDictationRef = useRef('')
+  const { recording, toggle: toggleDictation } = useSpeechToText({
+    onStart: () => { draftBeforeDictationRef.current = draft },
+    onTranscript: text => {
+      const base = draftBeforeDictationRef.current
+      setDraft(base && text ? `${base.replace(/\s+$/, '')} ${text}` : (text || base))
+    },
+  })
   /* Close the overflow menu when clicking anywhere outside it — the menu is
      positioned absolutely inside the header, so we check clicks against the
      nearest `moreRef` ancestor. */
@@ -933,7 +944,9 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                 </button>
               )}
               {cfg.voiceInput && (
-                <button onClick={()=>setRecording(r=>!r)} title="Voice to text" className="wc-ibtn"
+                <button onClick={toggleDictation}
+                  title={recording ? 'Listening — stops on its own when you finish' : 'Voice to text'}
+                  className="wc-ibtn"
                   style={recording
                     ? { background:'#fee2e2', color:'#ef4444', animation:'wcRec 1.4s ease-in-out infinite' }
                     : { ['--wc-hover']: dark ? 'rgba(255,255,255,0.08)' : '#e8ecf1', color: dark ? '#7c8ba1' : '#64748b' }}>
@@ -957,7 +970,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         {recording && (
           <div className="flex items-center gap-1.5 mt-1.5 px-1">
             <span className="w-1.5 h-1.5 rounded-full bg-red-500" style={{animation:'wcPresence 1s ease-in-out infinite'}}/>
-            <span className="text-[9px] font-semibold text-red-500">Listening… speak now</span>
+            <span className="text-[9px] font-semibold text-red-500">Listening… stops when you finish</span>
           </div>
         )}
       </div>
