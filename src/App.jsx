@@ -40,6 +40,7 @@ import InstagramOAuthCallback from './pages/InstagramOAuthCallback'
 import WebChatCallTester from './pages/WebChatCallTester'
 import WebChatLandingPage from './pages/WebChatLandingPage'
 import WebChatFlowLivePreview from './pages/WebChatFlowLivePreview'
+import WebChatEmbed from './pages/WebChatEmbed'
 
 
 function AppRoutes() {
@@ -65,6 +66,11 @@ function AppRoutes() {
           /webchat-landing above which is just a generic static widget demo
           with no flow logic. Bypasses login/layout for the same reason. */}
       <Route path="/webchat-flow-preview" element={<WebChatFlowLivePreview />} />
+      {/* What the install snippet's iframe points at. Bypasses login/layout for
+          the same reason as the routes above, and additionally renders on a
+          transparent background: it is composited over a stranger's website, so
+          anything it paints outside the widget itself would show up there. */}
+      <Route path="/webchat-embed" element={<WebChatEmbed />} />
       {/* Matches the Instagram Business Login redirect_uri exactly — must work whether or not the app session is authenticated */}
       <Route path="/instagramBusinessLoginSetup" element={<InstagramOAuthCallback />} />
       <Route

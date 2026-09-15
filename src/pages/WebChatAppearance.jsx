@@ -1370,7 +1370,12 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                   style={{ background: cfg.color, animation:`${LAUNCHER_FX[cfg.launcherAnimation].rings} 2s ease-out 1s infinite` }}/>
               </>
             )}
-            <button className={clsx('wc-launcher w-16 h-16 flex items-center justify-center relative overflow-hidden',
+            {/* Opens the widget for callers that own a `screen` state — the
+                embed (WebChatEmbed.jsx) and the Appearance preview. `setScreen`
+                falls back to a no-op, so callers without one (the Flow
+                Builder's simulator) keep the launcher as pure design preview. */}
+            <button onClick={()=>{ setScreen('home'); setActiveTab?.('home') }}
+              className={clsx('wc-launcher w-16 h-16 flex items-center justify-center relative overflow-hidden',
               cfg.launcherShape==='square' ? 'rounded-2xl' : 'rounded-full')}
               style={{background: brandBg, boxShadow: `0 12px 32px -6px ${cfg.color}77, 0 4px 12px -2px rgba(15,23,42,0.18)`,
                 animation: LAUNCHER_FX[cfg.launcherAnimation]?.self }}>

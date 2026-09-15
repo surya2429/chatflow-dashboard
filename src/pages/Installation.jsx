@@ -1021,40 +1021,50 @@ function InstagramConnectSection() {
 
 /* ─── Web Chat widget installation — one snippet, every website ───── */
 
+/* Where the loader is served from. One place to change when the CDN moves;
+   the widget id rides along in the query string so the snippet is a single
+   self-contained tag with nothing to configure around it. */
+const WIDGET_CDN = 'https://cdn.chatflow.io/v2/widget.js'
+
 /**
- * The install code customers actually paste.
+ * The install code customers actually paste — one tag, id included.
  *
- * Deliberately a single self-contained loader rather than a set of
- * per-framework packages: there is no npm package, no plugin and no SDK to
- * install, so the same code works in plain HTML, React, Vue, WordPress or a
- * site builder without changing a character. It appends the real widget
- * script to <head>, and the widget mounts itself to document.body — outside
- * any framework's component tree — which is also what lets it survive
- * client-side route changes in single-page apps without re-mounting.
+ * Everything that used to sit in this snippet (colours, position, the loader
+ * body) moved into public/widget.js and the dashboard. That is not just
+ * cosmetic: config that lives in the customer's HTML has to be re-pasted by a
+ * developer every time a merchant changes their brand colour, whereas config
+ * keyed to the widget id is changed in the Widget Builder and is live
+ * immediately. The snippet becomes something you paste once and never touch.
  *
- * The stub queues any ChatFlow(...) calls made before the async script has
- * loaded, so customer code never has to wait for it or guard against it.
+ * `async` so it never blocks the host page's first paint, which is the other
+ * half of "it won't affect your site".
  */
 function universalSnippet(widgetId) {
-  return `<!-- ChatFlow — paste once inside <head>. Works on every website. -->
-<script>
-  window.cfSettings = {
-    widgetId: '${widgetId}',
-    primaryColor: '#0066ff',
-    position: 'bottom-right',
-  };
-  (function (d, t) {
-    if (window.ChatFlow) return;
-    var q = [];
-    window.ChatFlow = function () { q.push(arguments); };
-    window.ChatFlow.q = q;
-    var s = d.createElement(t);
-    s.async = 1;
-    s.src = 'https://cdn.chatflow.io/v2/widget.js';
-    d.head.appendChild(s);
-  })(document, 'script');
-</script>`
+  return `<script src="${WIDGET_CDN}?id=${widgetId}" async></script>`
 }
+
+/* What the loader is actually doing to keep this promise — see the contract
+   comment at the top of public/widget.js, which these mirror. Worth stating on
+   the page because "will your script break my CSS" is the first question every
+   developer installing a third-party widget asks. */
+const ISOLATION_POINTS = [
+  ['One element, zero stylesheets',
+   'Adds a single <div> to <body> and nothing at all to <head> — no CSS reset, no font, no globals.'],
+  ['Rendered in an iframe',
+   'Its own document and its own cascade, so no style crosses in either direction — not even inherited font or colour.'],
+  ['Immune to !important',
+   'Every layout-critical property is set inline with !important, which outranks any stylesheet on your page.'],
+  ['Only as big as it looks',
+   'Closed, it is a 92px box in one corner — it never covers your cookie banner, and never adds a scrollbar.'],
+]
+
+/* Optional query params on the same tag, for the one thing a snippet genuinely
+   can't decide for the merchant: which corner is already occupied. */
+const SNIPPET_OPTIONS = [
+  ['position', 'bottom-left', 'Which corner the launcher sits in'],
+  ['offset-x', '20',          'Distance from the side edge, in px'],
+  ['offset-y', '90',          'Distance from the top/bottom edge — raise it to clear a sticky bar'],
+]
 
 /* Same snippet everywhere — only the file you paste it into changes. */
 const WC_WEB_TARGETS = [
@@ -1122,12 +1132,6 @@ const WC_MOBILE_TARGETS = [
   { id: 'flutter', label: 'Flutter',      detail: 'webview_flutter',        builtIn: false, color: '#02569B' },
 ]
 
-const SNIPPET_HIGHLIGHTS = [
-  ['No packages',   'Nothing to npm install — no plugin, no SDK, no build step.'],
-  ['Any framework', 'Mounts to document.body, outside your component tree.'],
-  ['SPA-safe',      'Keeps working across client-side route changes on its own.'],
-]
-
 function useCopy() {
   const [copied, setCopied] = useState(null)
   function copy(text, key) {
@@ -1189,7 +1193,7 @@ function WebChatInstallSection() {
           <div className="min-w-0">
             <p className="text-xs font-bold text-slate-900">Your install code</p>
             <p className="text-[10px] text-slate-400 mt-0.5">
-              Paste once inside <code className="font-mono bg-slate-100 px-1 rounded">&lt;head&gt;</code> — your Widget ID is already filled in
+              One tag, pasted once inside <code className="font-mono bg-slate-100 px-1 rounded">&lt;head&gt;</code> — your Widget ID is already in it
             </p>
           </div>
           <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -1197,20 +1201,54 @@ function WebChatInstallSection() {
           </span>
         </div>
 
-        <div className="p-4">
+        <div className="p-4 space-y-3">
           <WCCodeBlock code={snippet} lang="html" id="universal" copied={copied} onCopy={copy}/>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
-            {SNIPPET_HIGHLIGHTS.map(([title, sub]) => (
-              <div key={title} className="flex items-start gap-2 bg-slate-50 rounded-lg px-3 py-2.5">
-                <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0 mt-0.5"/>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold text-slate-700 leading-none">{title}</p>
-                  <p className="text-[10px] text-slate-400 mt-1 leading-snug">{sub}</p>
+          {/* Everything else is configured in the Widget Builder against this
+              id, so the tag itself never needs re-pasting. The exceptions are
+              here: only the merchant knows which corner their site already
+              uses. */}
+          <div className="border border-surface-border rounded-lg overflow-hidden">
+            <div className="px-3 py-2 bg-slate-50 border-b border-surface-border">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                Optional — add to the same tag
+              </p>
+            </div>
+            <div className="divide-y divide-surface-border">
+              {SNIPPET_OPTIONS.map(([key, example, desc]) => (
+                <div key={key} className="flex items-center gap-3 px-3 py-2">
+                  <code className="text-[10.5px] font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">
+                    &amp;{key}={example}
+                  </code>
+                  <p className="text-[11px] text-slate-500 leading-snug">{desc}</p>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
+        </div>
+      </div>
+
+      {/* ── Why it can't break their site ── */}
+      <div className="bg-white border border-surface-border rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-border">
+          <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+            <Shield size={15} className="text-emerald-600"/>
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-900">It can't touch your site's CSS</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">No style leaks in either direction, and nothing overlaps what it isn't covering</p>
+          </div>
+        </div>
+        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {ISOLATION_POINTS.map(([title, sub]) => (
+            <div key={title} className="flex items-start gap-2 bg-slate-50 rounded-lg px-3 py-2.5">
+              <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0 mt-0.5"/>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold text-slate-700 leading-none">{title}</p>
+                <p className="text-[10px] text-slate-400 mt-1 leading-snug">{sub}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Widget isolation test — hostile host page</title>
+
+<!--
+  A deliberately hostile host page. Every rule below is something a real
+  customer site has actually done at some point, and each one breaks a widget
+  that renders into the host document instead of an iframe.
+
+  If the widget still looks and behaves correctly on this page, it will survive
+  a normal one. Open /embed-test.html with the dev server running.
+-->
+<style>
+  /* 1. The classic: a global reset with !important, aimed at everything. */
+  * , *::before, *::after {
+    box-sizing: content-box !important;
+    font-family: "Comic Sans MS", cursive !important;
+    letter-spacing: 3px !important;
+    line-height: 3 !important;
+    text-transform: uppercase !important;
+  }
+
+  /* 2. Root font-size trick — breaks every rem-based widget. */
+  html { font-size: 28px !important; }
+
+  /* 3. Colour and visibility inherited down the tree. */
+  body {
+    background: repeating-linear-gradient(45deg,#fee2e2,#fee2e2 20px,#fecaca 20px,#fecaca 40px);
+    color: #b91c1c;
+    margin: 0;
+    direction: rtl;               /* flips layout of anything that inherits it */
+  }
+
+  /* 4. Rules that name the widget's own element and ids directly. */
+  #chatflow-widget {
+    position: static !important;
+    width: 50% !important;
+    height: 40px !important;
+    border: 12px dashed lime !important;
+    transform: rotate(18deg) !important;
+    opacity: .2 !important;
+    filter: blur(4px) !important;
+  }
+  iframe { border: 20px solid magenta !important; filter: invert(1) !important; }
+
+  /* 5. Blanket element rules of the kind CSS frameworks ship. */
+  div  { background: rgba(0,0,255,.08) !important; padding: 18px !important; }
+  button { background: black !important; color: yellow !important; border-radius: 0 !important; }
+  svg, img { display: none !important; }
+  input, textarea { font-size: 40px !important; border: 6px solid red !important; }
+
+  /* 6. Site-wide animation/transition overrides. */
+  * { transition: all 2s linear !important; animation: none !important; }
+
+  /* 7. A z-index arms race. */
+  .sticky-bar { position: fixed; inset: auto 0 0 0; z-index: 99999; background: #0f172a; color: #fff; }
+
+  /* The page's own content, so we can see whether the widget damaged it. */
+  .page { padding: 24px; max-width: 760px; }
+  .card { background: #fff; border: 2px solid #b91c1c; margin: 16px 0; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <h1>Hostile host page</h1>
+
+  <div class="card">
+    <p>
+      Everything on this page is styled by rules designed to wreck an embedded
+      widget: a <code>!important</code> global reset, Comic Sans on every
+      element, <code>line-height: 3</code>, <code>direction: rtl</code>,
+      <code>html { font-size: 28px }</code>, <code>content-box</code> sizing,
+      rules naming <code>#chatflow-widget</code> and <code>iframe</code>
+      directly, and <code>svg, img { display: none }</code>.
+    </p>
+    <p><strong>Pass criteria</strong></p>
+    <ul>
+      <li>The launcher sits in the bottom-right corner at its normal size, unrotated, unblurred, not dashed lime.</li>
+      <li>Text inside the widget is Inter — not Comic Sans, not uppercase, not triple-spaced, not right-to-left.</li>
+      <li>The widget's icons are visible (this page hides every <code>svg</code>).</li>
+      <li>Clicking the launcher opens the panel; it fits the viewport and does not add a page scrollbar.</li>
+      <li>This page's own styling is unchanged with the widget installed vs. removed — the widget must not add a stylesheet, a font, or any element besides one <code>div</code>.</li>
+    </ul>
+    <button>A host page button — should stay black/yellow</button>
+    <input placeholder="A host page input — should stay huge with a red border">
+  </div>
+
+  <div class="card">
+    <p id="audit">Running DOM audit…</p>
+  </div>
+</div>
+
+<div class="sticky-bar">
+  A sticky footer bar at z-index 99999 — the widget should not cover it permanently,
+  and the widget should not be trapped behind it either.
+</div>
+
+<!-- ─── The install snippet, exactly as the dashboard hands it out ─── -->
+<script src="/widget.js?id=cf_demo_widget" async></script>
+
+<script>
+  // Reports what the snippet actually did to this document. This is the part
+  // that matters: not "does the widget look right" but "did it touch us".
+  setTimeout(function () {
+    var added = [].slice.call(document.body.children)
+      .filter(function (el) { return el.id === 'chatflow-widget' });
+    var styleTags  = document.querySelectorAll('head style, head link[rel="stylesheet"]').length;
+    var scriptTags = document.querySelectorAll('head script').length;
+    var fonts      = [].slice.call(document.querySelectorAll('link[href*="fonts."]')).length;
+    var host       = added[0];
+    var cs         = host ? getComputedStyle(host) : null;
+
+    // This page ships exactly one <style> of its own and no <link>/<script> in
+    // <head>, so anything above those baselines was injected by the widget.
+    var failures = [];
+    function expect(label, actual, wanted) {
+      if (String(actual) !== String(wanted)) failures.push(label + ' = ' + actual + ' (want ' + wanted + ')');
+    }
+    expect('nodes added to <body>', added.length, 1);
+    expect('stylesheets in <head>', styleTags, 1);
+    expect('scripts in <head>', scriptTags, 0);
+    expect('font <link>s', fonts, 0);
+    expect('shadow root', !!(host && host.shadowRoot), true);
+    expect('page gained h-scrollbar',
+      document.documentElement.scrollWidth > document.documentElement.clientWidth, false);
+    if (cs) {
+      expect('position', cs.position, 'fixed');
+      expect('transform', cs.transform, 'none');
+      expect('opacity', cs.opacity, '1');
+      expect('filter', cs.filter, 'none');
+      expect('visibility', cs.visibility, 'visible');
+      expect('display', cs.display, 'block');
+      expect('padding', cs.paddingTop, '0px');
+      expect('border width', cs.borderTopWidth, '0px');
+      expect('background', cs.backgroundColor, 'rgba(0, 0, 0, 0)');
+      expect('transition duration', cs.transitionDuration, '0s');
+      expect('box-sizing', cs.boxSizing, 'border-box');
+    }
+
+    document.getElementById('audit').textContent =
+      (failures.length ? 'FAIL (' + failures.length + ')\n' + failures.join('\n')
+                       : 'PASS — host page untouched, widget styling unhijacked') +
+      '\n\n' + JSON.stringify({
+        nodesAddedToBody: added.length,
+        hostWidth: cs && cs.width,
+        hostHeight: cs && cs.height,
+        hostZIndex: cs && cs.zIndex
+      }, null, 2);
+  }, 1500);
+</script>
+
+</body>
+</html>
