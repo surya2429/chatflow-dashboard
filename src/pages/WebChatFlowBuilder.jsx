@@ -1669,7 +1669,7 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
           The viewport reserve only has to cover the gap, that strip and the
           bottom offset now — it used to also allow for a row of Restart/Close
           icons above the frame, which is gone. */}
-      <div className="relative min-h-0" style={{ width: 400, height: 'min(760px, calc(100vh - 120px))' }}>
+      <div className="relative min-h-0" style={{ width: 400, height: 'min(900px, calc(100vh - 100px))' }}>
         <WidgetPreview cfg={cfg} screen="open" device="desktop"
           activeTab="chat" setActiveTab={() => {}}
           setScreen={s => { if (s === 'closed') onClose() }}
