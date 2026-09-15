@@ -4,7 +4,7 @@ import {
   Smartphone, CheckCircle2, Copy, Check, Code,
   ExternalLink, AlertCircle, RefreshCw,
   Shield, X, ChevronDown, Monitor, Eye, Loader2, AlertTriangle, Search,
-  Instagram as InstagramIcon, Globe, Layout, ChevronRight, Wifi,
+  Instagram as InstagramIcon, Globe, Wifi,
 } from 'lucide-react'
 import clsx from 'clsx'
 import Select from '../components/Select'
@@ -1019,208 +1019,113 @@ function InstagramConnectSection() {
   )
 }
 
-/* ─── Web Chat widget installation — moved here from the Web Chat Automation page ── */
-const WC_PLATFORMS = [
-  {
-    id:'html', label:'HTML', badge:'Web', icon:Code, color:'#E34F26',
-    steps:[
-      { title:'Copy the snippet', lang:'html', code:`<!-- ChatFlow Widget -->
+/* ─── Web Chat widget installation — one snippet, every website ───── */
+
+/**
+ * The install code customers actually paste.
+ *
+ * Deliberately a single self-contained loader rather than a set of
+ * per-framework packages: there is no npm package, no plugin and no SDK to
+ * install, so the same code works in plain HTML, React, Vue, WordPress or a
+ * site builder without changing a character. It appends the real widget
+ * script to <head>, and the widget mounts itself to document.body — outside
+ * any framework's component tree — which is also what lets it survive
+ * client-side route changes in single-page apps without re-mounting.
+ *
+ * The stub queues any ChatFlow(...) calls made before the async script has
+ * loaded, so customer code never has to wait for it or guard against it.
+ */
+function universalSnippet(widgetId) {
+  return `<!-- ChatFlow — paste once inside <head>. Works on every website. -->
 <script>
   window.cfSettings = {
-    widgetId: 'YOUR_WIDGET_ID',
+    widgetId: '${widgetId}',
     primaryColor: '#0066ff',
     position: 'bottom-right',
   };
-</script>
-<script async src="https://cdn.chatflow.io/v2/widget.js"></script>` },
-      { title:'Paste inside <head>', desc:'Add the snippet inside the <head> tag — ideally right after the opening <head> — on every page where you want the widget.' },
-      { title:'Verify installation', desc:'Open your website in a browser — the chat launcher should appear in the corner within seconds. Use "Test Connection" below to confirm.' },
-    ]
-  },
-  {
-    id:'react', label:'React / Next.js', badge:'Web', icon:Code, color:'#61DAFB',
-    steps:[
-      { title:'Install the package', lang:'bash', code:`npm install @chatflow/react` },
-      { title:'Add to your app', lang:'jsx', code:`// _app.jsx or layout.jsx
-import { ChatFlowWidget } from '@chatflow/react'
-
-export default function App({ Component, pageProps }) {
-  return (
-    <>
-      <Component {...pageProps} />
-      <ChatFlowWidget
-        widgetId="YOUR_WIDGET_ID"
-        primaryColor="#0066ff"
-      />
-    </>
-  )
-}` },
-    ]
-  },
-  {
-    id:'vue', label:'Vue / Nuxt', badge:'Web', icon:Code, color:'#42b883',
-    steps:[
-      { title:'Install the package', lang:'bash', code:`npm install @chatflow/vue` },
-      { title:'Register globally', lang:'js', code:`// main.js
-import { createApp } from 'vue'
-import ChatFlowPlugin from '@chatflow/vue'
-import App from './App.vue'
-
-const app = createApp(App)
-app.use(ChatFlowPlugin, { widgetId: 'YOUR_WIDGET_ID' })
-app.mount('#app')` },
-    ]
-  },
-  {
-    id:'wordpress', label:'WordPress', badge:'Web', icon:Globe, color:'#21759B',
-    steps:[
-      { title:'Install plugin', desc:'Go to WordPress Dashboard → Plugins → Add New. Search for "ChatFlow" and click Install Now, then Activate.' },
-      { title:'Enter your Widget ID', lang:'text', code:`Widget ID: YOUR_WIDGET_ID` },
-      { title:'Save & publish', desc:'Go to Settings → ChatFlow, paste your Widget ID, choose your pages, and click Save. The widget appears automatically.' },
-    ]
-  },
-  {
-    id:'webflow', label:'Webflow / Wix', badge:'Web', icon:Layout, color:'#4353FF',
-    steps:[
-      { title:'Open embed settings', desc:'In Webflow: Project Settings → Custom Code → Head Code. In Wix: Settings → Custom Code → Add Code → place on all pages, in the <head>.' },
-      { title:'Paste the script into <head>', lang:'html', code:`<script>
-  window.cfSettings = { widgetId: 'YOUR_WIDGET_ID' };
-</script>
-<script async src="https://cdn.chatflow.io/v2/widget.js"></script>` },
-      { title:'Publish your site', desc:'Click Publish in Webflow or Save & Publish in Wix. The widget will appear on your live site.' },
-    ]
-  },
-  {
-    id:'ios', label:'iOS (Swift)', badge:'Mobile', icon:Smartphone, color:'#000000',
-    steps:[
-      { title:'Add via Swift Package Manager', lang:'swift', code:`// In Xcode: File → Add Package Dependencies
-// URL: https://github.com/chatflow/ios-sdk
-// Version: 2.0.0+` },
-      { title:'Or via CocoaPods', lang:'ruby', code:`# Podfile
-pod 'ChatFlowSDK', '~> 2.0'
-# Then run: pod install` },
-      { title:'Initialize in AppDelegate or App', lang:'swift', code:`import ChatFlowSDK
-
-@main
-struct MyApp: App {
-  init() {
-    ChatFlow.initialize(
-      widgetId: "YOUR_WIDGET_ID",
-      primaryColor: UIColor(hex: "#0066ff")
-    )
-  }
-  var body: some Scene {
-    WindowGroup { ContentView() }
-  }
-}` },
-      { title:'Show/hide widget', lang:'swift', code:`// Show the widget
-ChatFlow.show()
-
-// Open chat directly
-ChatFlow.openChat()
-
-// Pass user info
-ChatFlow.identify(userId: "user_123", name: "Arjun", email: "arjun@example.com")` },
-    ]
-  },
-  {
-    id:'android', label:'Android (Kotlin)', badge:'Mobile', icon:Smartphone, color:'#3DDC84',
-    steps:[
-      { title:'Add to build.gradle', lang:'kotlin', code:`// settings.gradle
-dependencyResolutionManagement {
-  repositories {
-    maven { url 'https://jitpack.io' }
-  }
+  (function (d, t) {
+    if (window.ChatFlow) return;
+    var q = [];
+    window.ChatFlow = function () { q.push(arguments); };
+    window.ChatFlow.q = q;
+    var s = d.createElement(t);
+    s.async = 1;
+    s.src = 'https://cdn.chatflow.io/v2/widget.js';
+    d.head.appendChild(s);
+  })(document, 'script');
+</script>`
 }
 
-// app/build.gradle
-dependencies {
-  implementation 'io.chatflow:android-sdk:2.0.0'
-}` },
-      { title:'Initialize in Application class', lang:'kotlin', code:`import io.chatflow.ChatFlow
-
-class MyApplication : Application() {
-  override fun onCreate() {
-    super.onCreate()
-    ChatFlow.init(this, "YOUR_WIDGET_ID") {
-      primaryColor = "#0066ff"
-      position = ChatFlow.Position.BOTTOM_RIGHT
-    }
-  }
-}` },
-      { title:'Show widget in Activity/Fragment', lang:'kotlin', code:`// Show launcher button
-ChatFlow.show(activity)
-
-// Identify logged-in user
-ChatFlow.identify(
-  userId = "user_123",
-  name = "Arjun Sharma",
-  email = "arjun@example.com"
-)` },
-    ]
+/* Same snippet everywhere — only the file you paste it into changes. */
+const WC_WEB_TARGETS = [
+  {
+    id: 'html', label: 'HTML', color: '#E34F26',
+    file: 'index.html',
+    steps: [
+      'Open the file that renders your <head> — usually index.html, or a shared header include such as header.php or _header.html.',
+      'Paste the snippet immediately after the opening <head> tag.',
+      'Re-upload or redeploy. The launcher appears on every page that uses that head.',
+    ],
   },
   {
-    id:'rn', label:'React Native', badge:'Mobile', icon:Smartphone, color:'#61DAFB',
-    steps:[
-      { title:'Install the package', lang:'bash', code:`npm install @chatflow/react-native
-cd ios && pod install` },
-      { title:'Add to App.tsx', lang:'tsx', code:`import ChatFlowWidget from '@chatflow/react-native'
-
-export default function App() {
-  return (
-    <NavigationContainer>
-      <RootNavigator />
-      <ChatFlowWidget
-        widgetId="YOUR_WIDGET_ID"
-        primaryColor="#0066ff"
-        position="bottom-right"
-      />
-    </NavigationContainer>
-  )
-}` },
-      { title:'Control programmatically', lang:'tsx', code:`import { ChatFlow } from '@chatflow/react-native'
-
-// Open chat from a button press
-ChatFlow.open()
-
-// Identify user
-ChatFlow.identify({ id: 'u1', name: 'Arjun', email: 'arjun@example.com' })` },
-    ]
+    id: 'react', label: 'React / Next.js', color: '#61DAFB',
+    file: 'index.html · app/layout.tsx · pages/_document.jsx',
+    steps: [
+      'Vite or Create React App: paste it into the <head> of index.html (public/index.html on CRA).',
+      'Next.js App Router: paste it inside the <head> you already render in app/layout.tsx.',
+      'Next.js Pages Router: paste it inside <Head> in pages/_document.jsx.',
+      'Do not wrap it in a component — the widget attaches to document.body, so it already survives route changes and never re-mounts.',
+    ],
   },
   {
-    id:'flutter', label:'Flutter', badge:'Mobile', icon:Smartphone, color:'#02569B',
-    steps:[
-      { title:'Add dependency', lang:'yaml', code:`# pubspec.yaml
-dependencies:
-  chatflow_flutter: ^2.0.0
-
-# Then run:
-flutter pub get` },
-      { title:'Initialize in main.dart', lang:'dart', code:`import 'package:chatflow_flutter/chatflow_flutter.dart';
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await ChatFlow.initialize(
-    widgetId: 'YOUR_WIDGET_ID',
-    primaryColor: Color(0xFF0066FF),
-  );
-  runApp(MyApp());
-}` },
-      { title:'Wrap with ChatFlowOverlay', lang:'dart', code:`class MyApp extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: ChatFlowOverlay(
-        child: HomeScreen(),
-      ),
-    );
-  }
-}
-
-// Open chat from anywhere
-await ChatFlow.openChat();` },
-    ]
+    id: 'vue', label: 'Vue / Nuxt', color: '#42b883',
+    file: 'index.html · app.html',
+    steps: [
+      'Vue (Vite): paste it into the <head> of index.html in your project root.',
+      'Nuxt: create or open app.html in your project root and paste it inside <head>.',
+      'Nothing to register with createApp() or app.use() — the loader runs on its own.',
+    ],
   },
+  {
+    id: 'wordpress', label: 'WordPress', color: '#21759B',
+    file: 'header.php',
+    steps: [
+      'Appearance → Theme File Editor → header.php, and paste the snippet just before </head>.',
+      'If your theme offers Theme Options → Custom Code → Header, use that instead — it survives theme updates.',
+      'Save, then hard-refresh your site.',
+    ],
+  },
+  {
+    id: 'shopify', label: 'Shopify', color: '#95BF47',
+    file: 'layout/theme.liquid',
+    steps: [
+      'Online Store → Themes → ⋯ → Edit code.',
+      'Open layout/theme.liquid and paste the snippet just before </head>.',
+      'Save. Every storefront page that uses this layout picks it up.',
+    ],
+  },
+  {
+    id: 'builder', label: 'Webflow / Wix / Squarespace', color: '#4353FF',
+    file: 'Custom code → Head',
+    steps: [
+      'Webflow: Project Settings → Custom Code → Head Code, then Publish.',
+      'Wix: Settings → Custom Code → Add Code, placed in <head> on all pages.',
+      'Squarespace: Settings → Developer Tools → Code Injection → Header.',
+    ],
+  },
+]
+
+const WC_MOBILE_TARGETS = [
+  { id: 'ios',     label: 'iOS (Swift)',  detail: 'WKWebView',              builtIn: true,  color: '#0f172a' },
+  { id: 'android', label: 'Android',      detail: 'android.webkit.WebView', builtIn: true,  color: '#3DDC84' },
+  { id: 'rn',      label: 'React Native', detail: 'react-native-webview',   builtIn: false, color: '#61DAFB' },
+  { id: 'flutter', label: 'Flutter',      detail: 'webview_flutter',        builtIn: false, color: '#02569B' },
+]
+
+const SNIPPET_HIGHLIGHTS = [
+  ['No packages',   'Nothing to npm install — no plugin, no SDK, no build step.'],
+  ['Any framework', 'Mounts to document.body, outside your component tree.'],
+  ['SPA-safe',      'Keeps working across client-side route changes on its own.'],
 ]
 
 function useCopy() {
@@ -1251,18 +1156,19 @@ function WCCodeBlock({ code, lang = 'js', id, copied, onCopy }) {
 
 function WebChatInstallSection() {
   const { copied, copy } = useCopy()
-  const [plat, setPlat] = useState('html')
-  const platform = WC_PLATFORMS.find(p=>p.id===plat)
-
-  const webPlats = WC_PLATFORMS.filter(p=>p.badge==='Web')
-  const mobPlats = WC_PLATFORMS.filter(p=>p.badge==='Mobile')
+  const [target, setTarget] = useState('html')
+  const t       = WC_WEB_TARGETS.find(x => x.id === target)
+  const snippet = universalSnippet(WIDGET_ID)
+  const chatUrl = `https://chat.chatflow.io/w/${WIDGET_ID}`
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+
+      {/* ── Header ── */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-[13px] font-bold text-slate-800">Website Chat Widget</h2>
-          <p className="text-[11px] text-slate-400 mt-0.5">Choose your platform for step-by-step instructions</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">One script tag, every website — nothing for your customers to install</p>
         </div>
         <div className="flex items-center gap-2 p-2.5 bg-slate-50 border border-surface-border rounded-xl">
           <span className="text-[10px] font-semibold text-slate-500">Widget ID:</span>
@@ -1274,100 +1180,123 @@ function WebChatInstallSection() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-5">
-        {/* Platform sidebar */}
-        <div className="space-y-3">
-          <div className="bg-white border border-surface-border rounded-xl overflow-hidden">
-            <div className="px-3 py-2.5 border-b border-surface-border bg-slate-50">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                <Globe size={10}/>Web
-              </p>
-            </div>
-            {webPlats.map(p=>(
-              <button key={p.id} onClick={()=>setPlat(p.id)}
-                className={clsx('w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors border-b border-surface-border last:border-0',
-                  plat===p.id ? 'bg-primary/5 text-primary' : 'hover:bg-slate-50 text-slate-700')}>
-                <div className="w-6 h-6 rounded flex items-center justify-center flex-shrink-0"
-                  style={{background: p.color+'22'}}>
-                  <p.icon size={12} style={{color: p.color}}/>
-                </div>
-                <span className="text-[11px] font-semibold">{p.label}</span>
-                {plat===p.id && <ChevronRight size={11} className="ml-auto text-primary"/>}
-              </button>
-            ))}
+      {/* ── The one snippet ── */}
+      <div className="bg-white border border-surface-border rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-border">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <Code size={15} className="text-primary"/>
           </div>
-          <div className="bg-white border border-surface-border rounded-xl overflow-hidden">
-            <div className="px-3 py-2.5 border-b border-surface-border bg-slate-50">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                <Smartphone size={10}/>Mobile
-              </p>
-            </div>
-            {mobPlats.map(p=>(
-              <button key={p.id} onClick={()=>setPlat(p.id)}
-                className={clsx('w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors border-b border-surface-border last:border-0',
-                  plat===p.id ? 'bg-primary/5 text-primary' : 'hover:bg-slate-50 text-slate-700')}>
-                <div className="w-6 h-6 rounded flex items-center justify-center flex-shrink-0"
-                  style={{background: p.color==='#000000'?'#f1f5f9':p.color+'22'}}>
-                  <p.icon size={12} style={{color: p.color==='#000000'?'#475569':p.color}}/>
-                </div>
-                <span className="text-[11px] font-semibold">{p.label}</span>
-                {plat===p.id && <ChevronRight size={11} className="ml-auto text-primary"/>}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Steps */}
-        <div className="space-y-4">
-          {/* Header */}
-          <div className="bg-white border border-surface-border rounded-xl p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{background: platform.color==='#000000'?'#f1f5f9':platform.color+'18'}}>
-              <platform.icon size={18} style={{color: platform.color==='#000000'?'#475569':platform.color}}/>
-            </div>
-            <div>
-              <p className="text-sm font-bold text-slate-900">{platform.label}</p>
-              <p className="text-[11px] text-slate-400">
-                {platform.badge==='Web'?'Website integration':'Mobile SDK integration'} · {platform.steps.length} steps
-              </p>
-            </div>
-            <div className="ml-auto">
-              <span className={clsx('text-[10px] font-bold px-2 py-0.5 rounded-full',
-                platform.badge==='Web'?'bg-blue-100 text-blue-700':'bg-purple-100 text-purple-700')}>
-                {platform.badge}
-              </span>
-            </div>
-          </div>
-
-          {/* Steps */}
-          {platform.steps.map((step, i) => (
-            <div key={i} className="bg-white border border-surface-border rounded-xl overflow-hidden">
-              <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-border">
-                <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                  <span className="text-[10px] font-bold text-white">{i+1}</span>
-                </div>
-                <p className="text-xs font-semibold text-slate-800">{step.title}</p>
-              </div>
-              <div className="p-4">
-                {step.desc && <p className="text-[12px] text-slate-600 leading-relaxed">{step.desc}</p>}
-                {step.code && (
-                  <WCCodeBlock code={step.code.replaceAll('YOUR_WIDGET_ID', WIDGET_ID)} lang={step.lang||'js'} id={`step-${plat}-${i}`} copied={copied} onCopy={copy}/>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {/* Widget ID already filled in notice */}
-          <div className="flex gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
-            <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0 mt-0.5"/>
-            <p className="text-[11px] text-emerald-700 leading-relaxed">
-              Your unique Widget ID <strong className="font-mono">{WIDGET_ID}</strong> is already filled into the snippets above — just copy and paste.
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-slate-900">Your install code</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              Paste once inside <code className="font-mono bg-slate-100 px-1 rounded">&lt;head&gt;</code> — your Widget ID is already filled in
             </p>
           </div>
+          <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <Globe size={9}/> Works everywhere
+          </span>
+        </div>
 
-          <ConnectionStatusCard/>
+        <div className="p-4">
+          <WCCodeBlock code={snippet} lang="html" id="universal" copied={copied} onCopy={copy}/>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+            {SNIPPET_HIGHLIGHTS.map(([title, sub]) => (
+              <div key={title} className="flex items-start gap-2 bg-slate-50 rounded-lg px-3 py-2.5">
+                <CheckCircle2 size={12} className="text-emerald-500 flex-shrink-0 mt-0.5"/>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold text-slate-700 leading-none">{title}</p>
+                  <p className="text-[10px] text-slate-400 mt-1 leading-snug">{sub}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+
+      {/* ── Where to paste it ── */}
+      <div className="bg-white border border-surface-border rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-surface-border">
+          <p className="text-xs font-bold text-slate-900">Where do I paste it?</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">The code above never changes — only the file you paste it into does.</p>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 px-4 pt-3.5">
+          {WC_WEB_TARGETS.map(x => (
+            <button key={x.id} onClick={()=>setTarget(x.id)}
+              className={clsx(
+                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-semibold transition-all',
+                target===x.id
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-surface-border text-slate-600 hover:border-primary/40 hover:bg-slate-50'
+              )}>
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{background: x.color}}/>
+              {x.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">File</span>
+            <code className="text-[11px] font-mono text-slate-700 bg-slate-100 px-2 py-1 rounded">{t.file}</code>
+          </div>
+          <ol className="space-y-2">
+            {t.steps.map((s, i) => (
+              <li key={i} className="flex items-start gap-2.5">
+                <span className="w-4 h-4 rounded-full bg-primary/10 text-primary text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                  {i+1}
+                </span>
+                <p className="text-[12px] text-slate-600 leading-relaxed">{s}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+
+      {/* ── Mobile apps ── */}
+      <div className="bg-white border border-surface-border rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-border">
+          <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+            <Smartphone size={15} className="text-purple-600"/>
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-900">Inside a mobile app?</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">A native app has no &lt;head&gt; — point a WebView at your hosted chat page instead</p>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <WCCodeBlock code={chatUrl} lang="url" id="mobile-url" copied={copied} onCopy={copy}/>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {WC_MOBILE_TARGETS.map(m => (
+              <div key={m.id} className="flex items-center gap-2.5 bg-slate-50 rounded-lg px-3 py-2.5">
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{background: m.color}}/>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold text-slate-700 leading-none">{m.label}</p>
+                  <p className="text-[10px] font-mono text-slate-400 mt-1 truncate">{m.detail}</p>
+                </div>
+                <span className={clsx('text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0',
+                  m.builtIn ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600')}>
+                  {m.builtIn ? 'Built in' : 'Platform pkg'}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2.5 bg-slate-50 border border-surface-border rounded-lg p-3">
+            <AlertCircle size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              iOS and Android ship a WebView in the OS, so there is nothing to add. React Native and Flutter
+              have no built-in WebView — those two need their own platform's standard WebView package, never a
+              ChatFlow one.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <ConnectionStatusCard/>
     </div>
   )
 }
