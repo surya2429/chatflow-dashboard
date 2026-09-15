@@ -1047,6 +1047,29 @@ export function buildFlowPreviewUrl(flow) {
   return `/webchat-flow-preview?name=${encodeURIComponent(slugifyBotName(flow.name))}&id=${LANDING_BOT_ID}-${flow.id}`
 }
 
+// Hands `flow` off to the standalone full-page route via localStorage (the
+// only channel to a brand-new tab), copies its shareable link, and opens it.
+// Shared by the canvas toolbar — which passes the live in-canvas graph so
+// unsaved edits are included — and the flow list's own button, which passes
+// the saved flow. `allFlows` comes along for goto_subflow jumps to resolve,
+// with this flow's entry swapped for the version being previewed so a jump
+// back into "this same flow" sees the same graph.
+// Returns the clipboard promise so a caller can show "Link copied!".
+export function openFlowLivePreview(flow, allFlows) {
+  const resolvedAllFlows = (allFlows || []).map(f => f.id === flow.id ? { ...f, ...flow } : f)
+  try {
+    localStorage.setItem(FLOW_PREVIEW_STORAGE_KEY, JSON.stringify({ flow, allFlows: resolvedAllFlows }))
+  } catch {}
+  const url = buildFlowPreviewUrl(flow)
+  // Copied automatically, not just opened — the whole point of a proper
+  // "?name=...&id=..." link (matching the Landing Page tab's own pattern) is
+  // that it's something the flow author can hand to someone else, not just a
+  // button that opens a tab for them personally.
+  const copied = navigator.clipboard?.writeText(`${window.location.origin}${url}`)
+  window.open(url, '_blank', 'noopener')
+  return copied
+}
+
 // Turns a live test session (the flow being tested + its running transcript)
 // into a Website Chat Inbox conversation record, same shape — and same
 // look — as WEBCHAT_CONVERSATIONS in constants/mockData.js, indistinguishable
@@ -1808,30 +1831,16 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
 
   const handleSave = () => { onSave({ name: flowName, graph: { nodes, edges } }); setSaved(true); setTimeout(() => setSaved(false), 1500) }
 
-  // Hands the CURRENT in-canvas graph (including unsaved edits — same live
-  // nodes/edges/flowName handleSave above would persist) off to the
-  // standalone full-page live-preview route via localStorage, then opens it
-  // in a new tab. allFlows is passed through too (for goto_subflow jumps to
-  // resolve), but with this flow's own entry replaced by the live canvas
-  // state so a subflow jump back into "this same flow" — or the simulator
-  // simply reading `flow` itself — reflects the unsaved edits too.
+  // Passes the CURRENT in-canvas graph (including unsaved edits — the same
+  // live nodes/edges/flowName handleSave above would persist), so the
+  // full-page preview reflects what's on screen rather than what's saved.
   const [linkCopied, setLinkCopied] = useState(false)
   const openLivePreview = () => {
     const liveFlow = { id: flow.id, name: flowName, kind: flow.kind, graph: { nodes, edges } }
-    const liveAllFlows = (allFlows || []).map(f => f.id === flow.id ? { ...f, ...liveFlow } : f)
-    try {
-      localStorage.setItem(FLOW_PREVIEW_STORAGE_KEY, JSON.stringify({ flow: liveFlow, allFlows: liveAllFlows }))
-    } catch {}
-    const url = buildFlowPreviewUrl(liveFlow)
-    // Copied automatically, not just opened — the whole point of a proper
-    // "?name=...&id=..." link (matching the Landing Page tab's own pattern)
-    // is that it's something the flow author can hand to someone else, not
-    // just a button that opens a tab for them personally.
-    navigator.clipboard?.writeText(`${window.location.origin}${url}`).then(
+    openFlowLivePreview(liveFlow, allFlows)?.then(
       () => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) },
       () => {}
     )
-    window.open(url, '_blank', 'noopener')
   }
 
   const edgePaths = useMemo(() => edges.map(e => {
@@ -1970,9 +1979,10 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
    duplicated or deleted (that's the whole fix: no way to end up with a
    second "main" that reads like a second bot); Subflows get the full set
    of actions. ── */
-function FlowCard({ f, onEdit, onDuplicate, onRemove, onToggle }) {
+function FlowCard({ f, onEdit, onPreview, onLandingPage, onDuplicate, onRemove, onToggle }) {
   const rate = f.stats.triggered ? Math.round((f.stats.completed / f.stats.triggered) * 100) : 0
   const isMain = f.kind === 'main'
+  const [linkCopied, setLinkCopied] = useState(false)
   return (
     <div className={clsx('bg-white border rounded-2xl p-3.5 flex flex-col gap-2.5 hover:shadow-[0_4px_20px_-4px_rgba(15,23,42,0.12)] transition-all',
       isMain ? 'border-primary/30 ring-1 ring-primary/10' : 'border-surface-border')}>
@@ -1992,13 +2002,29 @@ function FlowCard({ f, onEdit, onDuplicate, onRemove, onToggle }) {
         <span><span className="font-bold text-slate-600">{f.stats.triggered.toLocaleString()}</span> triggered</span>
         {f.stats.triggered > 0 && <span className="font-bold text-emerald-500">{rate}% completion</span>}
       </div>
-      <div className="flex items-center gap-1.5 mt-1">
-        <button onClick={() => onEdit(f.id)} className="btn-secondary flex-1 justify-center !py-1.5"><Edit3 size={11}/> Edit</button>
+      {/* Edit / Preview / Landing page all act on THIS flow without having to
+          open the canvas first. Preview is the in-dashboard popup simulator;
+          Landing page opens the same flow as a real full-page chatbot in a new
+          tab and copies its shareable link — the two things the canvas
+          toolbar offers, hoisted to the list. `flex-wrap` keeps the row from
+          overflowing a narrow card once the duplicate/delete icons join it. */}
+      <div className="flex items-center flex-wrap gap-1.5 mt-1">
+        <button onClick={() => onEdit(f.id)} className="btn-secondary flex-1 justify-center !py-1.5 !px-2 whitespace-nowrap"><Edit3 size={11}/> Edit</button>
+        <button onClick={() => onPreview(f)} className="btn-secondary flex-1 justify-center !py-1.5 !px-2 whitespace-nowrap"><Eye size={11}/> Preview</button>
+        <button
+          onClick={() => { onLandingPage(f)?.then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) }, () => {}) }}
+          title="Opens this flow as a real, full-page chatbot in a new tab — its shareable link is copied to your clipboard too"
+          className={clsx('btn-secondary flex-1 justify-center !py-1.5 !px-2 whitespace-nowrap', linkCopied && '!border-emerald-300 !bg-emerald-50 !text-emerald-600')}>
+          {linkCopied ? <><Check size={11}/> Copied!</> : <><ExternalLink size={11}/> Landing page</>}
+        </button>
         {!isMain && (
-          <>
+          // `ml-auto` so that when this group wraps below the three action
+          // buttons on a narrow card it sits flush right, reading as a
+          // deliberate secondary row rather than two stray icons.
+          <div className="flex items-center gap-1.5 ml-auto">
             <button onClick={() => onDuplicate(f)} title="Duplicate" className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"><Copy size={13}/></button>
             <button onClick={() => onRemove(f.id)} title="Delete" className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>
-          </>
+          </div>
         )}
       </div>
     </div>
@@ -2009,8 +2035,10 @@ function FlowCard({ f, onEdit, onDuplicate, onRemove, onToggle }) {
 export default function WebChatFlowBuilder() {
   const [flows, setFlows] = useState(INITIAL_FLOWS)
   const [editingId, setEditingId] = useState(null)
+  const [previewingId, setPreviewingId] = useState(null)
 
   const editingFlow = flows.find(f => f.id === editingId)
+  const previewingFlow = flows.find(f => f.id === previewingId)
   const mainFlow = flows.find(f => f.kind === 'main')
   const subflows = flows.filter(f => f.kind === 'subflow')
 
@@ -2046,7 +2074,11 @@ export default function WebChatFlowBuilder() {
           <p className="text-[11px] text-slate-400">This bot's one entry map — every trigger it responds to lives here, each routing inline or into a Subflow below.</p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
-          {mainFlow && <FlowCard f={mainFlow} onEdit={setEditingId} onToggle={toggle}/>}
+          {mainFlow && (
+            <FlowCard f={mainFlow} onEdit={setEditingId} onToggle={toggle}
+              onPreview={f => setPreviewingId(f.id)}
+              onLandingPage={f => openFlowLivePreview(f, flows)}/>
+          )}
         </div>
       </div>
 
@@ -2060,11 +2092,25 @@ export default function WebChatFlowBuilder() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
           {subflows.map(f => (
-            <FlowCard key={f.id} f={f} onEdit={setEditingId} onDuplicate={duplicate} onRemove={remove} onToggle={toggle}/>
+            <FlowCard key={f.id} f={f} onEdit={setEditingId} onDuplicate={duplicate} onRemove={remove} onToggle={toggle}
+              onPreview={pf => setPreviewingId(pf.id)}
+              onLandingPage={pf => openFlowLivePreview(pf, flows)}/>
           ))}
           {subflows.length === 0 && <p className="text-[11px] text-slate-400 py-4">No subflows yet.</p>}
         </div>
       </div>
+
+      {/* The same popup simulator the canvas runs, opened straight from a
+          card's Preview button. Keyed so switching which flow is being
+          previewed starts a clean run instead of carrying the previous
+          flow's simulation state over. */}
+      {previewingFlow && (
+        <PreviewSimulator
+          key={previewingFlow.id}
+          flow={{ id: previewingFlow.id, name: previewingFlow.name, kind: previewingFlow.kind, graph: previewingFlow.graph }}
+          allFlows={flows}
+          onClose={() => setPreviewingId(null)}/>
+      )}
     </div>
   )
 }
