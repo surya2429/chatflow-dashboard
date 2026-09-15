@@ -1651,7 +1651,7 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
     : null
 
   return (
-    <div className="fixed bottom-5 right-5 z-[70] flex flex-col items-end gap-2 max-h-[calc(100vh-40px)]">
+    <div className="fixed bottom-2.5 right-5 z-[70] flex flex-col items-end gap-2 max-h-[calc(100vh-20px)]">
       {/* No separate Restart/Close pair floating above the frame — the
           widget's own header already carries both, wired to the same
           handlers below: its ✕ ("Close chat") and its ⋯ menu's "Close chat"
@@ -1666,10 +1666,11 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
           The height is a CEILING, not a fixed size: `min-h-0` lets flexbox
           shrink it (rather than letting it clip off the top of the screen)
           when the window is short or the backstage strip below is expanded.
-          The viewport reserve only has to cover the gap, that strip and the
-          bottom offset now — it used to also allow for a row of Restart/Close
-          icons above the frame, which is gone. */}
-      <div className="relative min-h-0" style={{ width: 400, height: 'min(900px, calc(100vh - 100px))' }}>
+          The reserve is measured, not padded out: 10px clear of the bottom
+          edge + 8px gap + the 29px collapsed strip + 10px clear of the top,
+          so the popup runs nearly the full height of the window instead of
+          leaving a band of dead space above and below it. */}
+      <div className="relative min-h-0" style={{ width: 400, height: 'min(1000px, calc(100vh - 57px))' }}>
         <WidgetPreview cfg={cfg} screen="open" device="desktop"
           activeTab="chat" setActiveTab={() => {}}
           setScreen={s => { if (s === 'closed') onClose() }}
