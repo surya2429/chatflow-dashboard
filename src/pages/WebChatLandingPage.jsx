@@ -33,7 +33,7 @@ const DEFAULT_CFG = {
   fontFamily: 'Inter', botName: 'ChatBot', tagline: 'We reply instantly',
   greeting: 'Hi! 👋 How can I help you today?',
   avatarStyle: 'icon', avatarEmoji: '🤖', avatarImage: '',
-  showBranding: true, landingName: 'Support_Bot',
+  showBranding: true, brandingUrl: '/', landingName: 'Support_Bot',
 }
 
 // Per-browser stable visitor identity for this landing page, so a real call

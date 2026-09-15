@@ -22,6 +22,7 @@ import { QUESTION_TYPES, QUESTION_CATS } from '../constants/webchatQuestionTypes
 import { GOOGLE_FONTS, FONT_CATEGORIES, fontStack } from '../constants/googleFonts'
 import { WIDGET_ID } from '../constants/webchat'
 import { AnswerControl } from '../components/webchat/AnswerControls'
+import { PoweredByDemoModal } from '../components/webchat/PoweredByDemoModal'
 
 /* ─── Constants ─────────────────────────────────────────────── */
 const COLORS = ['#0066ff','#8B5CF6','#10B981','#F59E0B','#EF4444','#EC4899','#06B6D4','#1D4ED8']
@@ -296,6 +297,8 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
   /* Which past conversation (if any) is open — null means "fresh chat" (the seeded
      THREAD below); 'ended' opens the resolved one from the Messages list instead. */
   const [openConvo, setOpenConvo] = useState(null)
+  // "Powered by ChatFlow" → demo-booking form (see PoweredByDemoModal).
+  const [demoOpen, setDemoOpen] = useState(false)
   const tabsCount = [cfg.showHomeTab, cfg.showChatTab, cfg.showMessagesTab, cfg.showFaqTab, cfg.showBookingTab].filter(Boolean).length
   const tabsEnabled = tabsCount >= 2
   /* A live simThread (the flow-builder's PreviewSimulator) is always a floating
@@ -1426,9 +1429,13 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
               than competing with the input row for space. */}
           {cfg.showBranding && (
             <div className={clsx('flex-shrink-0 text-center py-1.5', dark ? 'bg-slate-900' : 'bg-white')}>
-              <p className={clsx('text-[8.5px]', dark ? 'text-slate-600' : 'text-slate-300')}>
+              {/* Clickable: someone who notices the branding is a prospect, so
+                  it opens a "want one of these?" demo-booking form rather than
+                  being dead text. See PoweredByDemoModal. */}
+              <button onClick={() => setDemoOpen(true)}
+                className={clsx('text-[8.5px] transition-colors', dark ? 'text-slate-600 hover:text-slate-400' : 'text-slate-300 hover:text-slate-500')}>
                 Powered by <span className={clsx('font-bold', dark ? 'text-slate-500' : 'text-slate-400')}>ChatFlow</span>
-              </p>
+              </button>
             </div>
           )}
           {isMobile && (
@@ -1436,6 +1443,12 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
               <span className={clsx('w-28 h-1 rounded-full', dark ? 'bg-slate-700' : 'bg-slate-300')}/>
             </div>
           )}
+          {/* Inside the widget frame (which is `relative overflow-hidden`), so
+              it overlays the chat and clips to the same rounded corners in
+              every host — builder preview, popup simulator, Live Preview and
+              the hosted landing page alike. */}
+          <PoweredByDemoModal open={demoOpen} onClose={() => setDemoOpen(false)}
+            cfg={cfg} brandBg={brandBg} dark={dark}/>
         </div>
       )}
 
@@ -2261,6 +2274,18 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                 </div>
                 <Toggle checked={cfg.showBranding} onChange={v=>set('showBranding',v)}/>
               </div>
+              {cfg.showBranding && (
+                <div>
+                  <label className="label">Branding link</label>
+                  <input className="input mt-1" value={cfg.brandingUrl}
+                    onChange={e=>set('brandingUrl',e.target.value)} placeholder="https://your-site.com"/>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Clicking "Powered by ChatFlow" asks the visitor if they want a chatbot like this and
+                    collects their details — after they book a demo this page opens in a new tab.
+                    Defaults to your own site.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -2987,6 +3012,10 @@ export default function WebChatAppearance() {
     avatarStyle: 'icon', avatarEmoji: '🤖', avatarImage: '',
     threadAvatarStyle: 'emoji', threadAvatarEmoji: '🤖', threadAvatarImage: '',
     showBranding: true,
+    // Where "Powered by ChatFlow" sends a visitor once they've booked a demo
+    // through it. Defaults to this app's own site; set it to the real
+    // marketing site in the Widget Builder.
+    brandingUrl: '/',
     // Hosted landing page
     landingName: 'Support_Bot', landingEnabled: true,
     // Behavior

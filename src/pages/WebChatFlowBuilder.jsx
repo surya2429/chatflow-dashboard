@@ -1328,26 +1328,34 @@ function simLogText(node) {
 }
 
 
+const WIDGET_CFG_FALLBACK = {
+  colorMode: 'gradient', color: '#0066ff', colorEnd: '#8B5CF6',
+  theme: 'light', corner: 'round', bubbleStyle: 'ios', fontFamily: 'Inter', fontSizePx: 12,
+  headerMode: 'brand', headerColor: '#0066ff', headerColorEnd: '#8B5CF6', headerGradient: false,
+  botBubbleBg: '', botBubbleText: '', userBubbleBg: '', userBubbleText: '', chatBackground: '#ffffff',
+  bubbleShadow: 'soft', density: 'comfortable', quickReplyStyle: 'pill',
+  botName: 'ChatBot', tagline: 'We reply instantly',
+  avatarStyle: 'icon', avatarEmoji: '🤖', avatarImage: '',
+  threadAvatarStyle: 'emoji', threadAvatarEmoji: '🤖', threadAvatarImage: '',
+  showBranding: true, brandingUrl: '/',
+  enableVoiceCall: false, enableVideoCall: false,
+  googleMapsApiKey: '',
+}
+
 /* Same look as the real widget — reads the Widget Builder's live settings
    from localStorage (the same bridge WebChatLandingPage.jsx uses) so this
-   simulator isn't a visually-disconnected second UI. */
+   simulator isn't a visually-disconnected second UI.
+   The saved config is layered OVER the fallback rather than replacing it:
+   a stored config only holds the keys that existed when it was written, so
+   returning it as-is left every newer setting `undefined` instead of at its
+   default — which is why a widget could come back with no branding strip
+   (or no call buttons) purely because its config predated those fields. */
 export function useWidgetCfg() {
-  const [cfg, setCfg] = useState(null)
+  const [saved, setSaved] = useState(null)
   useEffect(() => {
-    try { setCfg(JSON.parse(localStorage.getItem(WIDGET_CFG_STORAGE_KEY) || 'null')) } catch { setCfg(null) }
+    try { setSaved(JSON.parse(localStorage.getItem(WIDGET_CFG_STORAGE_KEY) || 'null')) } catch { setSaved(null) }
   }, [])
-  return cfg || {
-    colorMode: 'gradient', color: '#0066ff', colorEnd: '#8B5CF6',
-    theme: 'light', corner: 'round', bubbleStyle: 'ios', fontFamily: 'Inter', fontSizePx: 12,
-    headerMode: 'brand', headerColor: '#0066ff', headerColorEnd: '#8B5CF6', headerGradient: false,
-    botBubbleBg: '', botBubbleText: '', userBubbleBg: '', userBubbleText: '', chatBackground: '#ffffff',
-    bubbleShadow: 'soft', density: 'comfortable', quickReplyStyle: 'pill',
-    botName: 'ChatBot', tagline: 'We reply instantly',
-    avatarStyle: 'icon', avatarEmoji: '🤖', avatarImage: '',
-    threadAvatarStyle: 'emoji', threadAvatarEmoji: '🤖', threadAvatarImage: '',
-    enableVoiceCall: false, enableVideoCall: false,
-    googleMapsApiKey: '',
-  }
+  return { ...WIDGET_CFG_FALLBACK, ...(saved || {}) }
 }
 
 /* ─── flow simulation engine — the state machine that steps through a flow
