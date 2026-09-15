@@ -61,7 +61,7 @@ const COUNTRIES = [
 /* Attempts an IP-geolocation lookup once on mount to preselect the visitor's
    own country for the phone control. Times out fast and falls back silently
    — this may run in a sandboxed/offline environment. */
-function useDetectedCountry() {
+export function useDetectedCountry() {
   const [country, setCountry] = useState(() => COUNTRIES.find(c => c.code === 'US'))
   const [status, setStatus] = useState('detecting') // detecting | detected | fallback
   useEffect(() => {
@@ -183,7 +183,7 @@ function EmailAnswer({ accent, dark, onSubmit }) {
 /* ── shared country/dial-code picker (trigger + searchable popover) — used
    by the standalone Phone question AND the Phone field inside a multi-field
    Form, so the country-picker UX/logic lives in exactly one place. ────── */
-function CountryDialPicker({ country, setCountry, dark, dropDirection = 'up' }) {
+export function CountryDialPicker({ country, setCountry, dark, dropDirection = 'up' }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const ref = useRef(null)
