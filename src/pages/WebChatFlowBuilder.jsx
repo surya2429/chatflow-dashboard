@@ -1047,27 +1047,36 @@ export function buildFlowPreviewUrl(flow) {
   return `/webchat-flow-preview?name=${encodeURIComponent(slugifyBotName(flow.name))}&id=${LANDING_BOT_ID}-${flow.id}`
 }
 
-// Hands `flow` off to the standalone full-page route via localStorage (the
-// only channel to a brand-new tab), copies its shareable link, and opens it.
+// Hands `flow` off to the standalone full-page route via localStorage — the
+// only channel to a brand-new tab — and copies its shareable link.
+//
+// Deliberately does NOT open the tab itself. `window.open` is the fragile way
+// to do this: browsers treat a scripted window as a popup (blockable), and
+// `navigator.clipboard.writeText()` consumes the click's transient user
+// activation, so copying-then-opening tends to get the window suppressed
+// entirely. Callers instead render a real `<a target="_blank">` — a link the
+// user clicks is always allowed to open a tab, is never a popup, and gets
+// middle-click / ctrl-click / "open in new tab" and a visible URL on hover
+// for free. This runs in that anchor's onClick, which fires before the
+// browser follows the href, so the payload is in place before the new tab
+// mounts and reads it.
+//
 // Shared by the canvas toolbar — which passes the live in-canvas graph so
-// unsaved edits are included — and the flow list's own button, which passes
-// the saved flow. `allFlows` comes along for goto_subflow jumps to resolve,
-// with this flow's entry swapped for the version being previewed so a jump
-// back into "this same flow" sees the same graph.
+// unsaved edits are included — and the flow list, which passes the saved
+// flow. `allFlows` comes along for goto_subflow jumps to resolve, with this
+// flow's entry swapped for the version being previewed so a jump back into
+// "this same flow" sees the same graph.
 // Returns the clipboard promise so a caller can show "Link copied!".
-export function openFlowLivePreview(flow, allFlows) {
+export function stageFlowLivePreview(flow, allFlows) {
   const resolvedAllFlows = (allFlows || []).map(f => f.id === flow.id ? { ...f, ...flow } : f)
   try {
     localStorage.setItem(FLOW_PREVIEW_STORAGE_KEY, JSON.stringify({ flow, allFlows: resolvedAllFlows }))
   } catch {}
-  const url = buildFlowPreviewUrl(flow)
   // Copied automatically, not just opened — the whole point of a proper
   // "?name=...&id=..." link (matching the Landing Page tab's own pattern) is
   // that it's something the flow author can hand to someone else, not just a
   // button that opens a tab for them personally.
-  const copied = navigator.clipboard?.writeText(`${window.location.origin}${url}`)
-  window.open(url, '_blank', 'noopener')
-  return copied
+  return navigator.clipboard?.writeText(`${window.location.origin}${buildFlowPreviewUrl(flow)}`)
 }
 
 // Turns a live test session (the flow being tested + its running transcript)
@@ -1831,13 +1840,14 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
 
   const handleSave = () => { onSave({ name: flowName, graph: { nodes, edges } }); setSaved(true); setTimeout(() => setSaved(false), 1500) }
 
-  // Passes the CURRENT in-canvas graph (including unsaved edits — the same
+  // Stages the CURRENT in-canvas graph (including unsaved edits — the same
   // live nodes/edges/flowName handleSave above would persist), so the
   // full-page preview reflects what's on screen rather than what's saved.
+  // Runs on the link's click, before the browser follows its href.
   const [linkCopied, setLinkCopied] = useState(false)
-  const openLivePreview = () => {
-    const liveFlow = { id: flow.id, name: flowName, kind: flow.kind, graph: { nodes, edges } }
-    openFlowLivePreview(liveFlow, allFlows)?.then(
+  const liveFlow = { id: flow.id, name: flowName, kind: flow.kind, graph: { nodes, edges } }
+  const stageLivePreview = () => {
+    stageFlowLivePreview(liveFlow, allFlows)?.then(
       () => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) },
       () => {}
     )
@@ -1877,11 +1887,12 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
           showPreview ? 'border-primary bg-primary-50 text-primary' : 'border-surface-border text-slate-600 hover:bg-slate-50')}>
           <Eye size={12}/> Preview
         </button>
-        <button onClick={openLivePreview} title="Opens this flow as a real, full-page chatbot in a new tab — its shareable link is copied to your clipboard too"
+        <a href={buildFlowPreviewUrl(liveFlow)} target="_blank" rel="noopener noreferrer" onClick={stageLivePreview}
+          title="Opens this flow as a real, full-page chatbot in a new tab — its shareable link is copied to your clipboard too"
           className={clsx('text-[11px] border rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1 font-semibold',
             linkCopied ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-surface-border text-slate-600 hover:bg-slate-50')}>
           {linkCopied ? <><Check size={12}/> Link copied!</> : <><ExternalLink size={12}/> Live Preview</>}
-        </button>
+        </a>
         <button onClick={handleSave} className={clsx('text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all', saved ? 'bg-emerald-500 text-white' : 'bg-primary text-white hover:bg-primary/90')}>
           {saved ? <><Check size={12}/> Saved!</> : <><Save size={12}/> Save</>}
         </button>
@@ -2011,12 +2022,17 @@ function FlowCard({ f, onEdit, onPreview, onLandingPage, onDuplicate, onRemove, 
       <div className="flex items-center flex-wrap gap-1.5 mt-1">
         <button onClick={() => onEdit(f.id)} className="btn-secondary flex-1 justify-center !py-1.5 !px-2 whitespace-nowrap"><Edit3 size={11}/> Edit</button>
         <button onClick={() => onPreview(f)} className="btn-secondary flex-1 justify-center !py-1.5 !px-2 whitespace-nowrap"><Eye size={11}/> Preview</button>
-        <button
+        {/* A real link, not a button running window.open — that's what makes
+            it reliably open a NEW TAB (a scripted window is a blockable
+            popup; a user-clicked link never is) and also gets middle-click /
+            ctrl-click and a visible URL on hover for free. onClick stages the
+            flow for the new tab before the browser follows the href. */}
+        <a href={buildFlowPreviewUrl(f)} target="_blank" rel="noopener noreferrer"
           onClick={() => { onLandingPage(f)?.then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) }, () => {}) }}
           title="Opens this flow as a real, full-page chatbot in a new tab — its shareable link is copied to your clipboard too"
           className={clsx('btn-secondary flex-1 justify-center !py-1.5 !px-2 whitespace-nowrap', linkCopied && '!border-emerald-300 !bg-emerald-50 !text-emerald-600')}>
           {linkCopied ? <><Check size={11}/> Copied!</> : <><ExternalLink size={11}/> Landing page</>}
-        </button>
+        </a>
         {!isMain && (
           // `ml-auto` so that when this group wraps below the three action
           // buttons on a narrow card it sits flush right, reading as a
@@ -2077,7 +2093,7 @@ export default function WebChatFlowBuilder() {
           {mainFlow && (
             <FlowCard f={mainFlow} onEdit={setEditingId} onToggle={toggle}
               onPreview={f => setPreviewingId(f.id)}
-              onLandingPage={f => openFlowLivePreview(f, flows)}/>
+              onLandingPage={f => stageFlowLivePreview(f, flows)}/>
           )}
         </div>
       </div>
@@ -2094,7 +2110,7 @@ export default function WebChatFlowBuilder() {
           {subflows.map(f => (
             <FlowCard key={f.id} f={f} onEdit={setEditingId} onDuplicate={duplicate} onRemove={remove} onToggle={toggle}
               onPreview={pf => setPreviewingId(pf.id)}
-              onLandingPage={pf => openFlowLivePreview(pf, flows)}/>
+              onLandingPage={pf => stageFlowLivePreview(pf, flows)}/>
           ))}
           {subflows.length === 0 && <p className="text-[11px] text-slate-400 py-4">No subflows yet.</p>}
         </div>
