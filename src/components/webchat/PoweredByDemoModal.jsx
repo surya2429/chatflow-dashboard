@@ -15,9 +15,9 @@
 // behaves identically everywhere the widget appears — the Widget Builder's
 // preview, the Flow Builder's popup simulator, the standalone Live Preview
 // page and the hosted landing page — none of which share a modal host.
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import clsx from 'clsx'
-import { ChevronLeft, Check, ArrowRight, Sparkles } from 'lucide-react'
+import { ChevronLeft, Check, ArrowRight, Sparkles, ExternalLink } from 'lucide-react'
 import { CountryDialPicker, useDetectedCountry } from './AnswerControls'
 
 // Where a submitted demo request goes. There's no backend in this build, so
@@ -33,6 +33,11 @@ export function saveDemoLead(lead) {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+// How long the confirmation is left on screen before the visitor is sent on.
+// Long enough to actually read that the demo request landed — being yanked
+// away the instant you hit submit reads as though something went wrong.
+const REDIRECT_DELAY_SECONDS = 5
 
 const SELLING_POINTS = [
   'A 15-minute walkthrough, built around your use case',
@@ -70,6 +75,39 @@ export function PoweredByDemoModal({ open, onClose, cfg, brandBg, dark }) {
   const [country, setCountry] = useDetectedCountry()
   const [touched, setTouched] = useState(false)
   const [done, setDone] = useState(false)
+  const [secondsLeft, setSecondsLeft] = useState(REDIRECT_DELAY_SECONDS)
+  const [holding, setHolding] = useState(false) // visitor chose to stay
+
+  const target = cfg?.brandingUrl?.trim() || '/'
+
+  // Sends the visitor on. A new tab is attempted first, but this runs off a
+  // timer rather than a click, so there's no user activation behind it and
+  // browsers will usually block the popup — `window.open` then returns null
+  // and this navigates the current tab instead, so the redirect the visitor
+  // was promised still happens rather than silently doing nothing.
+  function goToSite() {
+    const win = window.open(target, '_blank')
+    if (win) { win.opener = null; return }
+    window.location.href = target
+  }
+
+  // Tick down once the request is in, unless the visitor opted to stay.
+  useEffect(() => {
+    if (!open || !done || holding) return
+    if (secondsLeft <= 0) { goToSite(); return }
+    const t = setTimeout(() => setSecondsLeft(s => s - 1), 1000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, done, holding, secondsLeft])
+
+  // Closing resets the panel, so reopening it starts from a clean form rather
+  // than the previous submission's confirmation (and stops the countdown).
+  useEffect(() => {
+    if (open) return
+    setDone(false); setTouched(false); setHolding(false)
+    setSecondsLeft(REDIRECT_DELAY_SECONDS)
+    setForm({ name: '', email: '', phone: '', company: '', website: '' })
+  }, [open])
 
   if (!open) return null
 
@@ -81,14 +119,9 @@ export function PoweredByDemoModal({ open, onClose, cfg, brandBg, dark }) {
   function submit() {
     setTouched(true)
     if (!valid) return
-    // Opened FIRST and synchronously in the click, before the storage write,
-    // so the new tab still has the click's user activation behind it. No
-    // windowFeatures argument either — passing one asks for a popup window
-    // rather than a tab, which browsers block far more readily (the same
-    // thing that made the Landing Page button land in the current tab).
-    const target = cfg?.brandingUrl?.trim() || '/'
-    const win = window.open(target, '_blank')
-    if (win) win.opener = null
+    // Only records the lead and shows the confirmation — the redirect is on
+    // the countdown in the effect above, so the visitor gets to read that
+    // their request went through before being sent anywhere.
     saveDemoLead({
       name: form.name.trim(),
       email: form.email.trim(),
@@ -120,12 +153,36 @@ export function PoweredByDemoModal({ open, onClose, cfg, brandBg, dark }) {
         <p className={clsx('text-[12.5px] mt-2 leading-relaxed', muted)}>
           Thanks{form.name.trim() ? `, ${form.name.trim().split(' ')[0]}` : ''} — we'll email you at{' '}
           <span className={dark ? 'text-slate-300 font-medium' : 'text-slate-700 font-medium'}>{form.email.trim()}</span>{' '}
-          to lock in a time. We've opened our site in a new tab.
+          to lock in a time.
         </p>
-        <button onClick={onClose}
-          className="mt-7 w-full py-3 rounded-xl text-[12.5px] font-bold text-white transition-transform active:scale-[0.99]"
+
+        {!holding && (
+          <>
+            {/* A visible countdown rather than a silent jump — being moved
+                without warning feels like a misclick. The bar doubles as the
+                progress indicator so the wait is legible at a glance. */}
+            <p className={clsx('text-[11.5px] mt-5 font-medium', muted)}>
+              {secondsLeft > 0 ? `Taking you to our site in ${secondsLeft}s…` : 'Opening our site…'}
+            </p>
+            <div className={clsx('w-full h-1 rounded-full mt-2 overflow-hidden', dark ? 'bg-slate-800' : 'bg-slate-100')}>
+              <div className="h-full rounded-full transition-[width] duration-1000 ease-linear"
+                style={{ width: `${((REDIRECT_DELAY_SECONDS - secondsLeft) / REDIRECT_DELAY_SECONDS) * 100}%`, background: brandBg }}/>
+            </div>
+          </>
+        )}
+
+        {/* This one IS a click, so it has user activation and opens a real new
+            tab — unlike the timer-driven redirect, which browsers demote to a
+            same-tab navigation. */}
+        <button onClick={goToSite}
+          className="mt-5 w-full py-3 rounded-xl text-[12.5px] font-bold text-white flex items-center justify-center gap-1.5 transition-transform active:scale-[0.99]"
           style={{ background: brandBg }}>
-          Back to chat
+          Go now <ExternalLink size={13}/>
+        </button>
+        <button onClick={() => { setHolding(true); onClose() }}
+          className={clsx('mt-2.5 w-full py-1.5 text-[11px] font-medium transition-colors',
+            dark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600')}>
+          Stay in the chat
         </button>
       </div>
     )
