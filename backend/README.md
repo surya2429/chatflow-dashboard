@@ -138,6 +138,39 @@ raw `.sql` files (`-j sql` in `package.json`'s `migrate` script). See
 [`001_init.sql`](./migrations/001_init.sql) for the full schema:
 `contacts`, `campaigns`, `messages`, `conversations`, and an append-only
 `webhook_events` audit log.
+[`003_clients_and_bots.sql`](./migrations/003_clients_and_bots.sql) adds
+`clients`, `bots` and the platform-wide `bot_number_seq`.
+
+**The database must be UTF8.** The migration files use box-drawing characters
+in their section banners, so applying them to a database created with the
+cluster default on a non-UTF8 host (a Windows cluster defaults to WIN1252)
+fails with `character with byte sequence 0xe2 0x94 0x80 ... has no equivalent
+in encoding "WIN1252"`. Create it explicitly:
+
+```sql
+CREATE DATABASE chatflow_wa WITH ENCODING 'UTF8' TEMPLATE template0;
+```
+
+### Bot numbering
+
+`bots.bot_number` is the customer-facing id — the one in an install snippet
+and a landing page URL. It comes from ONE sequence across the whole platform,
+not per client:
+
+```
+client 1 -> bot 1 · client 2 -> bot 2 · client 1 -> bot 3 · client 3 -> bot 4
+```
+
+Never compute it in application code. `MAX(bot_number) + 1` read by two
+concurrent signups gives both the same number and turns the UNIQUE constraint
+into a failed signup; the column's `DEFAULT nextval(...)` is the only form
+that is correct under concurrency, so inserts omit the column entirely.
+
+The sequence guarantees **unique and increasing**, but not **gapless** —
+`nextval()` is non-transactional, so a rolled-back creation burns its number
+(verified: a rollback after taking 5 leaves the next insert with 6). That is
+the right trade for a bot id; making it gapless requires serializing every
+creation in the platform behind one counter row.
 
 ## Extending
 
