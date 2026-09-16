@@ -86,6 +86,50 @@ function luminance(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
+/* Push a colour to a lightness that is readable against the widget's surface,
+ * KEEPING ITS HUE. Darkens for a light panel, lightens for a dark one — a pale
+ * brand is the unreadable case on white, and a deep one is the unreadable case
+ * on the dark theme, so which direction to move depends on what it sits on.
+ *
+ * Done in HSL rather than by blending toward black. Blending drags every
+ * channel toward the same point, so a pale amber and a pale sky both end up as
+ * near-identical mud — the brand survives in theory and not in the eye.
+ * Pinning lightness while leaving hue and saturation alone turns pale amber
+ * into a rich dark amber and pale sky into a deep blue, which still read as
+ * the merchant's colour. A pure white or grey brand has no saturation to keep,
+ * so it correctly lands on a neutral ink.
+ */
+function readableInk(hex, onDark = false) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '')
+  if (!m) return '#0f172a'
+  const [r, g, b] = [1, 2, 3].map(i => parseInt(m[i], 16) / 255)
+  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  const d = max - min
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1))
+  let h = 0
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6
+    else if (max === g) h = (b - r) / d + 2
+    else h = (r - g) / d + 4
+    h *= 60
+    if (h < 0) h += 360
+  }
+  // 34% clears 4.5:1 against white; 72% clears it against the dark panel.
+  // Saturation is carried over untouched — a near-neutral tint lands on a
+  // blue-grey because its hue genuinely is blue, not because anything here
+  // pushed it there.
+  const L = onDark ? 0.72 : 0.34
+  const S = s
+  const c = (1 - Math.abs(2 * L - 1)) * S
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  const mm = L - c / 2
+  const [r2, g2, b2] =
+      h < 60  ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x]
+    : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x]
+  return `#${[r2, g2, b2].map(v => Math.round((v + mm) * 255).toString(16).padStart(2, '0')).join('')}`
+}
+
 /* Launcher attention effects. `rings` paints expanding halos behind the button,
    `self` animates the button itself — a few can do both. */
 const LAUNCHER_FX = {
@@ -172,6 +216,38 @@ export function useWidgetTheme(cfg) {
   const onHeaderMuted  = headerLight ? '#8b95a6' : 'rgba(255,255,255,0.78)'
   const headerHoverBg  = headerLight ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.18)'
 
+  /* The same treatment for the BRAND fill, which the header logic never covered.
+     The launcher, send button, avatars, chips and answer bubbles all paint
+     themselves with `brandBg` and used to hard-code white on top of it — fine
+     for a blue or purple brand, invisible for a white or pale one, which is
+     exactly what a merchant sees the moment they pick white.
+
+     A gradient is judged on the average of its stops: a single stop would call
+     white-to-navy "light" or "dark" depending on which end we happened to look
+     at, and the average is the only reading that is right in the middle where
+     most of the text actually sits. */
+  const brandLum = cfg.colorMode === 'gradient'
+    ? (luminance(cfg.color) + luminance(cfg.colorEnd || cfg.color)) / 2
+    : luminance(cfg.color)
+  const brandLight    = brandLum > 0.62
+  const onBrand       = brandLight ? '#0f172a' : '#ffffff'
+  const onBrandMuted  = brandLight ? 'rgba(15,23,42,0.60)' : 'rgba(255,255,255,0.78)'
+  /* A white brand on a white panel has no silhouette of its own — the launcher
+     becomes an invisible disc and the header dissolves into the body. A hairline
+     only appears when the brand is light enough to need one. */
+  const brandEdge     = brandLight ? '1px solid rgba(15,23,42,0.12)' : 'none'
+  /* The brand colour used as TEXT or an icon ON the panel's light surface —
+     prices, quick-reply labels, active tabs. `onBrand` is the opposite case
+     (text sitting on a brand-filled shape) and cannot be reused here: on a
+     white brand it resolves to near-black, which is right inside a white
+     launcher and wrong for a "brand-coloured" price. */
+  /* Only rewritten when the brand would actually be unreadable against the
+     panel it sits on: pale on light, or deep on dark. Otherwise the merchant's
+     colour is used exactly as picked. */
+  const accentNeedsFix = dark ? brandLum < 0.10 : brandLight
+  const accent        = accentNeedsFix ? readableInk(cfg.color, dark) : cfg.color
+  const headerEdge    = headerLight ? '1px solid rgba(15,23,42,0.08)' : 'none'
+
   /* Bubble surfaces are independently themable: the "question" (bot) bubble and
      the "answer" (visitor) bubble each get their own background + text color.
      A value of 'header' syncs that bubble to the header's own color instead of
@@ -215,8 +291,8 @@ export function useWidgetTheme(cfg) {
       return <img src={img} alt="" className="w-full h-full object-cover" draggable={false}/>
     }
     if (style === 'emoji') return <span style={{ fontSize: px * 0.55 }}>{emoji || '🤖'}</span>
-    if (style === 'icon')  return <Bot size={Math.round(px * 0.5)} className="text-white"/>
-    return <span className="text-white font-black" style={{ fontSize: Math.round(px * 0.36) }}>{initials}</span>
+    if (style === 'icon')  return <Bot size={Math.round(px * 0.5)} style={{ color: onBrand }}/>
+    return <span className="font-black" style={{ fontSize: Math.round(px * 0.36), color: onBrand }}>{initials}</span>
   }
 
   const DENSITY = cfg.density === 'compact'
@@ -245,7 +321,8 @@ export function useWidgetTheme(cfg) {
 
   return {
     dark, initials, brandBg, headerBg, cornerR, fs, fontFamilyCss,
-    headerBaseColor, headerLight, onHeader, onHeaderMuted, headerHoverBg,
+    headerBaseColor, headerLight, onHeader, onHeaderMuted, headerHoverBg, headerEdge,
+    brandLight, onBrand, onBrandMuted, brandEdge, accent,
     botBubbleBg, botBubbleText, userBubbleBg, userBubbleText,
     chatBackground, bubbleIsMinimal, bubbleRadius, DENSITY, BUBBLE_SHADOW, groupRadius,
     AvatarFace,
@@ -343,7 +420,8 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
      chat state is involved. */
   const {
     dark, initials, brandBg, headerBg, cornerR, fs, fontFamilyCss,
-    headerBaseColor, headerLight, onHeader, onHeaderMuted, headerHoverBg,
+    headerBaseColor, headerLight, onHeader, onHeaderMuted, headerHoverBg, headerEdge,
+    brandLight, onBrand, onBrandMuted, brandEdge, accent,
     botBubbleBg, botBubbleText, userBubbleBg, userBubbleText,
     chatBackground, bubbleIsMinimal, bubbleRadius, DENSITY, BUBBLE_SHADOW, groupRadius,
     AvatarFace,
@@ -363,9 +441,9 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
       ? <span style={{fontSize: 27}}>{(cfg.launcherIconStyle === 'match' ? cfg.avatarEmoji : cfg.launcherEmoji) || '🤖'}</span>
       : effLauncherStyle === 'icon'
         ? (cfg.launcherIconStyle === 'match'
-            ? <Bot size={26} className="text-white"/>
-            : <LauncherIconCmp size={26} className="text-white"/>)
-        : <MessageCircleMore size={27} className="text-white"/>
+            ? <Bot size={26} style={{ color: onBrand }}/>
+            : <LauncherIconCmp size={26} style={{ color: onBrand }}/>)
+        : <MessageCircleMore size={27} style={{ color: onBrand }}/>
 
   const winW = maximized ? 468 : (SIZE_PX[cfg.size] ?? 384)
 
@@ -385,7 +463,8 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
     <div className="flex flex-col h-full">
       {/* Compact header — color/gradient is an accent band, not the dominant surface.
           Layered soft circles fake the depth real widgets get from a photo header. */}
-      <div className="flex-shrink-0 relative overflow-hidden px-5 pt-4 pb-11" style={{background: headerBg}}>
+      <div className="flex-shrink-0 relative overflow-hidden px-5 pt-4 pb-11"
+        style={{background: headerBg, borderBottom: headerEdge}}>
         {/* The same three circles that already faked depth here, now drifting on
             three different periods — a slow-moving colour field instead of a
             static gradient. They're behind the text and clipped by the header's
@@ -401,13 +480,13 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         <div className="flex items-center justify-between mb-4 relative">
           <Avatar size={8} textSize="12px"/>
           <button className="w-6 h-6 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors flex-shrink-0">
-            <X size={11} className="text-white"/>
+            <X size={11} style={{ color: onHeader }}/>
           </button>
         </div>
-        <p style={{fontSize: fs(20), fontFamily: fontFamilyCss}} className="text-white font-extrabold leading-[1.15] tracking-tight relative">
+        <p style={{fontSize: fs(20), fontFamily: fontFamilyCss, color: onHeader}} className="font-extrabold leading-[1.15] tracking-tight relative">
           {cfg.greeting?.split(/(?<=[!.?])\s/)[0] || 'Hi there 👋'}
         </p>
-        <p style={{fontSize: fs(20), fontFamily: fontFamilyCss}} className="text-white/70 font-extrabold leading-[1.15] tracking-tight relative">
+        <p style={{fontSize: fs(20), fontFamily: fontFamilyCss, color: onHeaderMuted}} className="font-extrabold leading-[1.15] tracking-tight relative">
           How can we help?
         </p>
       </div>
@@ -429,10 +508,10 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
               <p style={{fontSize: fs(10.5)}} className={clsx('mt-0.5', dark ? 'text-slate-500' : 'text-slate-400')}>We typically reply in a few minutes</p>
             </div>
             <div className="flex items-center flex-shrink-0" style={{marginRight: 2}}>
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-black ring-2 relative" style={{background: `linear-gradient(135deg, ${cfg.color}, ${cfg.colorEnd||cfg.color})`, ringColor: dark?'#0f172a':'#fff', zIndex:3}}>{initials}</div>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black ring-2 relative" style={{background: `linear-gradient(135deg, ${cfg.color}, ${cfg.colorEnd||cfg.color})`, color: onBrand, border: brandEdge, ringColor: dark?'#0f172a':'#fff', zIndex:3}}>{initials}</div>
               <div className={clsx('w-8 h-8 rounded-full flex items-center justify-center -ml-2.5 ring-2 relative', dark ? 'ring-slate-900' : 'ring-white')}
                 style={{background:'linear-gradient(135deg,#F59E0B,#EF4444)', zIndex:2}}>
-                <span className="text-white text-[10px] font-black">AI</span>
+                <span className="text-[10px] font-black" style={{ color: onBrand }}>AI</span>
               </div>
               <div className={clsx('w-8 h-8 rounded-full flex items-center justify-center -ml-2.5 ring-2', dark ? 'bg-slate-700 ring-slate-900' : 'bg-slate-200 ring-white')}>
                 <Bot size={13} className={dark ? 'text-slate-300' : 'text-slate-500'}/>
@@ -447,7 +526,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
             <button onClick={()=>{ setOpenConvo('ended'); setActiveTab('chat') }} style={{borderRadius: cornerR*0.6}}
               className={clsx('w-full flex items-center gap-2.5 p-2.5 border text-left transition-colors',
                 dark ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-200 hover:bg-slate-50')}>
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[9px] font-black flex-shrink-0" style={{background: brandBg}}>{initials}</div>
+              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-black flex-shrink-0" style={{background: brandBg, color: onBrand, border: brandEdge}}>{initials}</div>
               <div className="flex-1 min-w-0">
                 <p style={{fontSize: fs(11)}} className={clsx('font-semibold truncate', dark ? 'text-slate-200' : 'text-slate-700')}>Plan change request</p>
                 <p style={{fontSize: fs(10)}} className={clsx('truncate mt-0.5', dark ? 'text-slate-500' : 'text-slate-400')}>Perfect, thank you!</p>
@@ -795,9 +874,9 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                             fontSize: fs(10.5),
                             padding: '6px 12px',
                             borderRadius: cfg.quickReplyStyle === 'square' ? cornerR*0.5 : 999,
-                            border: `1.5px solid ${pickedChip===c ? cfg.color : dark ? '#334155' : '#e2e8f0'}`,
+                            border: `1.5px solid ${pickedChip===c ? accent : dark ? '#334155' : '#e2e8f0'}`,
                             background: pickedChip===c ? cfg.color : dark ? '#1e293b' : '#fff',
-                            color: pickedChip===c ? '#fff' : cfg.color,
+                            color: pickedChip===c ? onBrand : accent,
                             animation: ANIM==='none' ? 'none' : 'wcPop 0.34s cubic-bezier(0.16,1,0.3,1) both',
                             animationDelay: `${(i+1)*80 + 90 + ci*70}ms`,
                           }}>
@@ -833,10 +912,10 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                             animationDelay: `${(i+1)*80 + 90 + pi*70}ms`,
                           }}>
                           <p style={{fontSize: fs(10)}} className={clsx('font-bold uppercase tracking-wide', dark?'text-slate-500':'text-slate-400')}>{pl.n}</p>
-                          <p style={{fontSize: fs(16), color: cfg.color}} className="font-extrabold leading-none mt-1">{pl.p}<span style={{fontSize: fs(9)}} className="font-semibold opacity-60">/mo</span></p>
+                          <p style={{fontSize: fs(16), color: accent}} className="font-extrabold leading-none mt-1">{pl.p}<span style={{fontSize: fs(9)}} className="font-semibold opacity-60">/mo</span></p>
                           <p style={{fontSize: fs(9.5)}} className={clsx('mt-1 leading-snug', dark?'text-slate-500':'text-slate-400')}>{pl.d}</p>
-                          <button className="wc-cardbtn w-full mt-2 font-bold text-white"
-                            style={{ fontSize: fs(10), padding:'5px 0', borderRadius: cornerR*0.45, background: brandBg }}>
+                          <button className="wc-cardbtn w-full mt-2 font-bold"
+                            style={{ fontSize: fs(10), padding:'5px 0', borderRadius: cornerR*0.45, background: brandBg, color: onBrand, border: brandEdge }}>
                             Choose
                           </button>
                         </div>
@@ -881,8 +960,8 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
           style={{ boxShadow: dark ? '0 -1px 0 rgba(255,255,255,0.06)' : '0 -1px 0 rgba(15,23,42,0.06)' }}>
           <p className={clsx('text-[10.5px] font-semibold', dark ? 'text-slate-400' : 'text-slate-500')}>This conversation has ended</p>
           <button onClick={()=>setOpenConvo(null)} className="wc-chip inline-flex items-center gap-1.5 mt-2 font-bold"
-            style={{ fontSize: fs(10.5), padding:'7px 16px', borderRadius:999, color:'#fff', background: brandBg,
-              boxShadow: `0 6px 16px -6px ${cfg.color}80` }}>
+            style={{ fontSize: fs(10.5), padding:'7px 16px', borderRadius:999, color: onBrand, background: brandBg,
+              border: brandEdge, boxShadow: `0 6px 16px -6px ${cfg.color}80` }}>
             <RefreshCw size={11}/> Reply to reopen
           </button>
         </div>
@@ -895,8 +974,8 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
           style={{ boxShadow: dark ? '0 -1px 0 rgba(255,255,255,0.06)' : '0 -1px 0 rgba(15,23,42,0.06)' }}>
           <p className={clsx('text-[10.5px] font-semibold', dark ? 'text-slate-400' : 'text-slate-500')}>{simComposerBanner.text}</p>
           <button onClick={simComposerBanner.onAction} className="wc-chip inline-flex items-center gap-1.5 mt-2 font-bold"
-            style={{ fontSize: fs(10.5), padding:'7px 16px', borderRadius:999, color:'#fff', background: brandBg,
-              boxShadow: `0 6px 16px -6px ${cfg.color}80` }}>
+            style={{ fontSize: fs(10.5), padding:'7px 16px', borderRadius:999, color: onBrand, background: brandBg,
+              border: brandEdge, boxShadow: `0 6px 16px -6px ${cfg.color}80` }}>
             <RefreshCw size={11}/> {simComposerBanner.actionLabel}
           </button>
         </div>
@@ -992,7 +1071,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
               if (draftRef.current) draftRef.current.style.height = 'auto'
             }}
             style={{ width: 36, height: 36, borderRadius: '50%', background: brandBg, boxShadow: `0 4px 14px -4px ${cfg.color}99`, transition: 'transform .18s cubic-bezier(.16,1,.3,1)' }}>
-            <Send size={15} className="text-white" style={{ marginLeft: 1, marginTop: -1 }}/>
+            <Send size={15} style={{ marginLeft: 1, marginTop: -1, color: onBrand }}/>
           </button>
         </div>
 
@@ -1099,7 +1178,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
               border: dark ? '1px solid #334155' : '1px solid #eef1f6', boxShadow: BUBBLE_SHADOW,
               animation: ANIM==='none' ? 'none' : 'wcSlideIn 0.32s cubic-bezier(0.16,1,0.3,1) both', animationDelay:`${i*70}ms` }}>
             <div className="relative flex-shrink-0">
-              <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[11px] font-black overflow-hidden"
+              <div className="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-black overflow-hidden" style={{ color: onBrand }}
                 style={{ background: c.kind==='bot' ? brandBg : 'linear-gradient(135deg,#F59E0B,#EF4444)' }}>
                 {c.kind==='bot' ? <AvatarFace px={36}/> : c.name.slice(0,1)}
               </div>
@@ -1112,7 +1191,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
             <div className="flex flex-col items-end gap-1 flex-shrink-0">
               <span style={{fontSize: fs(9)}} className={dark ? 'text-slate-600' : 'text-slate-400'}>{c.time}</span>
               {c.unread > 0
-                ? <span className="w-4 h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center" style={{background: cfg.color}}>{c.unread}</span>
+                ? <span className="w-4 h-4 rounded-full text-[9px] font-bold flex items-center justify-center" style={{background: cfg.color, color: onBrand, border: brandEdge}}>{c.unread}</span>
                 : <CheckCheck size={12} className={dark ? 'text-slate-600' : 'text-slate-300'}/>}
             </div>
           </button>
@@ -1120,9 +1199,9 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
       </div>
       <div className="flex-shrink-0 p-3">
         <button onClick={()=>{ setOpenConvo(null); setActiveTab('chat') }}
-          className="wc-chip w-full flex items-center justify-center gap-1.5 font-bold text-white"
+          className="wc-chip w-full flex items-center justify-center gap-1.5 font-bold"
           style={{ fontSize: fs(11), padding:'10px 0', borderRadius: cfg.quickReplyStyle==='square' ? cornerR*0.5 : 999,
-            background: brandBg, boxShadow: `0 8px 20px -8px ${cfg.color}90` }}>
+            background: brandBg, color: onBrand, border: brandEdge, boxShadow: `0 8px 20px -8px ${cfg.color}90` }}>
           <MessageSquare size={13}/> Start a new conversation
         </button>
       </div>
@@ -1334,10 +1413,10 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
           return (
             <button key={t.k} onClick={()=>setActiveTab(t.k)}
               className="flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-xl transition-all"
-              style={active ? { background: dark ? 'rgba(255,255,255,0.08)' : `${cfg.color}12` } : undefined}>
+              style={active ? { background: dark ? 'rgba(255,255,255,0.08)' : `${accent}12` } : undefined}>
               <div className="relative">
                 <t.icon size={17} strokeWidth={active ? 2.2 : 1.8}
-                  style={{ color: active ? cfg.color : undefined }}
+                  style={{ color: active ? accent : undefined }}
                   className={clsx(!active && (dark ? 'text-slate-500' : 'text-slate-400'))}/>
                 {!active && t.badge && (
                   <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[7.5px] font-bold flex items-center justify-center"
@@ -1345,7 +1424,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                 )}
               </div>
               <span className={clsx('text-[8.5px] font-semibold transition-colors', !active && (dark ? 'text-slate-500' : 'text-slate-400'))}
-                style={{ color: active ? cfg.color : undefined }}>
+                style={{ color: active ? accent : undefined }}>
                 {t.l}
               </span>
             </button>
@@ -1406,7 +1485,13 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
             <button onClick={()=>{ setScreen('home'); setActiveTab?.('home') }}
               className={clsx('wc-launcher w-16 h-16 flex items-center justify-center relative overflow-hidden',
               cfg.launcherShape==='square' ? 'rounded-2xl' : 'rounded-full')}
-              style={{background: brandBg, boxShadow: `0 12px 32px -6px ${cfg.color}77, 0 4px 12px -2px rgba(15,23,42,0.18)`,
+              style={{background: brandBg, border: brandEdge,
+                /* The coloured glow is the brand colour itself, so a white brand
+                   casts a white glow — invisible. Fall back to a neutral shadow
+                   there, which is what actually separates it from the page. */
+                boxShadow: brandLight
+                  ? '0 10px 26px -6px rgba(15,23,42,0.28), 0 3px 8px -2px rgba(15,23,42,0.16)'
+                  : `0 12px 32px -6px ${cfg.color}77, 0 4px 12px -2px rgba(15,23,42,0.18)`,
                 animation: LAUNCHER_FX[cfg.launcherAnimation]?.self }}>
               {launcherIconEl}
             </button>

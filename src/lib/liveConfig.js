@@ -108,7 +108,23 @@ function usable(botId) {
 }
 
 /**
- * Publishes one top-level section whenever it changes, debounced.
+ * What the server is believed to hold, per bot+section, as a serialized string.
+ *
+ * This is the guard against echo-writes, and it has to be module-level rather
+ * than a ref inside the publish hook: the value is written by the LOAD hook and
+ * read by the PUBLISH hook, which are separate hooks in separate components.
+ *
+ * Without it, every mount produced a redundant write — load resolves, state
+ * updates, the publish effect sees a changed value and saves back exactly what
+ * it just read. That bumps config_version and pushes a no-op change to every
+ * connected widget, which is precisely what the versioning exists to avoid.
+ * Observed as four writes per page load before this existed.
+ */
+const serverState = new Map()
+const stateKey = (botId, sectionKey) => `${botId}:${sectionKey}`
+
+/**
+ * Publishes one top-level section whenever it actually changes, debounced.
  *
  * Shared by both builder sections because the subtleties are identical and
  * easy to get wrong separately:
@@ -116,22 +132,29 @@ function usable(botId) {
  *   - Debounced, because both builders fire on every keystroke and every
  *     colour-slider drag. Undebounced, dragging a hue would be hundreds of
  *     writes and hundreds of pushes to every live widget.
- *   - The first run after mount is skipped. Otherwise the value just loaded
- *     from the server is immediately written back, bumping config_version and
- *     pushing a no-op change to every connected widget.
+ *   - Compared against what the server already holds, so re-saving an unchanged
+ *     value is skipped entirely. This subsumes the "skip the first run" trick,
+ *     which only ever covered the mount case and missed the echo that follows
+ *     an async load.
  *   - Failures are swallowed. The local draft is intact and the next edit
  *     retries; losing one colour tweak does not justify a modal.
  */
 export function usePublishSection(botId, sectionKey, value) {
   const latest = useRef(value)
   latest.current = value
-  const hydrated = useRef(false)
 
   useEffect(() => {
     if (!usable(botId)) return undefined
-    if (!hydrated.current) { hydrated.current = true; return undefined }
+    const key = stateKey(botId, sectionKey)
     const t = setTimeout(() => {
-      saveConfig(botId, { [sectionKey]: latest.current }).catch(() => {})
+      let serialized
+      try { serialized = JSON.stringify(latest.current) } catch { return }
+      if (serverState.get(key) === serialized) return
+      serverState.set(key, serialized)
+      saveConfig(botId, { [sectionKey]: latest.current }).catch(() => {
+        // Let the next edit retry by forgetting what we thought we sent.
+        serverState.delete(key)
+      })
     }, 400)
     return () => clearTimeout(t)
   }, [value, botId, sectionKey])
@@ -154,6 +177,9 @@ export function useLoadSection(botId, sectionKey, onLoad) {
         const section = config?.[sectionKey]
         if (cancelled || section == null) return
         if (Array.isArray(section) ? section.length : Object.keys(section).length) {
+          // Record it BEFORE handing it over, so the state update this causes
+          // doesn't read as a local edit and get written straight back.
+          try { serverState.set(stateKey(botId, sectionKey), JSON.stringify(section)) } catch {}
           cb.current(section)
         }
       })
