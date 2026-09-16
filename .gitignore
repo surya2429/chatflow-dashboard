@@ -27,3 +27,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Dev-only bot number counter (see devBotsApi in vite.config.js)
+.dev-bot-sequence.json

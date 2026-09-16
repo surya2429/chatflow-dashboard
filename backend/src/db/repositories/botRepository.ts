@@ -1,4 +1,8 @@
-import { query } from '../pool.js'
+import { query, withTransaction } from '../pool.js'
+
+/* Arbitrary constant key for pg_advisory_xact_lock — it only has to be unique
+   among this app's advisory locks, not meaningful. */
+const BOT_PROVISION_LOCK = 8421_0001
 
 export interface Bot {
   id: string
@@ -71,6 +75,47 @@ export const botRepository = {
       `SELECT * FROM bots WHERE archived_at IS NULL ORDER BY bot_number DESC LIMIT 1`,
     )
     return rows[0] ?? null
+  },
+
+  /**
+   * The current bot, creating one if the workspace has none.
+   *
+   * The install snippet needs a real id at all times — a dashboard that shows
+   * a placeholder until someone remembers to press "create bot" hands out
+   * snippets that cannot work. So provisioning is automatic.
+   *
+   * The advisory lock is what stops two dashboard tabs opening at once from
+   * each seeing "no bots" and each creating one. It is keyed to a constant, so
+   * only concurrent first-provisions contend; every later call takes the
+   * SELECT path and returns before reaching it. Released with the transaction.
+   */
+  async findOrCreateCurrent(defaultClientId: string, botName: string): Promise<Bot> {
+    return withTransaction(async (client) => {
+      const existing = await client.query<Bot>(
+        `SELECT * FROM bots WHERE archived_at IS NULL ORDER BY bot_number DESC LIMIT 1`,
+      )
+      if (existing.rows[0]) return existing.rows[0]
+
+      await client.query(`SELECT pg_advisory_xact_lock($1)`, [BOT_PROVISION_LOCK])
+
+      // Re-check: another transaction may have provisioned while we waited.
+      const recheck = await client.query<Bot>(
+        `SELECT * FROM bots WHERE archived_at IS NULL ORDER BY bot_number DESC LIMIT 1`,
+      )
+      if (recheck.rows[0]) return recheck.rows[0]
+
+      await client.query(
+        `INSERT INTO clients (id, name) VALUES ($1, 'Default workspace') ON CONFLICT (id) DO NOTHING`,
+        [defaultClientId],
+      )
+      const created = await client.query<Bot>(
+        `INSERT INTO bots (client_id, name, channel) VALUES ($1, $2, 'webchat') RETURNING *`,
+        [defaultClientId, botName],
+      )
+      const bot = created.rows[0]
+      if (!bot) throw new Error('Failed to provision bot')
+      return bot
+    })
   },
 
   /** Oldest first, so a client's list reads in the order they created them. */

@@ -93,3 +93,20 @@ CREATE INDEX idx_bots_active ON bots (archived_at) WHERE archived_at IS NULL;
 
 CREATE TRIGGER trg_bots_updated_at BEFORE UPDATE ON bots
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ── SEED ─────────────────────────────────────────────────────────────────
+-- A workspace with no bot has no id to put in an install snippet, which makes
+-- the Installation page show a placeholder nobody can paste anywhere. Seeding
+-- the first client and bot here means a freshly migrated database answers
+-- GET /api/bots/current straight away, with bot 1.
+--
+-- Fixed UUID so re-running against an existing database is a no-op rather
+-- than a second "Default workspace" — the ON CONFLICT makes this migration
+-- safe to re-apply.
+INSERT INTO clients (id, name)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Default workspace')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO bots (client_id, name, channel)
+SELECT '00000000-0000-0000-0000-000000000001', 'Support Bot', 'webchat'
+WHERE NOT EXISTS (SELECT 1 FROM bots);

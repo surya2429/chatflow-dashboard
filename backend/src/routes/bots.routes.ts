@@ -5,6 +5,11 @@ import { botRepository } from '../db/repositories/botRepository.js'
 
 export const botsRouter = Router()
 
+/* Until requests carry an authenticated client, a single workspace stands in
+   for one — same assumption instagram.routes.ts already makes. */
+const DEFAULT_CLIENT_ID = '00000000-0000-0000-0000-000000000001'
+const DEFAULT_BOT_NAME = 'Support Bot'
+
 const createBotSchema = z.object({
   clientId: z.string().uuid(),
   name: z.string().trim().min(1).max(256),
@@ -47,18 +52,15 @@ botsRouter.post('/bots', async (req, res) => {
 })
 
 /**
- * GET /api/bots/current — the bot the dashboard is configuring.
+ * GET /api/bots/current — the bot the dashboard is configuring, provisioning
+ * one if this workspace has none so the install snippet always has a real id.
  *
- * Declared BEFORE /bots/:botNumber, or Express would match "current" as a
- * bot number and the route below would 400 on it.
+ * Declared BEFORE /bots/:botNumber, or Express would match "current" as a bot
+ * number and the route below would 400 on it.
  */
 botsRouter.get('/bots/current', async (_req, res) => {
   try {
-    const bot = await botRepository.findCurrent()
-    if (!bot) {
-      res.status(404).json({ error: 'no_bot' })
-      return
-    }
+    const bot = await botRepository.findOrCreateCurrent(DEFAULT_CLIENT_ID, DEFAULT_BOT_NAME)
     res.status(200).json({
       id: bot.id,
       botNumber: bot.bot_number,
