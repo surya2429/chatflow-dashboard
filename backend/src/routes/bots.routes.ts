@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { logger } from '../config/logger.js'
 import { botRepository } from '../db/repositories/botRepository.js'
+import { addSubscriber, publishConfigChange } from '../services/botConfigStream.js'
 
 export const botsRouter = Router()
 
@@ -123,5 +124,108 @@ botsRouter.get('/clients/:clientId/bots', async (req, res) => {
   } catch (err) {
     logger.error({ err, clientId: req.params.clientId }, 'Failed to list bots')
     res.status(500).json({ error: 'bot_list_failed' })
+  }
+})
+
+
+/* ─── Live config ────────────────────────────────────────────────────────
+ * The widget installed on a merchant's website reads its design/flow from
+ * here, and stays subscribed for changes. This is why a merchant never
+ * re-pastes the snippet to pick up an edit: the snippet only ever carried the
+ * bot id, and everything else is fetched at runtime against that id.
+ */
+
+/** GET /api/bots/:botNumber/config — what an installed widget loads on boot. */
+botsRouter.get('/bots/:botNumber/config', async (req, res) => {
+  const parsed = botNumberSchema.safeParse(req.params.botNumber)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'invalid_bot_number' })
+    return
+  }
+  try {
+    const bot = await botRepository.findByNumber(parsed.data)
+    if (!bot) {
+      res.status(404).json({ error: 'bot_not_found' })
+      return
+    }
+    // Widgets live on merchant domains, so every config read is cross-origin.
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.status(200).json({
+      botNumber: bot.bot_number,
+      version: bot.config_version,
+      config: bot.config,
+    })
+  } catch (err) {
+    logger.error({ err, botNumber: req.params.botNumber }, 'Failed to read bot config')
+    res.status(500).json({ error: 'config_read_failed' })
+  }
+})
+
+/**
+ * PATCH /api/bots/:botNumber/config — the dashboard saving an edit.
+ *
+ * Merges rather than replaces, so two people editing different sections of the
+ * builder at once do not overwrite each other wholesale.
+ */
+botsRouter.patch('/bots/:botNumber/config', async (req, res) => {
+  const parsedNumber = botNumberSchema.safeParse(req.params.botNumber)
+  if (!parsedNumber.success) {
+    res.status(400).json({ error: 'invalid_bot_number' })
+    return
+  }
+  const patch = req.body as unknown
+  if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
+    res.status(400).json({ error: 'invalid_config' })
+    return
+  }
+
+  try {
+    const bot = await botRepository.updateConfig(parsedNumber.data, patch as Record<string, unknown>)
+    if (!bot) {
+      res.status(404).json({ error: 'bot_not_found' })
+      return
+    }
+    // Fan out only after the write has committed — a widget must never be told
+    // about a change that then fails to persist.
+    await publishConfigChange({
+      botNumber: bot.bot_number,
+      version: bot.config_version,
+      config: bot.config,
+    })
+    res.status(200).json({ version: bot.config_version, config: bot.config })
+  } catch (err) {
+    logger.error({ err, botNumber: req.params.botNumber }, 'Failed to update bot config')
+    res.status(500).json({ error: 'config_write_failed' })
+  }
+})
+
+/**
+ * GET /api/bots/:botNumber/events — the live stream an installed widget holds
+ * open. Sends the current config immediately, then every change as it lands.
+ */
+botsRouter.get('/bots/:botNumber/events', async (req, res) => {
+  const parsed = botNumberSchema.safeParse(req.params.botNumber)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'invalid_bot_number' })
+    return
+  }
+  try {
+    const bot = await botRepository.findByNumber(parsed.data)
+    if (!bot) {
+      res.status(404).json({ error: 'bot_not_found' })
+      return
+    }
+    // Never buffered, never timed out by Express's own response handling.
+    req.socket.setTimeout(0)
+    req.socket.setNoDelay(true)
+    req.socket.setKeepAlive(true)
+    addSubscriber(bot.bot_number, res, {
+      botNumber: bot.bot_number,
+      version: bot.config_version,
+      config: bot.config,
+    })
+  } catch (err) {
+    logger.error({ err, botNumber: req.params.botNumber }, 'Failed to open config stream')
+    if (!res.headersSent) res.status(500).json({ error: 'stream_failed' })
   }
 })

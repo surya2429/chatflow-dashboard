@@ -23,7 +23,8 @@
 // of the widget would drift from the one merchants configure.
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { WidgetPreview, WIDGET_CFG_STORAGE_KEY } from './WebChatAppearance'
+import { WidgetPreview } from './WebChatAppearance'
+import { useLiveConfig } from '../lib/liveConfig'
 import { useVisitorCall } from '../hooks/useVisitorCall'
 import { VisitorCallOverlay } from '../components/webchat/VisitorCallOverlay'
 
@@ -68,7 +69,6 @@ export const EMBED_MESSAGE_NAMESPACE = 'chatflow-widget'
 
 export default function WebChatEmbed() {
   const [params] = useSearchParams()
-  const [cfg, setCfg] = useState(DEFAULT_CFG)
   const [screen, setScreen] = useState('closed')
   const [activeTab, setActiveTab] = useState('home')
   // The widget id travels in the script's own src (`widget.js?id=…`) and is
@@ -78,6 +78,14 @@ export default function WebChatEmbed() {
   // deriving it from the widget id would drop every visitor to the same site
   // into one shared room and hand an agent whichever of them answered first.
   const [visitorId] = useState(() => getOrCreateVisitorId(widgetId))
+
+  /* Fetched from the server against the bot id, then kept current over a live
+     stream — NOT read from localStorage. An installed widget runs in the
+     visitor's browser, where the merchant's localStorage does not exist, so
+     the old approach could only ever have worked while the dashboard and the
+     embed shared an origin in local dev. This is also what makes a design or
+     flow change appear without the merchant re-pasting the snippet. */
+  const { cfg } = useLiveConfig(widgetId, DEFAULT_CFG)
 
   const call = useVisitorCall(visitorId)
 
@@ -95,13 +103,6 @@ export default function WebChatEmbed() {
     const box = open ? openBox(cfg) : (cfg.launcherText ? CLOSED_TEXT_BOX : CLOSED_BOX)
     post({ type: 'state', open, w: box.w, h: box.h })
   }, [screen, cfg.launcherText, cfg.size, post])
-
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(WIDGET_CFG_STORAGE_KEY) || 'null')
-      if (saved) setCfg(p => ({ ...p, ...saved }))
-    } catch { /* first-party storage blocked in a third-party frame — defaults are fine */ }
-  }, [])
 
   /* ChatFlow('open') on the host page reaches the widget through here. Only
      our own namespace is honoured; a page full of other embeds posting

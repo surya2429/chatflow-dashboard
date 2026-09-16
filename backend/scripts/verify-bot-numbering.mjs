@@ -69,7 +69,7 @@ const version = (await client.query('SELECT version()')).rows[0].version
 console.log(`Connected: ${version.split(',')[0]}\n`)
 
 // ── Run every migration in order, exactly as a deploy would ───────────────
-for (const file of ['001_init.sql', '002_instagram_oauth.sql', '003_clients_and_bots.sql']) {
+for (const file of ['001_init.sql', '002_instagram_oauth.sql', '003_clients_and_bots.sql', '004_bot_config_versioning.sql']) {
   const sql = readFileSync(join(MIGRATIONS, file), 'utf8')
   try {
     await client.query(sql)
@@ -243,6 +243,45 @@ console.log('')
   const rows = (await client.query(
     `SELECT * FROM bots WHERE bot_number = $1::bigint AND archived_at IS NULL`, ['1'])).rows
   check('findByNumber cast works with a string param', rows.length >= 0)
+}
+
+// ── 10. Config versioning (004): the live-push contract ───────────────────
+{
+  const bot = (await client.query(
+    `INSERT INTO bots (client_id, name) VALUES ('00000000-0000-0000-0000-000000000001', 'Config bot') RETURNING *`
+  )).rows[0]
+  check('a new bot starts at config_version 1',
+    bot.config_version === 1, `v${bot.config_version}`)
+
+  const v2 = (await client.query(
+    `UPDATE bots SET config = config || '{"color":"#e11d48"}'::jsonb WHERE id = $1 RETURNING *`,
+    [bot.id])).rows[0]
+  check('changing config bumps the version',
+    v2.config_version === 2, `v${v2.config_version}`)
+
+  const v3 = (await client.query(
+    `UPDATE bots SET config = config || '{"botName":"Acme"}'::jsonb WHERE id = $1 RETURNING *`,
+    [bot.id])).rows[0]
+  check('jsonb merge keeps earlier keys (per-key last-write-wins)',
+    v3.config.color === '#e11d48' && v3.config.botName === 'Acme',
+    JSON.stringify(v3.config))
+
+  const renamed = (await client.query(
+    `UPDATE bots SET name = 'Renamed' WHERE id = $1 RETURNING *`, [bot.id])).rows[0]
+  check('a non-config update does NOT bump the version (no spurious push)',
+    renamed.config_version === 3, `v${renamed.config_version}`)
+
+  const same = (await client.query(
+    `UPDATE bots SET config = config WHERE id = $1 RETURNING *`, [bot.id])).rows[0]
+  check('writing identical config does not bump the version',
+    same.config_version === 3, `v${same.config_version}`)
+
+  const before = renamed.config_updated_at
+  const touched = (await client.query(
+    `UPDATE bots SET config = config || '{"x":1}'::jsonb WHERE id = $1 RETURNING *`,
+    [bot.id])).rows[0]
+  check('config_updated_at advances with a real change',
+    new Date(touched.config_updated_at) >= new Date(before))
 }
 
 console.log('')

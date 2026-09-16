@@ -99,8 +99,11 @@
   and the widget should not be trapped behind it either.
 </div>
 
-<!-- ─── The install snippet, exactly as the dashboard hands it out ─── -->
-<script src="/widget.js?id=48217" async></script>
+<!-- ─── The install snippet, exactly as the dashboard hands it out ───
+     The id must name a bot that actually exists, the same as on a real site.
+     Bot 1 is the one seeded by 003_clients_and_bots.sql (and by the dev
+     server's own sequence), so this works on a fresh checkout. -->
+<script src="/widget.js?id=1" async></script>
 
 <script>
   // Reports what the snippet actually did to this document. This is the part

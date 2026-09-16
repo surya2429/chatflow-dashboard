@@ -12,6 +12,8 @@ export interface Bot {
   channel: string
   config: Record<string, unknown>
   archived_at: string | null
+  config_version: number
+  config_updated_at: string
   created_at: string
   updated_at: string
 }
@@ -126,6 +128,27 @@ export const botRepository = {
        ORDER BY bot_number ASC`,
       [clientId],
     )
+  },
+
+  /**
+   * Merges `patch` into the bot's config and returns the new version.
+   *
+   * A merge, not a replace: the dashboard sends the keys it changed, and two
+   * people editing different sections at the same time should not silently
+   * undo each other. `||` is jsonb concatenation — right-hand keys win, which
+   * is what makes this last-write-wins PER KEY instead of per document.
+   *
+   * config_version is bumped by the trigger in 004, never here.
+   */
+  async updateConfig(botNumber: string, patch: Record<string, unknown>): Promise<Bot | null> {
+    const rows = await query<Bot>(
+      `UPDATE bots
+       SET config = config || $2::jsonb
+       WHERE bot_number = $1::bigint AND archived_at IS NULL
+       RETURNING *`,
+      [botNumber, JSON.stringify(patch)],
+    )
+    return rows[0] ?? null
   },
 
   /**
