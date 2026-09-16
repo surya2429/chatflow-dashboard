@@ -1,30 +1,38 @@
 // WebChatEmbed.jsx — what actually runs inside the widget's iframe on a
 // customer's website.
 //
-// This is the reason the install snippet can promise it won't touch the host
-// page's CSS. Everything the widget renders — Tailwind's preflight, the
-// Google font, the keyframes in WidgetPreview's <style> block — lives in this
-// document, not the customer's. An iframe is a separate document with its own
-// cascade, so there is nothing to leak in either direction: no reset can
-// restyle their buttons, and no `* { box-sizing: content-box }` or
-// `font-size: 62.5%` of theirs can deform the widget. Shadow DOM alone would
-// not be enough — inherited properties (font, color, line-height, direction)
-// cross a shadow boundary, and the host page's own stylesheet still applies to
-// the host element itself.
+// This renders THE BOT, not a preview of one. A bot has two halves, both
+// edited in the dashboard against the same bot id and both delivered here:
 //
-// Sizing is NOT measured from in here. The loader (public/widget.js) owns the
-// iframe's box and we only tell it which state we're in; it clamps to the
-// viewport. That keeps the "overlap" contract in one place: when closed, the
-// iframe is exactly launcher-sized, so the widget intercepts clicks only where
-// it is actually visible.
+//   config.appearance — how it looks  (Widget Builder / Appearance)
+//   config.flows      — what it does  (Automation / Flow Builder)
 //
-// Renders the same `WidgetPreview` as the dashboard preview and the landing
-// page, for the same reason WebChatLandingPage does: a second implementation
-// of the widget would drift from the one merchants configure.
+// so the widget a visitor talks to runs the merchant's real automation, styled
+// with their real design. Previously this only rendered the appearance side,
+// which meant an installed widget looked right and then did nothing — the
+// automation the merchant actually built was never reachable from their site.
+//
+// Both halves arrive over the live stream (see lib/liveConfig.js), so editing
+// either one in the dashboard updates widgets already open on visitors'
+// screens without the merchant re-pasting the snippet.
+//
+// On CSS isolation: everything this document renders — Tailwind's preflight,
+// the Google font, WidgetPreview's keyframes — lives in THIS document, not the
+// customer's. An iframe is a separate document with its own cascade, so
+// nothing leaks either way: no reset of ours can restyle their buttons, and no
+// `* { box-sizing: content-box }` or `font-size: 62.5%` of theirs can deform
+// the widget. Shadow DOM alone would not do it — inherited properties cross a
+// shadow boundary, and the page's rules still apply to the host element.
+//
+// Sizing is NOT measured here. The loader (public/widget.js) owns the iframe's
+// box and we only report which state we are in; it clamps to the viewport.
+// That keeps the overlap contract in one place: closed, the iframe is exactly
+// launcher-sized, so the widget intercepts clicks only where it is visible.
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { WidgetPreview } from './WebChatAppearance'
-import { useLiveConfig } from '../lib/liveConfig'
+import { WidgetPreview, useWidgetTheme } from './WebChatAppearance'
+import { useFlowSimulation, renderFlowSimComposerControl } from './WebChatFlowBuilder'
+import { useLiveConfig, SECTION_APPEARANCE, SECTION_FLOWS } from '../lib/liveConfig'
 import { useVisitorCall } from '../hooks/useVisitorCall'
 import { VisitorCallOverlay } from '../components/webchat/VisitorCallOverlay'
 
@@ -35,6 +43,8 @@ const DEFAULT_CFG = {
   avatarStyle: 'icon', avatarEmoji: '🤖', avatarImage: '',
   showBranding: true, brandingUrl: '/', landingName: 'Support_Bot',
 }
+
+const EMPTY_CONFIG = {}
 
 /* The iframe's box, per state. The loader clamps both against the viewport,
    so these are maximums rather than promises — a 640px-tall panel on a short
@@ -69,25 +79,51 @@ export const EMBED_MESSAGE_NAMESPACE = 'chatflow-widget'
 
 export default function WebChatEmbed() {
   const [params] = useSearchParams()
+  const botId = params.get('id') || ''
+
+  // Whole config in one subscription: both halves travel together, and a
+  // single stream is one connection per visitor rather than two.
+  const { cfg: config } = useLiveConfig(botId, EMPTY_CONFIG)
+  const appearance = { ...DEFAULT_CFG, ...(config[SECTION_APPEARANCE] || {}) }
+  const flows = Array.isArray(config[SECTION_FLOWS]) ? config[SECTION_FLOWS] : []
+  // The merchant's entry-point automation. `kind: 'main'` is what the Flow
+  // Builder marks it as; subflows are only reachable via goto_subflow.
+  const mainFlow = flows.find(f => f.kind === 'main' && f.active !== false) || null
+
+  return (
+    <EmbedShell
+      botId={botId}
+      cfg={appearance}
+      // Remounts the running conversation if the merchant republishes a
+      // different flow — a visitor mid-conversation on a flow that no longer
+      // exists is worse than a clean restart on the new one.
+      key={mainFlow?.id || 'no-flow'}
+      flow={mainFlow}
+      allFlows={flows}
+    />
+  )
+}
+
+/**
+ * Split from the component above so `useFlowSimulation` is called with a
+ * settled flow. Hooks must run unconditionally, and the flow arrives
+ * asynchronously — putting the simulation in a child keyed by flow id keeps
+ * every hook call unconditional while still letting the engine restart when
+ * the merchant publishes a different automation.
+ */
+function EmbedShell({ botId, cfg, flow, allFlows }) {
   const [screen, setScreen] = useState('closed')
   const [activeTab, setActiveTab] = useState('home')
-  // The widget id travels in the script's own src (`widget.js?id=…`) and is
-  // forwarded here by the loader.
-  const widgetId = params.get('id') || ''
-  // Per-BROWSER, not per-widget: this is the call-signaling room key, so
-  // deriving it from the widget id would drop every visitor to the same site
-  // into one shared room and hand an agent whichever of them answered first.
-  const [visitorId] = useState(() => getOrCreateVisitorId(widgetId))
-
-  /* Fetched from the server against the bot id, then kept current over a live
-     stream — NOT read from localStorage. An installed widget runs in the
-     visitor's browser, where the merchant's localStorage does not exist, so
-     the old approach could only ever have worked while the dashboard and the
-     embed shared an origin in local dev. This is also what makes a design or
-     flow change appear without the merchant re-pasting the snippet. */
-  const { cfg } = useLiveConfig(widgetId, DEFAULT_CFG)
+  const [visitorId] = useState(() => getOrCreateVisitorId(botId))
+  const { cornerR, fs, dark } = useWidgetTheme(cfg)
 
   const call = useVisitorCall(visitorId)
+
+  /* The merchant's real automation, running for a real visitor — the same
+     engine the Flow Builder's canvas preview and Live Preview use, so what
+     they test is exactly what their website serves. */
+  const sim = useFlowSimulation(flow, allFlows)
+  const hasFlow = Boolean(flow)
 
   /* Tell the loader which box to give us. Posted on every state change and
      once on mount, so the iframe is launcher-sized before the first paint the
@@ -110,7 +146,7 @@ export default function WebChatEmbed() {
   useEffect(() => {
     function onMessage(e) {
       if (!e.data || e.data.__chatflow !== EMBED_MESSAGE_NAMESPACE) return
-      if (e.data.type === 'open') setScreen(s => (s === 'closed' ? 'home' : s))
+      if (e.data.type === 'open') setScreen(s => (s === 'closed' ? 'chat' : s))
       else if (e.data.type === 'close') setScreen('closed')
     }
     window.addEventListener('message', onMessage)
@@ -134,6 +170,22 @@ export default function WebChatEmbed() {
 
   const open = screen !== 'closed'
 
+  /* Without a published flow the widget still renders — design, tabs, calling
+     all work — it just has no scripted conversation to run. Handing
+     WidgetPreview an empty simThread here would instead blank the chat screen
+     entirely, which looks broken rather than unconfigured. */
+  const simComposerBanner = hasFlow && sim.ended
+    ? { text: 'This conversation has ended', actionLabel: '↻ Start over', onAction: sim.reset }
+    : null
+  const simComposerControl = hasFlow && sim.awaiting
+    ? renderFlowSimComposerControl({
+        awaiting: sim.awaiting, submitAsk: sim.submitAsk,
+        pickQuickReply: sim.pickQuickReply, pickBranch: sim.pickBranch,
+        accent: cfg.color, dark, cornerR, fs,
+        quickReplyStyle: cfg.quickReplyStyle, googleMapsApiKey: cfg.googleMapsApiKey,
+      })
+    : null
+
   return (
     <div className="w-screen h-screen overflow-hidden" style={{ background: 'transparent' }}>
       {/* No padding: WidgetPreview centres the panel in whatever box it gets, so
@@ -141,7 +193,10 @@ export default function WebChatEmbed() {
       <div className="w-full h-full">
         <WidgetPreview cfg={cfg} screen={screen} device="desktop"
           activeTab={activeTab} setActiveTab={setActiveTab} setScreen={setScreen}
-          previewQuestionTypes={undefined} scrollToQType={undefined}
+          simThread={hasFlow ? sim.messages : undefined}
+          simComposerBanner={simComposerBanner}
+          simComposerControl={simComposerControl}
+          onRestartChat={hasFlow ? sim.reset : undefined}
           onVoiceCall={() => call.callAgent(false)}
           onVideoCall={() => call.callAgent(true)}/>
       </div>
@@ -150,7 +205,7 @@ export default function WebChatEmbed() {
   )
 }
 
-/* Same shape as WebChatLandingPage's visitor identity, keyed per widget so two
+/* Same shape as WebChatLandingPage's visitor identity, keyed per bot so two
    ChatFlow widgets on one browser don't share a thread.
 
    Third-party storage is the interesting case: inside an iframe on someone
@@ -158,8 +213,8 @@ export default function WebChatEmbed() {
    blocked it throws outright. A per-load id is the correct fallback — calling
    and the conversation still work for this page view, they just don't persist
    across reloads, which is far better than throwing on mount. */
-function getOrCreateVisitorId(widgetId) {
-  const key = `chatflow_visitor_${widgetId || 'default'}`
+function getOrCreateVisitorId(botId) {
+  const key = `chatflow_visitor_${botId || 'default'}`
   const fresh = () => `v_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
   try {
     const existing = localStorage.getItem(key)

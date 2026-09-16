@@ -21,7 +21,7 @@ import clsx from 'clsx'
 import { QUESTION_TYPES, QUESTION_CATS } from '../constants/webchatQuestionTypes'
 import { GOOGLE_FONTS, FONT_CATEGORIES, fontStack } from '../constants/googleFonts'
 import { getBotId, useBotId } from '../constants/webchat'
-import { saveConfig, fetchConfig } from '../lib/liveConfig'
+import { usePublishSection, useLoadSection, SECTION_APPEARANCE } from '../lib/liveConfig'
 import { AnswerControl } from '../components/webchat/AnswerControls'
 import { PoweredByDemoModal } from '../components/webchat/PoweredByDemoModal'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -3159,45 +3159,14 @@ export default function WebChatAppearance() {
     try { localStorage.setItem(WIDGET_CFG_STORAGE_KEY, JSON.stringify(cfg)) } catch {}
   }, [cfg])
 
-  /* Push every edit to the server, which fans it out to widgets already
-     running on visitors' screens. Debounced because the builder fires on each
-     keystroke and colour-picker drag — without it, dragging a hue slider would
-     be hundreds of writes and hundreds of pushes to every live widget.
-     400ms is under the threshold where an edit stops feeling immediate, and
-     long enough that a drag collapses to one write. */
+  /* The design half of this bot, saved under config.appearance — the SAME bot
+     whose flows the Automation section edits under config.flows. One bot, two
+     halves: what it looks like and what it does. Pushed to widgets already
+     running on visitors' screens. */
   const botId = useBotId()
-  const cfgRef = useRef(cfg)
-  cfgRef.current = cfg
-  const hydratedRef = useRef(false)
-  useEffect(() => {
-    if (!botId || botId === 'YOUR_BOT_ID') return undefined
-    // Skip the first run after load: it would immediately write back the
-    // config we just read, bumping the version and pushing a no-op to every
-    // connected widget.
-    if (!hydratedRef.current) { hydratedRef.current = true; return undefined }
-    const t = setTimeout(() => {
-      saveConfig(botId, cfgRef.current).catch(() => {
-        // Offline or API down — the local draft above is still intact, and the
-        // next edit retries. Losing a colour tweak is not worth a modal.
-      })
-    }, 400)
-    return () => clearTimeout(t)
-  }, [cfg, botId])
+  usePublishSection(botId, SECTION_APPEARANCE, cfg)
+  useLoadSection(botId, SECTION_APPEARANCE, saved => setCfg(prev => ({ ...prev, ...saved })))
 
-  /* Load whatever the server already holds for this bot, so opening the
-     builder on a second machine shows the real settings rather than this
-     browser's stale draft. */
-  useEffect(() => {
-    if (!botId || botId === 'YOUR_BOT_ID') return
-    let cancelled = false
-    fetchConfig(botId)
-      .then(({ config }) => {
-        if (cancelled || !config || !Object.keys(config).length) return
-        setCfg(prev => ({ ...prev, ...config }))
-      })
-      .catch(() => { /* first run against a bot with no saved config yet */ })
-    return () => { cancelled = true }
-  }, [botId])
   const set = (k, v) => setCfg(p => ({...p, [k]:v}))
   const [device, setDevice] = useState('desktop')
   const [screen, setScreen] = useState('open')

@@ -18,9 +18,23 @@
  * matters more than it sounds: widgets sit on laptops that sleep, phones that
  * change network, and offices behind proxies that cut idle connections.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+
+/**
+ * A bot's config has exactly two halves, and they belong to the same bot:
+ *
+ *   appearance — how it looks   (Widget Builder / Appearance)
+ *   flows      — what it does   (Automation / Flow Builder)
+ *
+ * They are separate TOP-LEVEL keys so each section can save without touching
+ * the other: the server merges with jsonb `||`, which is shallow, so a write
+ * of { appearance } replaces appearance wholesale and leaves flows untouched.
+ * Nesting them any deeper would make one section's save clobber the other's.
+ */
+export const SECTION_APPEARANCE = 'appearance'
+export const SECTION_FLOWS = 'flows'
 
 export async function fetchConfig(botId) {
   const res = await fetch(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/config`)
@@ -86,6 +100,66 @@ export function subscribeConfig(botId, onConfig) {
     source?.close()
     source = null
   }
+}
+
+/** A bot id that hasn't resolved yet — nothing should be saved against it. */
+function usable(botId) {
+  return Boolean(botId) && botId !== 'YOUR_BOT_ID'
+}
+
+/**
+ * Publishes one top-level section whenever it changes, debounced.
+ *
+ * Shared by both builder sections because the subtleties are identical and
+ * easy to get wrong separately:
+ *
+ *   - Debounced, because both builders fire on every keystroke and every
+ *     colour-slider drag. Undebounced, dragging a hue would be hundreds of
+ *     writes and hundreds of pushes to every live widget.
+ *   - The first run after mount is skipped. Otherwise the value just loaded
+ *     from the server is immediately written back, bumping config_version and
+ *     pushing a no-op change to every connected widget.
+ *   - Failures are swallowed. The local draft is intact and the next edit
+ *     retries; losing one colour tweak does not justify a modal.
+ */
+export function usePublishSection(botId, sectionKey, value) {
+  const latest = useRef(value)
+  latest.current = value
+  const hydrated = useRef(false)
+
+  useEffect(() => {
+    if (!usable(botId)) return undefined
+    if (!hydrated.current) { hydrated.current = true; return undefined }
+    const t = setTimeout(() => {
+      saveConfig(botId, { [sectionKey]: latest.current }).catch(() => {})
+    }, 400)
+    return () => clearTimeout(t)
+  }, [value, botId, sectionKey])
+}
+
+/**
+ * Loads one section once the bot id is known. `onLoad` is called only when the
+ * server actually holds something, so a bot with nothing saved keeps whatever
+ * defaults the caller started with rather than being blanked.
+ */
+export function useLoadSection(botId, sectionKey, onLoad) {
+  const cb = useRef(onLoad)
+  cb.current = onLoad
+
+  useEffect(() => {
+    if (!usable(botId)) return undefined
+    let cancelled = false
+    fetchConfig(botId)
+      .then(({ config }) => {
+        const section = config?.[sectionKey]
+        if (cancelled || section == null) return
+        if (Array.isArray(section) ? section.length : Object.keys(section).length) {
+          cb.current(section)
+        }
+      })
+      .catch(() => { /* nothing saved yet, or API down — defaults stand */ })
+    return () => { cancelled = true }
+  }, [botId, sectionKey])
 }
 
 /**

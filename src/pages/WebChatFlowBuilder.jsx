@@ -16,6 +16,8 @@ import {
 import { NativeSelect } from '../components/Select'
 import { QUESTION_TYPES as WEBCHAT_QUESTION_TYPES } from '../constants/webchatQuestionTypes'
 import { WIDGET_CFG_STORAGE_KEY, useWidgetTheme, WidgetPreview, getLandingBotId, slugifyBotName } from './WebChatAppearance'
+import { usePublishSection, useLoadSection, SECTION_FLOWS } from '../lib/liveConfig'
+import { useBotId } from '../constants/webchat'
 import { AnswerControl, DEFAULT_FORM_FIELDS } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
 
@@ -1364,9 +1366,17 @@ export function useWidgetCfg() {
    driven by more than one renderer: the dashboard's floating popup preview
    AND the standalone full-page live-preview route both use this same hook
    so there is exactly one implementation of "how a flow actually runs". */
+/* A bot with no published flow is a real state, not a bug: a merchant can
+   install the snippet before building their automation, and the widget must
+   still render (design, tabs, calling) rather than throw on `flow.graph`.
+   Every caller inside the dashboard always has a flow; the embed
+   (WebChatEmbed.jsx) is the one that legitimately may not. */
+const EMPTY_FLOW = { id: null, name: '', graph: { nodes: [], edges: [] } }
+
 export function useFlowSimulation(flow, allFlows) {
-  const [graph, setGraph] = useState(flow.graph)
-  const [graphLabel, setGraphLabel] = useState(flow.name)
+  const safeFlow = flow || EMPTY_FLOW
+  const [graph, setGraph] = useState(safeFlow.graph)
+  const [graphLabel, setGraphLabel] = useState(safeFlow.name)
   const [currentId, setCurrentId] = useState(null)
   const [messages, setMessages] = useState([]) // { id, from: 'bot'|'user', text }
   const [awaiting, setAwaiting] = useState(null) // { type: 'ask'|'quick_replies'|'branch', node, msgId }
@@ -1401,14 +1411,14 @@ export function useFlowSimulation(flow, allFlows) {
     clearTimeout(timerRef.current)
     setMessages([]); setAwaiting(null); setEnded(false); setActivity([])
     lastMsgIdRef.current = null
-    setGraph(flow.graph); setGraphLabel(flow.name)
+    setGraph(safeFlow.graph); setGraphLabel(safeFlow.name)
     setCurrentId(startId)
   }, [flow])
 
   // Always simulate starting from the flow's first entry node — "the first
   // question in the main flow is the first trigger" — no picker, ever.
   const reset = useCallback(() => {
-    const s = flow.graph.nodes.find(n => ENTRY_TYPES.includes(n.type)) || flow.graph.nodes[0] || null
+    const s = safeFlow.graph.nodes.find(n => ENTRY_TYPES.includes(n.type)) || safeFlow.graph.nodes[0] || null
     if (s) beginFrom(s.id)
     else { clearTimeout(timerRef.current); setMessages([]); setAwaiting(null); setActivity([]); setEnded(true) }
   }, [flow, beginFrom])
@@ -2056,6 +2066,23 @@ function FlowCard({ f, onEdit, onPreview, onLandingPage, onDuplicate, onRemove, 
 /* ─── page: flow list + entry into the canvas ─────────────────────────── */
 export default function WebChatFlowBuilder() {
   const [flows, setFlows] = useState(INITIAL_FLOWS)
+
+  /* The behaviour half of this bot, saved under config.flows — the SAME bot
+     whose design the Appearance section edits under config.appearance, and the
+     same bot id that goes in the install snippet. This is what makes the
+     installed widget run THIS automation rather than a generic demo: the
+     embed loads these flows by bot id and executes the main one.
+
+     Until now `flows` was in-memory only, so a merchant's automation did not
+     survive a refresh, let alone reach a website. */
+  const botId = useBotId()
+  usePublishSection(botId, SECTION_FLOWS, flows)
+  useLoadSection(botId, SECTION_FLOWS, saved => {
+    // Replace rather than merge: flows are an ordered list the merchant owns,
+    // and merging a saved list into the seeded one would resurrect demo flows
+    // they deleted.
+    if (Array.isArray(saved) && saved.length) setFlows(saved)
+  })
   const [editingId, setEditingId] = useState(null)
   const [previewingId, setPreviewingId] = useState(null)
 
