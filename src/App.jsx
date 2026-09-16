@@ -1,9 +1,11 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppProvider } from './context/AppContext'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ConversationProvider } from './context/ConversationContext'
 import { CallProvider } from './context/CallContext'
 import { WebchatCallProvider } from './context/WebchatCallContext'
+import { loadBotId } from './constants/webchat'
 import IncomingCallBanner from './components/IncomingCallBanner'
 import CallWidget from './components/CallWidget'
 import WebchatIncomingCallBanner from './components/WebchatIncomingCallBanner'
@@ -45,6 +47,10 @@ import WebChatEmbed from './pages/WebChatEmbed'
 
 function AppRoutes() {
   const { isAuthenticated } = useAuth()
+  // Fetch the database-assigned bot id once per page load. Every surface that
+  // shows it (install snippet, landing URL, Analytics) subscribes via
+  // useBotId() and re-renders when it arrives.
+  useEffect(() => { loadBotId() }, [])
   return (
     <Routes>
       <Route

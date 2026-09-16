@@ -9,7 +9,7 @@ import {
   ThumbsUp, Bot, PhoneForwarded, Sparkles, Heart, MessageSquare, XCircle, Activity,
   AlertCircle, GitBranch, TrendingDown, ShieldAlert, Timer, TrendingUp, Megaphone, Share2,
 } from 'lucide-react'
-import { BOT_ID } from '../constants/webchat'
+import { useBotId } from '../constants/webchat'
 import {
   ChartTip, MetricCard, ChartCard, RankedBarChart, FunnelChart,
   ResponseTimeChart, AnalyticsToolbar, scaleForRange, KPISection,
@@ -144,6 +144,7 @@ const TABS = [
 ]
 
 export default function WebChatAnalytics() {
+  const botId = useBotId()
   const [tab, setTab] = useState('chat')
   const [range, setRange] = useState('30d')
   const [openSections, setOpenSections] = useState({ volume: true, agents: true, engagement: true })
@@ -195,7 +196,7 @@ export default function WebChatAnalytics() {
           </div>
           <div className="space-y-2.5">
             {[
-              { label: 'Bot ID',       value: BOT_ID },
+              { label: 'Bot ID',       value: botId },
               { label: 'Domain',       value: 'yourwebsite.com' },
               { label: 'Installed on', value: '3 pages' },
               { label: 'Last active',  value: '2 min ago' },

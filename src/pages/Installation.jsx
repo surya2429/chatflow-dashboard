@@ -11,7 +11,7 @@ import Select from '../components/Select'
 import { useApp } from '../context/AppContext'
 import { startInstagramOAuth, INSTAGRAM_OAUTH_SCOPES } from '../utils/instagramOAuth'
 import { apiGet, apiPost } from '../utils/api'
-import { BOT_ID } from '../constants/webchat'
+import { useBotId, isBotIdLoaded } from '../constants/webchat'
 
 /* ─── Real Meta / WhatsApp credentials ──────────────────────────── */
 const APP_CONFIG = {
@@ -1162,6 +1162,8 @@ function WebChatInstallSection() {
   const { copied, copy } = useCopy()
   const [target, setTarget] = useState('html')
   const t       = WC_WEB_TARGETS.find(x => x.id === target)
+  const BOT_ID  = useBotId()
+  const assigned = isBotIdLoaded()
   const snippet = universalSnippet(BOT_ID)
   const chatUrl = `https://chat.chatflow.io/w/${BOT_ID}`
 
@@ -1202,6 +1204,19 @@ function WebChatInstallSection() {
         </div>
 
         <div className="p-4 space-y-3">
+          {/* The id is issued by the server, so there is a real window where
+              this page has no id to show. Saying so beats rendering a dash and
+              letting someone copy a snippet that cannot work. */}
+          {!assigned && (
+            <div className="flex gap-2.5 bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <AlertCircle size={13} className="text-amber-500 flex-shrink-0 mt-0.5"/>
+              <p className="text-[11px] text-amber-700 leading-relaxed">
+                No Bot ID assigned yet. The number is issued by the server when the bot is
+                created — it is never generated in the browser, because it runs as one sequence
+                across every account. Create the bot (or start the API) and this snippet fills in.
+              </p>
+            </div>
+          )}
           <WCCodeBlock code={snippet} lang="html" id="universal" copied={copied} onCopy={copy}/>
 
           {/* Everything else is configured in the Widget Builder against this

@@ -20,7 +20,7 @@ import {
 import clsx from 'clsx'
 import { QUESTION_TYPES, QUESTION_CATS } from '../constants/webchatQuestionTypes'
 import { GOOGLE_FONTS, FONT_CATEGORIES, fontStack } from '../constants/googleFonts'
-import { BOT_ID } from '../constants/webchat'
+import { getBotId, useBotId } from '../constants/webchat'
 import { AnswerControl } from '../components/webchat/AnswerControls'
 import { PoweredByDemoModal } from '../components/webchat/PoweredByDemoModal'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -2931,16 +2931,17 @@ function SettingsTab() {
    this bot and stays in sync with the Installation snippet. */
 const LANDING_HOST = 'https://page.smatbot.com'
 
-/* Re-exported under the name the landing-page UI uses. Same value as the
-   install snippet's id — there is only one id per bot now. */
-export const LANDING_BOT_ID = BOT_ID
+/* The landing-page UI's name for the same id the install snippet carries.
+   A function, not a constant: the id arrives from the API after first paint,
+   so a value captured at module load would be the placeholder forever. */
+export const getLandingBotId = getBotId
 
 export function slugifyBotName(name) {
   return (name || 'Chat_Bot').trim().replace(/[^\w\s-]/g, '').replace(/[\s-]+/g, '_').slice(0, 48) || 'Chat_Bot'
 }
 
 export function buildLandingUrl(name) {
-  return `${LANDING_HOST}/?name=${encodeURIComponent(slugifyBotName(name))}&id=${LANDING_BOT_ID}`
+  return `${LANDING_HOST}/?name=${encodeURIComponent(slugifyBotName(name))}&id=${getLandingBotId()}`
 }
 
 /* `buildLandingUrl` above is the production-format URL shown for customers to
@@ -2948,7 +2949,7 @@ export function buildLandingUrl(name) {
    the actual working page in THIS app that renders the same query params, so
    "Open page" has something real to open while you're testing. */
 export function buildLocalLandingUrl(name) {
-  return `/webchat-landing?name=${encodeURIComponent(slugifyBotName(name))}&id=${LANDING_BOT_ID}`
+  return `/webchat-landing?name=${encodeURIComponent(slugifyBotName(name))}&id=${getLandingBotId()}`
 }
 
 function CopyRow({ label, value, mono = true }) {
@@ -2973,6 +2974,10 @@ function CopyRow({ label, value, mono = true }) {
 }
 
 function LandingPageTab({ cfg, set }) {
+  // Subscribed rather than read once: buildLandingUrl() below reads the id at
+  // call time, so this tab has to re-render when it lands or the URLs on it
+  // would keep showing the placeholder.
+  const botId = useBotId()
   const url = buildLandingUrl(cfg.landingName)
   const slug = slugifyBotName(cfg.landingName)
 
@@ -3023,7 +3028,7 @@ function LandingPageTab({ cfg, set }) {
             <label className="label">Bot ID</label>
             <div className="flex items-center gap-2 mt-1">
               <span className="font-mono text-[13px] font-bold text-slate-800 px-3 py-2 rounded-lg bg-slate-50 border border-surface-border">
-                {LANDING_BOT_ID}
+                {botId}
               </span>
               <p className="text-[10px] text-slate-400">
                 The same id your install snippet loads — one bot, one number.

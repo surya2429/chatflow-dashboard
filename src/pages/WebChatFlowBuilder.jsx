@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { NativeSelect } from '../components/Select'
 import { QUESTION_TYPES as WEBCHAT_QUESTION_TYPES } from '../constants/webchatQuestionTypes'
-import { WIDGET_CFG_STORAGE_KEY, useWidgetTheme, WidgetPreview, LANDING_BOT_ID, slugifyBotName } from './WebChatAppearance'
+import { WIDGET_CFG_STORAGE_KEY, useWidgetTheme, WidgetPreview, getLandingBotId, slugifyBotName } from './WebChatAppearance'
 import { AnswerControl, DEFAULT_FORM_FIELDS } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
 
@@ -1041,10 +1041,10 @@ export const FLOW_PREVIEW_STORAGE_KEY = 'webchat_flow_live_preview'
 // — a real, presentable, copyable URL instead of a bare path, so "Live
 // Preview" hands back a link that reads/behaves like every other link this
 // app generates, not a one-off. `id` combines this widget's stable
-// LANDING_BOT_ID with the specific flow's own id so the same bot's Main Flow
+// the bot id with the specific flow's own id so the same bot's Main Flow
 // and each Subflow each get a distinct, stable link.
 export function buildFlowPreviewUrl(flow) {
-  return `/webchat-flow-preview?name=${encodeURIComponent(slugifyBotName(flow.name))}&id=${LANDING_BOT_ID}-${flow.id}`
+  return `/webchat-flow-preview?name=${encodeURIComponent(slugifyBotName(flow.name))}&id=${getLandingBotId()}-${flow.id}`
 }
 
 // Hands `flow` off to the standalone full-page route via localStorage — the

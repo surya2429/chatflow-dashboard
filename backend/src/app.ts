@@ -4,6 +4,7 @@ import { logger } from './config/logger.js'
 import { webhookRouter } from './routes/webhook.routes.js'
 import { healthRouter } from './routes/health.routes.js'
 import { instagramRouter } from './routes/instagram.routes.js'
+import { botsRouter } from './routes/bots.routes.js'
 
 export function createApp(): Express {
   const app = express()
@@ -36,6 +37,7 @@ export function createApp(): Express {
   app.use(healthRouter)
   app.use(webhookRouter)
   app.use('/api', instagramRouter)
+  app.use('/api', botsRouter)
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path })
