@@ -1,14 +1,17 @@
-// Misc Web Chat constants shared across pages (Installation, Analytics, Appearance)
-// that would otherwise need a page-to-page import.
+// Misc Web Chat constants shared across pages (Installation, Analytics,
+// Appearance, the embed) that would otherwise need a page-to-page import.
 
-function generateWidgetId() {
-  // Timestamp (ms) + 6 random digits — numeric only, always unique per generation.
-  const time = Date.now().toString()
-  let rand = ''
-  for (let i = 0; i < 6; i++) rand += Math.floor(Math.random() * 10)
-  return `cf_wgt_${time}${rand}`
+function generateBotId() {
+  // Plain digits, because this id is something a person reads out, types into
+  // a support ticket, and recognises in a URL — `cf_wgt_1789469520528501078`
+  // is none of those things. 10000–99999 so it is always exactly five
+  // characters and never renders with a leading zero.
+  return String(Math.floor(10000 + Math.random() * 90000))
 }
 
-// Generated once per app load — every install snippet and the Analytics "Active
-// Widget" card reference this same value, so they always stay in sync.
-export const WIDGET_ID = generateWidgetId()
+// ONE id per bot, generated once per app load. The install snippet, the
+// landing page URL, the embed iframe and the Analytics card all reference this
+// same value — previously the snippet used a long `cf_wgt_…` string while the
+// landing page URL used a five-digit slice of it, so the two surfaces named
+// the same bot with two different identifiers.
+export const BOT_ID = generateBotId()

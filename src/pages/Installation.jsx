@@ -11,7 +11,7 @@ import Select from '../components/Select'
 import { useApp } from '../context/AppContext'
 import { startInstagramOAuth, INSTAGRAM_OAUTH_SCOPES } from '../utils/instagramOAuth'
 import { apiGet, apiPost } from '../utils/api'
-import { WIDGET_ID } from '../constants/webchat'
+import { BOT_ID } from '../constants/webchat'
 
 /* ─── Real Meta / WhatsApp credentials ──────────────────────────── */
 const APP_CONFIG = {
@@ -1022,7 +1022,7 @@ function InstagramConnectSection() {
 /* ─── Web Chat widget installation — one snippet, every website ───── */
 
 /* Where the loader is served from. One place to change when the CDN moves;
-   the widget id rides along in the query string so the snippet is a single
+   the bot id rides along in the query string so the snippet is a single
    self-contained tag with nothing to configure around it. */
 const WIDGET_CDN = 'https://cdn.chatflow.io/v2/widget.js'
 
@@ -1033,7 +1033,7 @@ const WIDGET_CDN = 'https://cdn.chatflow.io/v2/widget.js'
  * body) moved into public/widget.js and the dashboard. That is not just
  * cosmetic: config that lives in the customer's HTML has to be re-pasted by a
  * developer every time a merchant changes their brand colour, whereas config
- * keyed to the widget id is changed in the Widget Builder and is live
+ * keyed to the bot id is changed in the Widget Builder and is live
  * immediately. The snippet becomes something you paste once and never touch.
  *
  * `async` so it never blocks the host page's first paint, which is the other
@@ -1162,8 +1162,8 @@ function WebChatInstallSection() {
   const { copied, copy } = useCopy()
   const [target, setTarget] = useState('html')
   const t       = WC_WEB_TARGETS.find(x => x.id === target)
-  const snippet = universalSnippet(WIDGET_ID)
-  const chatUrl = `https://chat.chatflow.io/w/${WIDGET_ID}`
+  const snippet = universalSnippet(BOT_ID)
+  const chatUrl = `https://chat.chatflow.io/w/${BOT_ID}`
 
   return (
     <div className="space-y-5">
@@ -1175,9 +1175,9 @@ function WebChatInstallSection() {
           <p className="text-[11px] text-slate-400 mt-0.5">One script tag, every website — nothing for your customers to install</p>
         </div>
         <div className="flex items-center gap-2 p-2.5 bg-slate-50 border border-surface-border rounded-xl">
-          <span className="text-[10px] font-semibold text-slate-500">Widget ID:</span>
-          <code className="text-[11px] font-mono text-slate-800">{WIDGET_ID}</code>
-          <button onClick={()=>copy(WIDGET_ID,'wid')}
+          <span className="text-[10px] font-semibold text-slate-500">Bot ID:</span>
+          <code className="text-[11px] font-mono text-slate-800">{BOT_ID}</code>
+          <button onClick={()=>copy(BOT_ID,'wid')}
             className="text-[10px] font-semibold text-primary hover:text-primary-hover flex items-center gap-0.5">
             {copied==='wid'?<><Check size={10}/>Copied</>:<><Copy size={10}/>Copy</>}
           </button>
@@ -1193,7 +1193,7 @@ function WebChatInstallSection() {
           <div className="min-w-0">
             <p className="text-xs font-bold text-slate-900">Your install code</p>
             <p className="text-[10px] text-slate-400 mt-0.5">
-              One tag, pasted once inside <code className="font-mono bg-slate-100 px-1 rounded">&lt;head&gt;</code> — your Widget ID is already in it
+              One tag, pasted once inside <code className="font-mono bg-slate-100 px-1 rounded">&lt;head&gt;</code> — your Bot ID is already in it
             </p>
           </div>
           <span className="ml-auto flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">

@@ -1,7 +1,7 @@
 /*!
  * ChatFlow widget loader
  *
- * <script src="https://cdn.chatflow.io/v2/widget.js?id=YOUR_WIDGET_ID" async></script>
+ * <script src="https://cdn.chatflow.io/v2/widget.js?id=YOUR_BOT_ID" async></script>
  *
  * The contract this file exists to keep: installing the widget must be
  * invisible to the host page's own CSS and layout. That means
@@ -33,7 +33,7 @@
 (function () {
   'use strict';
 
-  /* ── Find our own <script> and the widget id inside its src ───────────── */
+  /* ── Find our own <script> and the bot id inside its src ──────────────── */
 
   // document.currentScript is set for async classic scripts; the querySelector
   // fallback covers a snippet that was inlined or re-executed by a tag manager.
@@ -43,13 +43,13 @@
   })();
   if (!self || !self.src) return;
 
-  var src, widgetId, origin;
+  var src, botId, origin;
   try {
     src = new URL(self.src, window.location.href);
-    widgetId = src.searchParams.get('id') || self.getAttribute('data-id') || '';
+    botId = src.searchParams.get('id') || self.getAttribute('data-id') || '';
     origin = src.origin;
   } catch (e) { return; }
-  if (!widgetId) {
+  if (!botId) {
     // Nothing to load, and guessing would be worse than doing nothing.
     if (window.console) console.warn('[ChatFlow] widget.js was loaded without ?id= — nothing to render.');
     return;
@@ -157,7 +157,7 @@
   // Transparent so the customer's page shows through the corners the widget
   // rounds off, instead of a white rectangle.
   frame.setAttribute('allowtransparency', 'true');
-  frame.src = origin + '/webchat-embed?id=' + encodeURIComponent(widgetId);
+  frame.src = origin + '/webchat-embed?id=' + encodeURIComponent(botId);
   // Belt and braces: the shadow root already puts this iframe out of reach of
   // the page's `iframe {}` rules, but a browser without attachShadow falls
   // back to appending straight into the host element, where they would apply.

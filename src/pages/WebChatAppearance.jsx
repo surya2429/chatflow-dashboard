@@ -20,7 +20,7 @@ import {
 import clsx from 'clsx'
 import { QUESTION_TYPES, QUESTION_CATS } from '../constants/webchatQuestionTypes'
 import { GOOGLE_FONTS, FONT_CATEGORIES, fontStack } from '../constants/googleFonts'
-import { WIDGET_ID } from '../constants/webchat'
+import { BOT_ID } from '../constants/webchat'
 import { AnswerControl } from '../components/webchat/AnswerControls'
 import { PoweredByDemoModal } from '../components/webchat/PoweredByDemoModal'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -2931,9 +2931,9 @@ function SettingsTab() {
    this bot and stays in sync with the Installation snippet. */
 const LANDING_HOST = 'https://page.smatbot.com'
 
-/* The widget ID is `cf_wgt_<digits>`; the page link uses a short numeric slice
-   of it so the URL stays readable while remaining unique per bot. */
-export const LANDING_BOT_ID = WIDGET_ID.replace(/\D/g, '').slice(-5)
+/* Re-exported under the name the landing-page UI uses. Same value as the
+   install snippet's id — there is only one id per bot now. */
+export const LANDING_BOT_ID = BOT_ID
 
 export function slugifyBotName(name) {
   return (name || 'Chat_Bot').trim().replace(/[^\w\s-]/g, '').replace(/[\s-]+/g, '_').slice(0, 48) || 'Chat_Bot'
@@ -3026,7 +3026,7 @@ function LandingPageTab({ cfg, set }) {
                 {LANDING_BOT_ID}
               </span>
               <p className="text-[10px] text-slate-400">
-                Generated from this widget's ID — the same bot your install snippet loads.
+                The same id your install snippet loads — one bot, one number.
               </p>
             </div>
           </div>
