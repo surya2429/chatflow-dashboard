@@ -42,6 +42,7 @@ const DEFAULT_CFG = {
   greeting: 'Hi! 👋 How can I help you today?',
   avatarStyle: 'icon', avatarEmoji: '🤖', avatarImage: '',
   showBranding: true, brandingUrl: '/', landingName: 'Support_Bot',
+  borderLight: true,
 }
 
 const EMPTY_CONFIG = {}

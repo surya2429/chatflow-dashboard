@@ -109,6 +109,12 @@ const LAUNCHER_FX_OPTIONS = [
 
 const CORNER_PX  = { sharp: 6, soft: 14, round: 24 }
 
+/* Border lighting. 2px reads as a lit edge at every corner radius; 3px starts
+   looking like a frame, and 1px disappears on a light background. 6s is slow
+   enough to be ambient rather than a loading spinner. */
+const BORDER_LIGHT_PX = 2
+const BORDER_LIGHT_SECONDS = 6
+
 /* Which corner the opening panel scales out of — always the one the launcher
    occupies, so the widget looks like it unfolded from the button the visitor
    just pressed rather than materialising over it. */
@@ -1420,7 +1426,9 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         </div>
       ) : (
         /* ── Open: the widget itself, fixed and centred ── */
-        <div className={clsx('flex flex-col overflow-hidden relative', isMobile && 'ring-8 ring-slate-900/90')}
+        <div className={clsx('flex flex-col overflow-hidden relative',
+            isMobile && 'ring-8 ring-slate-900/90',
+            cfg.borderLight && 'wc-lightborder')}
           key={device}
           style={{
             width: deviceW,
@@ -1547,6 +1555,20 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
            assembles itself instead of snapping in fully formed. */
         @keyframes wcRise { from { opacity:0; transform: translateY(10px) } to { opacity:1; transform:none } }
 
+        /* ── Multi-colour border lighting ──
+           A conic gradient rotating around the panel's edge. Registering the
+           angle as a real <angle> custom property is what makes it animate at
+           all: a plain CSS variable is just a string, so the browser has
+           nothing to interpolate and the gradient would jump from 0 to 360
+           rather than sweep. Browsers without @property support still get the
+           gradient, just holding still — a static multi-colour edge, which is
+           a perfectly reasonable place to land rather than a broken one.
+
+           The colours start and end on the merchant's own brand so the sweep
+           returns home instead of showing a seam where the gradient wraps. */
+        @property --wc-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+        @keyframes wcBorderSpin { to { --wc-angle: 360deg } }
+
         /* ── Ambient loops ── */
         @keyframes bounce    { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-4px)} }
         @keyframes wcDot     { 0%,60%,100%{transform:translateY(0); opacity:0.4} 30%{transform:translateY(-4px); opacity:1} }
@@ -1598,6 +1620,30 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         .wc-launcher:hover { transform: scale(1.07) translateY(-2px); }
         .wc-launcher:active { transform: scale(.94); }
 
+        /* The ring lives INSIDE the panel at inset 0, not outside it: the
+           panel is overflow:hidden (it has to be, to clip the header band and
+           the rounded corners), so anything at a negative inset would simply
+           be cut off. The mask trick punches the middle out of a filled
+           rounded rect, leaving only a padding-thick band at the very edge.
+           Above the content and pointer-events:none, so it draws over the
+           header without ever swallowing a click. */
+        .wc-lightborder::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          padding: ${BORDER_LIGHT_PX}px;
+          background: conic-gradient(from var(--wc-angle),
+            ${cfg.color}, ${cfg.colorEnd || '#8B5CF6'}, #22d3ee, #34d399, #facc15, #fb7185, ${cfg.color});
+          -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask-composite: exclude;
+          animation: wcBorderSpin ${BORDER_LIGHT_SECONDS}s linear infinite;
+          pointer-events: none;
+          z-index: 30;
+        }
+
         /* ── Opening choreography ── */
         .wc-sheen { animation: wcSheen 1.25s cubic-bezier(.3,0,.2,1) .16s both; }
         .wc-aurora-1 { animation: wcAurora1 11s ease-in-out infinite; }
@@ -1632,6 +1678,8 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
           .wc-aurora-1, .wc-aurora-2, .wc-aurora-3 { animation: none !important; }
           .wc-sheen { display: none !important; }
           .wc-stagger > * { animation: none !important; }
+          /* The ring stays — it is a colour, not a motion. Only the sweep goes. */
+          .wc-lightborder::before { animation: none !important; }
         }
       `}</style>
     </div>
@@ -2129,6 +2177,18 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                         options={[
                           {v:'circle', l:'Circle', swatch:<div className="w-4 h-4 bg-slate-400 rounded-full"/>},
                           {v:'square', l:'Rounded Square', swatch:<div className="w-4 h-4 bg-slate-400 rounded-[5px]"/>},
+                        ]}/>
+                    </div>
+                    <div>
+                      <label className="label text-[10.5px] flex items-center gap-1">Border Lighting
+                        <InfoTip text="A multi-colour light sweeping around the widget's edge. Starts and ends on your brand colour, and holds still for visitors who have reduced motion turned on."/>
+                      </label>
+                      <Segmented value={cfg.borderLight ? 'on' : 'off'} onChange={v=>set('borderLight', v === 'on')}
+                        options={[
+                          {v:'off', l:'Off', swatch:<div className="w-6 h-3 rounded border border-slate-300"/>},
+                          {v:'on',  l:'On',  swatch:<div className="w-6 h-3 rounded" style={{padding:1.5, background:'conic-gradient(#0066ff,#8B5CF6,#22d3ee,#34d399,#facc15,#fb7185,#0066ff)'}}>
+                            <div className="w-full h-full rounded-sm bg-white"/>
+                          </div>},
                         ]}/>
                     </div>
                   </div>
@@ -3122,6 +3182,7 @@ export default function WebChatAppearance() {
     // Bubble surfaces — "question" is the bot's, "answer" is the visitor's
     botBubbleBg: '', botBubbleText: '', userBubbleBg: '', userBubbleText: '', chatBackground: '#ffffff',
     bubbleShadow: 'soft', density: 'comfortable', quickReplyStyle: 'pill',
+    borderLight: true,
     msgAnimation: 'slide', showSenderName: true, timestampMode: 'grouped',
     // Branding
     botName: 'ChatBot', tagline: 'We reply instantly',
