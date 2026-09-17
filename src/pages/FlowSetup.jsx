@@ -244,9 +244,128 @@ const DEMO_EDGES = [
   { id:'e6', fromId:'n5', fromPort:0, toId:'n7' },
 ]
 
+/* ─── End-to-end flow exercising every Ask question type ──────────────────
+   The WhatsApp counterpart of the Website Chat builder's "Question Types
+   Test" flow. Both exist for the same reason: every Ask node has its own
+   editor panel and its own runtime rendering, and a catalog of sixteen of
+   them is exactly the kind of thing that rots one node at a time without
+   anybody noticing. One flow that walks through all of them is how a
+   regression in `ask_collection` gets caught before a merchant finds it.
+
+   Written as a real courier booking rather than sixteen "test X?" prompts.
+   A contrived chain proves the node renders; a realistic one also shows
+   whether the ORDER of these questions is bearable to answer on a phone,
+   which is the part that actually decides if a flow ships.
+
+   Laid out serpentine — left-to-right, then back right-to-left a row down —
+   so the connectors between consecutive steps stay short instead of flying
+   back across the whole canvas at the end of every row. */
+const QTYPES_ROW = 5, QTYPES_COL_GAP = 260, QTYPES_ROW_GAP = 170
+const QTYPES_LEFT = 60, QTYPES_TOP = 60
+
+/* Each step names the node type and the data the inspector for that type
+   expects. Keys match makeDefaults() above — anything omitted just keeps its
+   default, so this stays readable rather than restating every field. */
+const QTYPES_STEPS = [
+  { type:'start', data:{ name:'Booking Start', trigger:'keyword', keywords:'book, pickup, courier', matchType:'contains' } },
+  { type:'text', data:{ name:'Welcome', message:'Hi {{recipient.name}}! 📦 Let’s get your parcel booked — it takes about a minute.' } },
+
+  { type:'ask_button', data:{ name:'Shipment Type', question:'What are you sending today?', saveAs:'{{shipment_type}}',
+      footerText:'Tap an option to continue',
+      buttons:[{id:'1',label:'Documents',value:'documents'},{id:'2',label:'Parcel',value:'parcel'},{id:'3',label:'Bulk / Freight',value:'freight'}] } },
+
+  { type:'ask_text', data:{ name:'Sender Name', question:'Who should we put down as the sender?', saveAs:'{{sender_name}}' } },
+
+  { type:'ask_phone', data:{ name:'Pickup Contact', question:'Which number should the driver call on pickup?', saveAs:'{{pickup_phone}}', countryCode:'+91' } },
+
+  { type:'ask_email', data:{ name:'Receipt Email', question:'Where should we email the receipt and tracking link?', saveAs:'{{sender_email}}' } },
+
+  { type:'ask_keyword', data:{ name:'Account Type', question:'Is this a BUSINESS or PERSONAL shipment? Reply with either word.',
+      saveAs:'{{account_type}}', caseSensitive:false,
+      keywords:[{id:'1',label:'BUSINESS',value:'business'},{id:'2',label:'PERSONAL',value:'personal'}] } },
+
+  { type:'ask_list', data:{ name:'Parcel Contents', headerType:'text', headerText:'Parcel contents',
+      question:'What’s inside? This decides how we pack and insure it.',
+      footerText:'Fragile items are packed separately', buttonLabel:'Choose contents',
+      optionsType:'static', saveAs:'{{parcel_contents}}',
+      sections:[{ title:'Common', items:[
+        { id:'1', title:'Documents', description:'Papers, contracts, certificates', value:'documents' },
+        { id:'2', title:'Electronics', description:'Phones, laptops, accessories', value:'electronics' },
+        { id:'3', title:'Clothing', description:'Apparel and textiles', value:'clothing' },
+        { id:'4', title:'Fragile goods', description:'Glass, ceramics, instruments', value:'fragile' },
+      ]}] } },
+
+  { type:'ask_number', data:{ name:'Parcel Weight', question:'Roughly how much does it weigh, in kg?', saveAs:'{{weight_kg}}', min:'0.1', max:'50' } },
+
+  { type:'ask_location', data:{ name:'Pickup Location', question:'Share your pickup location so the driver can find you.', saveAs:'{{pickup_location}}' } },
+
+  { type:'ask_form', data:{ name:'Delivery Address', title:'Where is it going?', submitLabel:'Save address',
+      fields:[
+        { id:'1', label:'Recipient name', type:'text',  required:true,  saveAs:'{{to_name}}' },
+        { id:'2', label:'Address line 1', type:'text',  required:true,  saveAs:'{{to_line1}}' },
+        { id:'3', label:'Address line 2', type:'text',  required:false, saveAs:'{{to_line2}}' },
+        { id:'4', label:'City',           type:'text',  required:true,  saveAs:'{{to_city}}' },
+        { id:'5', label:'PIN code',       type:'number',required:true,  saveAs:'{{to_pin}}' },
+      ] } },
+
+  { type:'ask_file', data:{ name:'Invoice Upload', question:'Send a photo of the invoice or packing list, if you have one.',
+      saveAs:'{{invoice_file}}', allowedTypes:['image','document'], maxSizeMB:10 } },
+
+  { type:'ask_url', data:{ name:'Product Link', question:'Selling online? Paste the product link and we’ll add it to the manifest.', saveAs:'{{product_url}}' } },
+
+  { type:'ask_date', data:{ name:'Preferred Date', question:'Which day should we collect it?', saveAs:'{{pickup_date}}', dateFormat:'DD/MM/YYYY' } },
+
+  { type:'ask_appointment', data:{ name:'Pickup Slot', question:'Pick a collection slot that suits you.', saveAs:'{{pickup_slot}}',
+      title:'Courier pickup', description:'A driver will arrive within the chosen window.',
+      slotStart:'09:00', slotEnd:'19:00', slotInterval:60, format:'12h',
+      enableFutureDays:7, meetingsPerSlot:4, timezone:'Asia/Kolkata' } },
+
+  { type:'ask_appointment_off', data:{ name:'Branch Drop-off', question:'Prefer to drop it at a branch instead? Choose a time.',
+      saveAs:'{{dropoff_slot}}', title:'Branch drop-off', location:'Prime Next Logistics — MG Road branch',
+      slotStart:'10:00', slotEnd:'18:00', slotInterval:30, enableFutureDays:5, timezone:'Asia/Kolkata' } },
+
+  { type:'ask_collection', data:{ name:'Packaging Add-ons', question:'Need packaging? Pick from our catalogue.',
+      saveAs:'{{packaging_items}}', catalogId:'pnl_packaging', productSetId:'boxes_and_wrap' } },
+
+  { type:'ask_payment', data:{ name:'Pay for Shipment', gateway:'razorpay', amount:'{{quoted_price}}', currency:'INR',
+      description:'Courier booking — {{parcel_contents}}, {{weight_kg}}kg', saveAs:'{{payment_ref}}',
+      askName:false, askPhone:false, askEmail:false } },
+
+  { type:'text', data:{ name:'Booking Confirmed', message:'Booked! 🎉 Pickup on {{pickup_date}} ({{pickup_slot}}).\nTracking: {{payment_ref}}\nWe’ve emailed the receipt to {{sender_email}}.' } },
+
+  { type:'end', data:{ name:'End', endMessage:'Thanks for shipping with us! Reply BOOK any time to start another pickup.', action:'none' } },
+]
+
+function buildQuestionTypesFlow() {
+  const nodes = []
+  const edges = []
+
+  QTYPES_STEPS.forEach((step, i) => {
+    const row = Math.floor(i / QTYPES_ROW)
+    const ltr = row % 2 === 0
+    const col = ltr ? (i % QTYPES_ROW) : (QTYPES_ROW - 1 - (i % QTYPES_ROW))
+    const id = `q${i + 1}`
+    nodes.push({
+      id,
+      type: step.type,
+      x: QTYPES_LEFT + col * QTYPES_COL_GAP,
+      y: QTYPES_TOP + row * QTYPES_ROW_GAP,
+      // Defaults first so every field the inspector reads exists, then the
+      // step's own copy on top — a node missing a key its editor expects
+      // renders as an empty panel rather than an obvious error.
+      data: { ...makeDefaults(step.type), ...step.data },
+    })
+    if (i > 0) edges.push({ id: `qe${i}`, fromId: `q${i}`, fromPort: 0, toId: id })
+  })
+
+  return { nodes, edges }
+}
+
 // ─── Sample flows for list view ────────────────────────────────────────────────
 const SAMPLE_FLOWS = [
   { id:'f1', name:'Welcome Bot',     status:'active', trigger:'Keyword',     nodes:7,  edited:'2026-05-17' },
+  { id:'qtypes', name:'Courier Booking — every question type', status:'active', trigger:'Keyword',
+    nodes:QTYPES_STEPS.length, edited:'2026-09-17' },
   { id:'f2', name:'Support Triage',  status:'active', trigger:'Any message', nodes:12, edited:'2026-05-15' },
   { id:'f3', name:'Lead Capture',    status:'draft',  trigger:'CTWA',        nodes:5,  edited:'2026-05-10' },
   { id:'f4', name:'Order Status',    status:'draft',  trigger:'Keyword',     nodes:9,  edited:'2026-05-08' },
@@ -3446,9 +3565,21 @@ function FlowListView({ onEdit }) {
 }
 
 // ─── Builder View ──────────────────────────────────────────────────────────────
+/* Which graph a flow opens with. Until now every flow in the list opened the
+   same DEMO_NODES, so clicking "Lead Capture" and clicking "Order Status" both
+   showed the Welcome Bot — harmless while there was one demo graph, but it
+   would have silently hidden the question-types flow behind the demo one. */
+function graphFor(flow) {
+  if (flow?.id === 'qtypes') return buildQuestionTypesFlow()
+  return { nodes: DEMO_NODES, edges: DEMO_EDGES }
+}
+
 function BuilderView({ flow, onBack, allFlows=SAMPLE_FLOWS }) {
-  const [nodes, setNodes]           = useState(DEMO_NODES)
-  const [edges, setEdges]           = useState(DEMO_EDGES)
+  // Built once per mount: the generator makes fresh node objects, so calling it
+  // inline on every render would replace the graph under the user's edits.
+  const initialGraph = useMemo(() => graphFor(flow), [flow?.id])
+  const [nodes, setNodes]           = useState(initialGraph.nodes)
+  const [edges, setEdges]           = useState(initialGraph.edges)
   const [cloneToast, setCloneToast] = useState(null)
   const [selectedId, setSelectedId] = useState(null)
   const [selectedEdgeId, setSelectedEdgeId] = useState(null)
@@ -3460,7 +3591,7 @@ function BuilderView({ flow, onBack, allFlows=SAMPLE_FLOWS }) {
   const [flowName, setFlowName]     = useState(flow?.name || 'New Flow')
   const [editName, setEditName]     = useState(false)
   const [saved, setSaved]           = useState(false)
-  const [history, setHistory]       = useState([{ nodes:DEMO_NODES, edges:DEMO_EDGES }])
+  const [history, setHistory]       = useState([{ nodes:initialGraph.nodes, edges:initialGraph.edges }])
   const [histIdx, setHistIdx]       = useState(0)
   // Port drag-to-connect state
   const [connecting, setConnecting] = useState(null)  // { fromId, fromPort, x1, y1, x2, y2 }
