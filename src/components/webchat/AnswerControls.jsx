@@ -8,6 +8,7 @@
 // of hardcoded Tailwind blue/slate classes, since the whole widget is cfg-driven.
 import { useState, useEffect, useRef, useCallback } from 'react'
 import clsx from 'clsx'
+import LocationMap, { useGoogleMaps, reverseGeocode } from './LocationMap'
 import {
   Send, Star, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown,
   Check, X, Upload, Image as ImageIcon, Pencil, MapPin, CreditCard, Lock,
@@ -747,42 +748,6 @@ function SignatureAnswer({ accent, dark, onSubmit }) {
 }
 
 /* ── location: search input + real geolocation button ────────────────────── */
-/* ── Google Maps JS API (Places library) — loaded once, lazily, only when a
-   merchant has actually configured a key (Widget Builder → Behavior →
-   "Location Search"). Without a key, LocationAnswer below falls back to a
-   plain address text field — it never breaks, it just doesn't get live
-   autocomplete/geocoding until a key is supplied. ────────────────────────── */
-let gmapsPromise = null
-function loadGoogleMaps(apiKey) {
-  if (!apiKey) return Promise.reject(new Error('no key'))
-  if (window.google?.maps?.places) return Promise.resolve(window.google.maps)
-  if (gmapsPromise) return gmapsPromise
-  gmapsPromise = new Promise((resolve, reject) => {
-    const cbName = '__wcGmapsCallback'
-    window[cbName] = () => { resolve(window.google.maps); delete window[cbName] }
-    const script = document.createElement('script')
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&callback=${cbName}`
-    script.async = true
-    script.onerror = () => { gmapsPromise = null; reject(new Error('Google Maps failed to load — check the API key and that the Places API is enabled.')) }
-    document.head.appendChild(script)
-  })
-  return gmapsPromise
-}
-function useGoogleMaps(apiKey) {
-  const [status, setStatus] = useState(apiKey ? 'loading' : 'no-key') // no-key | loading | ready | error
-  useEffect(() => {
-    if (!apiKey) { setStatus('no-key'); return }
-    let cancelled = false
-    setStatus('loading')
-    loadGoogleMaps(apiKey).then(
-      () => { if (!cancelled) setStatus('ready') },
-      () => { if (!cancelled) setStatus('error') },
-    )
-    return () => { cancelled = true }
-  }, [apiKey])
-  return status
-}
-
 function LocationAnswer({ accent, dark, onSubmit, googleMapsApiKey }) {
   const [val, setVal] = useState('')
   const [locating, setLocating] = useState(false)
@@ -807,22 +772,20 @@ function LocationAnswer({ accent, dark, onSubmit, googleMapsApiKey }) {
     return () => { window.google?.maps?.event?.clearInstanceListeners(ac) }
   }, [live])
 
-  const geocode = (lat, lng) => new Promise(resolve => {
-    if (!live) return resolve(null)
-    new window.google.maps.Geocoder().geocode({ location: { lat, lng } }, (results, status) => {
-      resolve(status === 'OK' && results?.[0] ? results[0].formatted_address : null)
-    })
-  })
-
   const useMyLocation = () => {
     if (!navigator.geolocation) { onSubmit?.('📍 Location unavailable'); return }
     setLocating(true)
     navigator.geolocation.getCurrentPosition(
       async pos => {
         const { latitude: lat, longitude: lng } = pos.coords
-        const address = await geocode(lat, lng)
+        const address = await reverseGeocode(lat, lng)
         setLocating(false)
-        onSubmit?.(address ? `📍 ${address}` : `📍 ${lat.toFixed(4)}, ${lng.toFixed(4)}`)
+        /* Pin it instead of sending it. GPS routinely lands a visitor on the
+           wrong side of the street or inside the neighbouring building, and a
+           location they never saw is one the driver cannot use. They confirm
+           — or drag the pin — and then send. */
+        setPicked({ address, lat, lng })
+        setVal(address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`)
       },
       () => { setLocating(false); onSubmit?.('📍 Permission denied — please type your address') },
       { timeout: 5000 },
@@ -846,9 +809,18 @@ function LocationAnswer({ accent, dark, onSubmit, googleMapsApiKey }) {
         <SendBtn accent={accent} onClick={submit} disabled={!val.trim()}/>
       </ComposerPill>
       {picked?.lat != null && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg wc-ac-fade" style={{ background: `${accent}12` }}>
-          <MapPin size={11} style={{ color: accent, flexShrink: 0 }}/>
-          <span className="text-[10px] font-medium truncate" style={{ color: dark ? '#e2e8f0' : '#334155' }}>Pinned location selected</span>
+        <div className="wc-ac-fade">
+          <LocationMap
+            lat={picked.lat} lng={picked.lng} address={picked.address}
+            apiKey={googleMapsApiKey} accent={accent} dark={dark}
+            height={120} interactive
+            onMove={({ lat, lng, address }) => {
+              setPicked({ lat, lng, address })
+              setVal(address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+            }}/>
+          <p className="text-[9.5px] mt-1 text-center" style={{ color: dark ? '#64748b' : '#94a3b8' }}>
+            Drag the pin if it's not quite right
+          </p>
         </div>
       )}
       <button type="button" onClick={useMyLocation}

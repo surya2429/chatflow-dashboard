@@ -23,6 +23,7 @@ import { GOOGLE_FONTS, FONT_CATEGORIES, fontStack } from '../constants/googleFon
 import { getBotId, useBotId } from '../constants/webchat'
 import { usePublishSection, useLoadSection, SECTION_APPEARANCE } from '../lib/liveConfig'
 import { AnswerControl } from '../components/webchat/AnswerControls'
+import LocationMap from '../components/webchat/LocationMap'
 import { PoweredByDemoModal } from '../components/webchat/PoweredByDemoModal'
 import { useSpeechToText } from '../hooks/useSpeechToText'
 
@@ -863,6 +864,20 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                     }}>
                     {m.text}
                   </div>
+
+                  {/* A location the bot sent. Rendered under the text rather
+                      than inside the bubble: the map wants the full bubble
+                      width and square corners, which fighting the bubble's
+                      padding and radius would only approximate. */}
+                  {m.location && (
+                    <div className="mt-1.5">
+                      <LocationMap
+                        lat={m.location.lat} lng={m.location.lng}
+                        address={m.location.address} label={m.location.label}
+                        apiKey={cfg.googleMapsApiKey} accent={accent} dark={dark}
+                        height={130}/>
+                    </div>
+                  )}
 
                   {/* Quick replies — staggered in, nothing pre-selected */}
                   {m.chips && (

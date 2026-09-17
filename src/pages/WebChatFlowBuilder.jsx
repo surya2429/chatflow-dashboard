@@ -40,6 +40,7 @@ const DEFS = {
   send_media:   { label: 'Send Image',       icon: ImageIcon,       color: '#10b981', cat: 'send' },
   quick_replies:{ label: 'Quick Replies',    icon: MessageSquareText, color: '#10b981', cat: 'send' },
   show_article: { label: 'Show Help Article', icon: BookOpen,       color: '#10b981', cat: 'send' },
+  send_location:{ label: 'Send Location',    icon: MapPin,          color: '#10b981', cat: 'send' },
   ...ASK_DEFS,
   tag:          { label: 'Add Tag',          icon: Hash,            color: '#3b82f6', cat: 'action' },
   untag:        { label: 'Remove Tag',       icon: Hash,            color: '#3b82f6', cat: 'action' },
@@ -90,6 +91,7 @@ function makeDefaults(type) {
     case 'end':           return { ...base, endMessage: '' }
     case 'send_text':     return { ...base, message: '' }
     case 'send_media':    return { ...base, mediaType: 'image', caption: '' }
+    case 'send_location': return { ...base, locLabel: '', address: '', lat: '', lng: '', message: '' }
     case 'quick_replies': return { ...base, message: '', buttons: [{ id: '1', label: '' }, { id: '2', label: '' }] }
     case 'show_article':  return { ...base, articleTitle: '', articleUrl: '' }
     case 'tag':            return { ...base, tagName: '' }
@@ -798,6 +800,35 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
             </div>
           )}
 
+          {node.type === 'send_location' && (
+            <>
+              <div className="space-y-1"><label className="label">Place name</label>
+                <input className="input" value={d.locLabel || ''} onChange={e => set('locLabel', e.target.value)}
+                  placeholder="e.g. Prime Next — MG Road branch"/>
+              </div>
+              <div className="space-y-1"><label className="label">Address</label>
+                <textarea className="textarea" rows={2} value={d.address || ''} onChange={e => set('address', e.target.value)}
+                  placeholder="12 MG Road, Bengaluru 560001"/>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1"><label className="label">Latitude</label>
+                  <input className="input" value={d.lat || ''} onChange={e => set('lat', e.target.value)} placeholder="12.9752"/>
+                </div>
+                <div className="space-y-1"><label className="label">Longitude</label>
+                  <input className="input" value={d.lng || ''} onChange={e => set('lng', e.target.value)} placeholder="77.6050"/>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 leading-snug">
+                Without coordinates the visitor still gets the address and a working
+                “Open in Google Maps” link — only the inline map needs them.
+              </p>
+              <div className="space-y-1"><label className="label">Message above the map (optional)</label>
+                <textarea className="textarea" rows={2} value={d.message || ''} onChange={e => set('message', e.target.value)}
+                  placeholder="Here's where to drop it off 👇"/>
+              </div>
+            </>
+          )}
+
           {node.type === 'send_media' && (
             <>
               <div className="space-y-1"><label className="label">Media type</label>
@@ -1024,7 +1055,7 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
    There's no real variable-evaluation engine, so condition/split nodes are
    surfaced as a manual "pick a path to test" choice rather than actually
    evaluated. ── */
-const SIM_AUTO_MESSAGE = ['send_text', 'send_media', 'show_article']
+const SIM_AUTO_MESSAGE = ['send_text', 'send_media', 'show_article', 'send_location']
 const SIM_AUTO_LOG = ['tag', 'untag', 'setfield', 'notify', 'crm', 'lead_capture', 'csat_rating', 'delay', 'setvar', 'webhook']
 // Node types that can serve as a flow's entry point — used to pick which node
 // Preview starts simulating from (always the first one found, never a picker).
@@ -1309,6 +1340,7 @@ function simBotText(node) {
     case 'send_text':    return d.message || '(empty message)'
     case 'send_media':   return `🖼️ [${d.mediaType || 'image'}]${d.caption ? ' — ' + d.caption : ''}`
     case 'show_article':  return `📄 Help article: ${d.articleTitle || d.articleUrl || 'Untitled'}`
+    case 'send_location': return d.message || `📍 ${d.locLabel || d.address || 'Location'}`
     default:              return d.name || node.type
   }
 }
@@ -1456,7 +1488,18 @@ export function useFlowSimulation(flow, allFlows) {
       return
     }
     if (SIM_AUTO_MESSAGE.includes(node.type)) {
-      push('bot', simBotText(node))
+      /* A location message carries its coordinates so the widget can render a
+         real map card. The text is still set, and is what the Inbox and the
+         saved transcript show — neither of those can draw a map. */
+      const meta = node.type === 'send_location'
+        ? { location: {
+              label: node.data?.locLabel || '',
+              address: node.data?.address || '',
+              lat: node.data?.lat === '' || node.data?.lat == null ? null : Number(node.data.lat),
+              lng: node.data?.lng === '' || node.data?.lng == null ? null : Number(node.data.lng),
+            } }
+        : undefined
+      push('bot', simBotText(node), meta)
       timerRef.current = setTimeout(() => finishOrAdvance(node.id, 0), 700)
       return
     }
