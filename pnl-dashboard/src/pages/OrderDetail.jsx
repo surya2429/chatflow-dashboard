@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  ArrowLeft, MapPinned, Ban, Pencil, FileText, ExternalLink, Package, Check, X,
+  ArrowLeft, MapPinned, Ban, Pencil, FileText, ExternalLink, Package, Check, X, MapPin, Flag,
   ShieldCheck, Camera, PenLine, Send, Mail, Paperclip, Plus,
 } from 'lucide-react'
 import { useData } from '../store/DataContext'
@@ -212,6 +212,11 @@ export default function OrderDetail() {
                   { label: 'Contents', value: order.contents || '—' },
                   { label: 'Pieces', value: order.pieces },
                   { label: serviceById(order.serviceId).unitLabel, value: fmtUnits(order.serviceId, order.quantity) },
+                  ...(order.boxes && order.boxes.length ? [{
+                    label: 'Measured',
+                    value: order.boxes.length + ' box type(s) in ' + (order.dimUnit || 'cm')
+                      + (order.grossQuantity ? ' · gross ' + fmtUnits(order.serviceId, order.grossQuantity) : ''),
+                  }] : []),
                   { label: 'Declared value', value: fmtMoney(order.declaredValue) },
                   { label: 'Insurance', value: order.insured ? 'Covered' : 'Not covered' },
                   { label: 'Payment method', value: order.paymentMode },
@@ -225,17 +230,36 @@ export default function OrderDetail() {
 
             <div className="grid gap-5 sm:grid-cols-2">
               <Card className="card-pad">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Collection</p>
+                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-600">
+                  <MapPin size={12} /> Collection
+                </p>
                 <p className="mt-2 text-sm font-semibold text-navy-900">{order.origin.city}, {order.origin.country}</p>
                 <p className="mt-0.5 text-sm text-slate-600">{order.origin.address || '—'}</p>
                 <p className="mt-2 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">{order.origin.hub}</p>
+                <div className="mt-3 border-t border-dashed border-slate-200 pt-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shipper</p>
+                  {order.sender && order.sender.name ? (
+                    <>
+                      <p className="mt-1 text-sm font-medium text-navy-900">{order.sender.name}</p>
+                      {order.sender.company && <p className="text-sm text-slate-600">{order.sender.company}</p>}
+                      {order.sender.phone && <p className="text-sm text-slate-600">{order.sender.phone}</p>}
+                    </>
+                  ) : <p className="mt-1 text-sm text-slate-400">Not recorded</p>}
+                </div>
               </Card>
               <Card className="card-pad">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Delivery</p>
+                <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-rose-600">
+                  <Flag size={12} /> Delivery
+                </p>
                 <p className="mt-2 text-sm font-semibold text-navy-900">{order.destination.city}, {order.destination.country}</p>
                 <p className="mt-0.5 text-sm text-slate-600">{order.destination.address || '—'}</p>
-                <p className="mt-2 text-sm text-slate-600">{order.receiver.name} · {order.receiver.phone}</p>
                 <p className="mt-2 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">{order.destination.hub}</p>
+                <div className="mt-3 border-t border-dashed border-slate-200 pt-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Consignee</p>
+                  <p className="mt-1 text-sm font-medium text-navy-900">{order.receiver.name}</p>
+                  {order.receiver.company && <p className="text-sm text-slate-600">{order.receiver.company}</p>}
+                  {order.receiver.phone && <p className="text-sm text-slate-600">{order.receiver.phone}</p>}
+                </div>
               </Card>
             </div>
 

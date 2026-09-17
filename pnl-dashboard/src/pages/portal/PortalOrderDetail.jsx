@@ -83,7 +83,12 @@ export default function PortalOrderDetail() {
                 { label: 'Contents', value: order.contents || '—' },
                 { label: 'Collection', value: order.origin.address ? order.origin.address + ', ' + order.origin.city : order.origin.city },
                 { label: 'Delivery', value: order.destination.address ? order.destination.address + ', ' + order.destination.city : order.destination.city },
-                { label: 'Receiver', value: order.receiver.name + (order.receiver.phone ? ' · ' + order.receiver.phone : '') },
+                { label: 'Shipper', value: order.sender && order.sender.name
+                  ? order.sender.name + (order.sender.company ? ' · ' + order.sender.company : '')
+                  : '—' },
+                { label: 'Receiver', value: order.receiver.name
+                  + (order.receiver.company ? ' · ' + order.receiver.company : '')
+                  + (order.receiver.phone ? ' · ' + order.receiver.phone : '') },
                 { label: 'Payment', value: order.paymentMode },
                 { label: 'Charge', value: <span className="font-semibold">{fmtMoney(order.amount)}</span> },
               ]} />

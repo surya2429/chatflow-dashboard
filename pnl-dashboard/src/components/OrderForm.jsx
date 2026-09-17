@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import {
-  PackagePlus, Save, Ruler, SlidersHorizontal, Plus, X, ArrowUpDown, Boxes, Info,
+  PackagePlus, Save, Ruler, SlidersHorizontal, Plus, X, ArrowUpDown, Boxes, Info, UserRound,
 } from 'lucide-react'
 import {
   SERVICES, quote, serviceById, measureBoxes, chargeableQuantity, usesDimensions,
@@ -58,7 +58,8 @@ const newBox = () => ({ id: Math.random().toString(36).slice(2, 9), l: '', w: ''
 const blank = {
   customerId: '', serviceId: 'air_freight',
   originCode: '', originAddress: '', destinationCode: '', destinationAddress: '',
-  receiverName: '', receiverPhone: '',
+  senderName: '', senderCompany: '', senderPhone: '',
+  receiverName: '', receiverCompany: '', receiverPhone: '',
   pieces: 1, quantity: 50, contents: '', declaredValue: 0, insured: true,
   paymentMode: 'Prepaid', apptDelivery: false, freightMode: 'Prepaid', insuredBy: 'Owner',
   notes: '',
@@ -68,7 +69,12 @@ const fromOrder = (o) => ({
   customerId: o.customerId, serviceId: o.serviceId,
   originCode: o.origin.hub, originAddress: o.origin.address || '',
   destinationCode: o.destination.hub, destinationAddress: o.destination.address || '',
-  receiverName: o.receiver.name, receiverPhone: o.receiver.phone,
+  senderName: (o.sender && o.sender.name) || '',
+  senderCompany: (o.sender && o.sender.company) || '',
+  senderPhone: (o.sender && o.sender.phone) || '',
+  receiverName: o.receiver.name,
+  receiverCompany: o.receiver.company || '',
+  receiverPhone: o.receiver.phone,
   pieces: o.pieces, quantity: o.grossQuantity || o.quantity, contents: o.contents,
   declaredValue: o.declaredValue, insured: o.insured,
   paymentMode: o.paymentMode === 'Account (invoiced)' ? 'Account'
@@ -87,7 +93,7 @@ const fromOrder = (o) => ({
  * shipment requests without paying online, so payment here is a collection method, never
  * a card capture.
  */
-export function useOrderForm({ order, branches, lockedCustomerId }) {
+export function useOrderForm({ order, branches, customers = [], lockedCustomerId }) {
   const routable = useMemo(() => branches.filter((b) => b.status === 'active'), [branches])
   const [f, setF] = useState(() => {
     if (order) return fromOrder(order)
@@ -105,6 +111,28 @@ export function useOrderForm({ order, branches, lockedCustomerId }) {
 
   const set = (k) => (v) => setF((s) => ({ ...s, [k]: v }))
 
+  const account = customers.find((c) => c.id === f.customerId)
+
+  /** Copy the account holder's details into the sender block. */
+  const useAccountAsSender = () => {
+    if (!account) return
+    setF((s) => ({
+      ...s,
+      senderName: account.name,
+      senderCompany: account.company || '',
+      senderPhone: account.phone || '',
+    }))
+  }
+
+  // The shipper is nearly always the account holder, so fill the block the moment a
+  // customer is chosen — but never overwrite something already typed.
+  useEffect(() => {
+    if (!account) return
+    setF((s) => (s.senderName || s.senderCompany || s.senderPhone
+      ? s
+      : { ...s, senderName: account.name, senderCompany: account.company || '', senderPhone: account.phone || '' }))
+  }, [account])
+
   // Switching service switches the unit too, so carry the quantity over only when the two
   // services measure the same thing — 50 kg must never silently become 50 containers.
   const setService = (id) => setF((s) => {
@@ -113,10 +141,13 @@ export function useOrderForm({ order, branches, lockedCustomerId }) {
     return { ...s, serviceId: id, quantity: from.unit === to.unit ? s.quantity : to.defaultQty }
   })
 
+  // A return leg swaps the parties as well as the places.
   const swapRoute = () => setF((s) => ({
     ...s,
     originCode: s.destinationCode, destinationCode: s.originCode,
     originAddress: s.destinationAddress, destinationAddress: s.originAddress,
+    senderName: s.receiverName, senderCompany: s.receiverCompany, senderPhone: s.receiverPhone,
+    receiverName: s.senderName, receiverCompany: s.senderCompany, receiverPhone: s.senderPhone,
   }))
 
   const svc = serviceById(f.serviceId)
@@ -136,6 +167,7 @@ export function useOrderForm({ order, branches, lockedCustomerId }) {
 
   const errors = {
     customerId: !f.customerId ? 'Choose the customer this job belongs to' : '',
+    senderName: !String(f.senderName).trim() ? 'Who is handing the cargo over?' : '',
     receiverName: !String(f.receiverName).trim() ? 'Who is receiving it?' : '',
     quantity: !(chargeable >= svc.minQty)
       ? 'Enter the ' + svc.unitLabel.toLowerCase() + ' (minimum ' + svc.minQty + ' ' + svc.unitShort + ')' : '',
@@ -154,7 +186,8 @@ export function useOrderForm({ order, branches, lockedCustomerId }) {
       serviceId: f.serviceId,
       origin: { city: origin.city, country: origin.country, hub: origin.code, branchId: origin.id, address: f.originAddress },
       destination: { city: destination.city, country: destination.country, hub: destination.code, branchId: destination.id, address: f.destinationAddress },
-      receiver: { name: f.receiverName, phone: f.receiverPhone },
+      sender: { name: f.senderName, company: f.senderCompany, phone: f.senderPhone },
+      receiver: { name: f.receiverName, company: f.receiverCompany, phone: f.receiverPhone },
       pieces: Number(f.pieces) || 1,
       // What gets billed is the chargeable figure, not the gross one the operator typed.
       quantity: Math.round(chargeable * 100) / 100,
@@ -175,6 +208,7 @@ export function useOrderForm({ order, branches, lockedCustomerId }) {
 
   return {
     f, set, setService, swapRoute, q, errors, valid, build, routable, svc,
+    account, useAccountAsSender,
     boxes, setBoxes, dimUnit, setDimUnit, measured, hasMeasurements, chargeable, dimensional,
   }
 }
@@ -313,10 +347,55 @@ function ServicesPanel({ form, lockedCustomerId }) {
   )
 }
 
+
+/**
+ * The party at one end of the move — shipper or consignee. Sits inside its address card
+ * because a waybill treats the party and the place as one block, and keeping them together
+ * means an operator never fills in an address without saying who is standing at it.
+ */
+function PartyFields({ role, values, onChange, onUseAccount, canUseAccount }) {
+  const fields = [
+    { k: 'name', label: role === 'sender' ? 'Sender' : 'Receiver', placeholder: 'Full name' },
+    { k: 'company', label: 'Company', placeholder: 'Optional' },
+    { k: 'phone', label: 'Phone', placeholder: '+234 …' },
+  ]
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          <UserRound size={11} /> {role === 'sender' ? 'Shipper details' : 'Consignee details'}
+        </span>
+        {canUseAccount && (
+          <button
+            type="button"
+            onClick={onUseAccount}
+            className="text-[10px] font-bold uppercase tracking-wider text-orange-600 hover:text-orange-700"
+          >
+            Use account details
+          </button>
+        )}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {fields.map((x) => (
+          <label key={x.k} className="block">
+            <span className="sr-only">{role} {x.k}</span>
+            <input
+              value={values[x.k]}
+              onChange={(e) => onChange(x.k, e.target.value)}
+              placeholder={x.placeholder}
+              className="w-full rounded-md border border-slate-200 bg-white/70 px-2 py-1.5 text-[13px] text-navy-900 placeholder:text-slate-400 focus:border-navy-400 focus:outline-none focus:ring-1 focus:ring-navy-400"
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /* ── The stepped body ──────────────────────────────────────────────────────── */
 
 export function OrderFormFields({ form, customers, lockedCustomerId, touched }) {
-  const { f, set, setService, swapRoute, errors, routable, svc, dimensional, q } = form
+  const { f, set, setService, swapRoute, errors, routable, svc, dimensional, q, account, useAccountAsSender } = form
   const [showDims, setShowDims] = useState(false)
   const [showServices, setShowServices] = useState(false)
   const err = (k) => (touched && errors[k] ? errors[k] : '')
@@ -334,8 +413,16 @@ export function OrderFormFields({ form, customers, lockedCustomerId, touched }) 
           onChange={set('originCode')}
           address={f.originAddress}
           onAddressChange={set('originAddress')}
-          error={err('origin')}
-        />
+          error={err('origin') || err('senderName')}
+        >
+          <PartyFields
+            role="sender"
+            values={{ name: f.senderName, company: f.senderCompany, phone: f.senderPhone }}
+            onChange={(k, v) => set('sender' + k[0].toUpperCase() + k.slice(1))(v)}
+            canUseAccount={!!account}
+            onUseAccount={useAccountAsSender}
+          />
+        </AddressPicker>
 
         <div className="flex justify-center">
           <button
@@ -358,18 +445,14 @@ export function OrderFormFields({ form, customers, lockedCustomerId, touched }) 
           onChange={set('destinationCode')}
           address={f.destinationAddress}
           onAddressChange={set('destinationAddress')}
-          error={err('destination')}
-        />
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Receiver name">
-            <input className="field" value={f.receiverName} onChange={(e) => set('receiverName')(e.target.value)} placeholder="Who signs for it" />
-            {err('receiverName') && <span className="mt-1 block text-xs text-red-600">{err('receiverName')}</span>}
-          </Field>
-          <Field label="Receiver phone">
-            <input className="field" value={f.receiverPhone} onChange={(e) => set('receiverPhone')(e.target.value)} placeholder="+234 …" />
-          </Field>
-        </div>
+          error={err('destination') || err('receiverName')}
+        >
+          <PartyFields
+            role="receiver"
+            values={{ name: f.receiverName, company: f.receiverCompany, phone: f.receiverPhone }}
+            onChange={(k, v) => set('receiver' + k[0].toUpperCase() + k.slice(1))(v)}
+          />
+        </AddressPicker>
       </div>
 
       {/* Step 3 — the consignment */}
@@ -461,7 +544,7 @@ export function OrderFormFields({ form, customers, lockedCustomerId, touched }) 
 
 /** Full-page booking form — the admin and customer "Create Order" sections. */
 export function OrderFormPanel({ customers, branches, lockedCustomerId, onSubmit, submitLabel = 'Raise job request' }) {
-  const form = useOrderForm({ branches, lockedCustomerId })
+  const form = useOrderForm({ branches, customers, lockedCustomerId })
   const [touched, setTouched] = useState(false)
 
   const submit = () => {
@@ -487,7 +570,7 @@ export function OrderFormPanel({ customers, branches, lockedCustomerId, onSubmit
 
 /** Modal variant — editing an existing job from its detail page. */
 export default function OrderForm({ open, onClose, customers, branches, order, onSubmit }) {
-  const form = useOrderForm({ order, branches })
+  const form = useOrderForm({ order, branches, customers })
   const [touched, setTouched] = useState(false)
 
   const submit = () => {

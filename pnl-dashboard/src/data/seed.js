@@ -323,7 +323,13 @@ export function buildSeed() {
         city: dest.city, country: dest.country, hub: dest.code, branchId: dest.id,
         address: int(r, 10, 240) + ' ' + pick(r, LAGOS_STREETS),
       },
-      receiver: { name: pick(r, FIRST) + ' ' + pick(r, LAST), phone: ngPhone(r) },
+      // The shipper is the account holder; the consignee is whoever is expecting it.
+      sender: { name: c.name, company: c.company || '', phone: c.phone },
+      receiver: {
+        name: pick(r, FIRST) + ' ' + pick(r, LAST),
+        company: chance(r, 0.6) ? pick(r, COMPANIES) : '',
+        phone: ngPhone(r),
+      },
       pieces,
       quantity,
       contents: pick(r, CARGO),

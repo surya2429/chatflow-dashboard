@@ -157,7 +157,7 @@ function SearchPanel({ anchorRect, branches, value, onPick, onClose, tone }) {
 
 export default function AddressPicker({
   tone = 'pickup', step, title, branches, value, onChange,
-  address, onAddressChange, addressPlaceholder = 'Street, building, area', error,
+  address, onAddressChange, addressPlaceholder = 'Street, building, area', error, children,
 }) {
   const [rect, setRect] = useState(null)
   const cardRef = useRef(null)
@@ -222,6 +222,12 @@ export default function AddressPicker({
               className="w-full border-0 bg-transparent p-0 text-[13px] text-navy-800 placeholder:text-slate-400 focus:outline-none focus:ring-0"
             />
           </div>
+        )}
+
+        {/* Who hands the cargo over, or who signs for it — kept in the same card as the
+            place, because on a waybill the party and the address are one block. */}
+        {selected && children && (
+          <div className="border-t border-dashed border-slate-200 px-3.5 py-2.5">{children}</div>
         )}
       </div>
 
