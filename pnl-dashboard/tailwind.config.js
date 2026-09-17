@@ -14,11 +14,17 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Navy carries the brand; amber is the highlight, used sparingly.
+        // Navy is the ink — headings, primary buttons, active state. On a light theme it
+        // does the work a dark chrome used to, so the two accents stay meaningful.
         navy: {
           50: '#f1f5fa', 100: '#e2eaf4', 200: '#c3d3e7', 300: '#93b0d1',
           400: '#5d85b4', 500: '#3a6396', 600: '#2a4c78', 700: '#1d3a5f',
           800: '#14283f', 900: '#0c2340', 950: '#071628',
+        },
+        // Orange is the call to action and the highlight.
+        orange: {
+          50: '#fff5f1', 100: '#ffe7dc', 200: '#ffc8b0', 300: '#ffa17c',
+          400: '#ff7647', 500: '#f4511e', 600: '#dd3f0f', 700: '#b4320c',
         },
         amber: {
           50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d',

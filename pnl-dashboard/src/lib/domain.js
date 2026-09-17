@@ -68,6 +68,46 @@ export const serviceById = (id) => SERVICES.find((s) => s.id === id) || SERVICES
 export const serviceLabel = (id) => serviceById(id).label
 export const serviceShort = (id) => serviceById(id).short
 
+/* ── Dimensions ────────────────────────────────────────────────────────────────
+ * Air freight bills the greater of gross and volumetric weight, and ocean LCL bills
+ * volume outright — so measuring the boxes is not a nicety, it is how the price is
+ * arrived at. 5000 is the standard IATA divisor for centimetres.
+ */
+export const VOLUMETRIC_DIVISOR = 5000
+export const LENGTH_UNITS = { cm: 1, in: 2.54, ft: 30.48 }
+
+/** True when measuring boxes changes what this service charges. */
+export const usesDimensions = (serviceId) => ['kg', 'cbm'].includes(serviceById(serviceId).unit)
+
+export function measureBoxes(boxes = [], unit = 'cm') {
+  const toCm = LENGTH_UNITS[unit] || 1
+  let cm3 = 0
+  let pieces = 0
+  boxes.forEach((b) => {
+    const l = (Number(b.l) || 0) * toCm
+    const w = (Number(b.w) || 0) * toCm
+    const h = (Number(b.h) || 0) * toCm
+    const qty = Math.max(1, Number(b.qty) || 1)
+    cm3 += l * w * h * qty
+    pieces += qty
+  })
+  return { pieces, cbm: cm3 / 1e6, volumetricKg: cm3 / VOLUMETRIC_DIVISOR }
+}
+
+/**
+ * What the consignment is actually billed on once the boxes are measured: the greater of
+ * gross and volumetric for weight-rated services, the measured volume for ocean LCL, and
+ * the entered figure for everything else.
+ */
+export function chargeableQuantity(serviceId, entered, measured) {
+  const s = serviceById(serviceId)
+  const qty = Number(entered) || 0
+  if (!measured) return qty
+  if (s.unit === 'kg') return Math.max(qty, measured.volumetricKg)
+  if (s.unit === 'cbm') return measured.cbm > 0 ? measured.cbm : qty
+  return qty
+}
+
 /* ── Order / consignment status ────────────────────────────────────────────── */
 export const STATUS = {
   requested:        { label: 'Requested',        tone: 'amber',  group: 'requests' },

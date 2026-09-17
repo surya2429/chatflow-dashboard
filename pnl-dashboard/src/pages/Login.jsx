@@ -50,26 +50,26 @@ export default function Login() {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       {/* Brand panel — the three levels of access, stated up front. */}
-      <div className="relative hidden flex-col justify-between overflow-hidden bg-navy-900 p-10 text-white lg:flex">
+      <div className="relative hidden flex-col justify-between overflow-hidden border-r border-slate-200 bg-white p-10 lg:flex">
         <div
-          className="pointer-events-none absolute inset-0 opacity-[0.16]"
-          style={{ backgroundImage: 'radial-gradient(circle at 18% 22%, #f59e0b 0, transparent 42%), radial-gradient(circle at 82% 78%, #3a6396 0, transparent 46%)' }}
+          className="pointer-events-none absolute inset-0 opacity-70"
+          style={{ backgroundImage: 'radial-gradient(circle at 14% 18%, #ffe7dc 0, transparent 46%), radial-gradient(circle at 86% 82%, #e2eaf4 0, transparent 50%)' }}
         />
         <div className="relative flex items-center gap-3">
-          <span className="grid h-11 w-11 place-items-center rounded-xl bg-amber-500 text-navy-950">
+          <span className="grid h-11 w-11 place-items-center rounded-xl bg-orange-500 text-white shadow-sm">
             <Boxes size={23} strokeWidth={2.4} />
           </span>
           <div className="leading-tight">
-            <p className="text-lg font-bold tracking-tight">Prime Next Logistics</p>
-            <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-navy-300">Management Console</p>
+            <p className="text-lg font-bold tracking-tight text-navy-900">Prime Next Logistics</p>
+            <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-slate-400">Management Console</p>
           </div>
         </div>
 
         <div className="relative max-w-md">
-          <h1 className="text-3xl font-bold leading-tight">
+          <h1 className="text-3xl font-bold leading-tight text-navy-900">
             One shipment number, from the request to the doorstep.
           </h1>
-          <p className="mt-4 text-sm leading-relaxed text-navy-200">
+          <p className="mt-4 text-sm leading-relaxed text-slate-600">
             Customers raise a request and get a number they can track immediately. Your team
             confirms it, moves it through its milestones, invoices it and reports on it —
             all against that same number.
@@ -77,27 +77,27 @@ export default function Login() {
 
           <div className="mt-8 space-y-3">
             {LEVELS.map((l) => (
-              <div key={l.title} className="flex gap-3 rounded-xl border border-navy-700 bg-navy-800/60 p-4">
-                <l.icon size={18} className="mt-0.5 shrink-0 text-amber-400" />
+              <div key={l.title} className="flex gap-3 rounded-xl border border-slate-200 bg-white/80 p-4 shadow-card backdrop-blur-sm">
+                <l.icon size={18} className="mt-0.5 shrink-0 text-orange-500" />
                 <div>
-                  <p className="text-sm font-semibold">{l.title}</p>
-                  <p className="mt-0.5 text-xs leading-relaxed text-navy-300">{l.body}</p>
+                  <p className="text-sm font-semibold text-navy-900">{l.title}</p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{l.body}</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="relative text-[11px] text-navy-400">
+        <p className="relative text-[11px] text-slate-400">
           Project 2 — Custom Logistics Management Dashboard
         </p>
       </div>
 
       {/* Sign-in panel */}
-      <div className="flex items-center justify-center bg-slate-100 p-6">
+      <div className="flex items-center justify-center bg-slate-50 p-6">
         <div className="w-full max-w-md">
           <div className="mb-6 flex items-center gap-3 lg:hidden">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-navy-900 text-amber-400">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-500 text-white">
               <Boxes size={20} strokeWidth={2.4} />
             </span>
             <div className="leading-tight">

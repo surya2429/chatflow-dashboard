@@ -8,7 +8,7 @@
   }
   html, body, #root { height: 100%; }
   body {
-    @apply bg-slate-100 text-navy-900 font-sans antialiased;
+    @apply bg-slate-50 text-navy-900 font-sans antialiased;
   }
   /* Tabular figures keep money and counts from jittering as they update. */
   .tnum { font-variant-numeric: tabular-nums; }
@@ -26,10 +26,12 @@
            focus:outline-none focus-visible:ring-2 focus-visible:ring-navy-500 focus-visible:ring-offset-2;
   }
   .btn-primary { @apply btn bg-navy-900 text-white hover:bg-navy-800; }
-  .btn-accent  { @apply btn bg-amber-500 text-navy-950 hover:bg-amber-400; }
+  .btn-accent  { @apply btn bg-orange-500 text-white hover:bg-orange-600; }
   .btn-ghost   { @apply btn bg-white text-navy-700 border border-slate-300 hover:bg-slate-50; }
   .btn-danger  { @apply btn bg-red-600 text-white hover:bg-red-700; }
   .btn-sm      { @apply px-2.5 py-1.5 text-xs; }
+  /* The chunky bottom-of-form actions the booking flow ends on. */
+  .btn-lg      { @apply px-5 py-3 text-[13px] tracking-wide uppercase; }
 
   .field {
     @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-navy-900
@@ -48,6 +50,44 @@
   .chip {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold
            leading-none border whitespace-nowrap;
+  }
+
+  /* ── Booking flow ──────────────────────────────────────────────────────────
+     A shipment is booked in a fixed order — where from, where to, what is in it —
+     so the form is numbered and each step is colour-coded to match its card. */
+
+  .step-head {
+    @apply flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500;
+  }
+  .step-dot { @apply h-1.5 w-1.5 shrink-0 rounded-full; }
+
+  /* Segmented either/or control — the payment, insurance and unit switches. */
+  .seg { @apply inline-flex w-full overflow-hidden rounded-lg border border-slate-300 bg-white; }
+  .seg-btn {
+    @apply flex-1 px-3 py-2 text-[12px] font-semibold text-slate-500 transition-colors
+           hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset
+           focus-visible:ring-navy-500 whitespace-nowrap;
+  }
+  .seg-btn-on-navy   { @apply bg-navy-900 text-white hover:bg-navy-900; }
+  .seg-btn-on-orange { @apply bg-orange-500 text-white hover:bg-orange-500; }
+
+  /* Number input that carries its unit inside the box, right-aligned and tinted. */
+  .unit-field {
+    @apply flex items-center overflow-hidden rounded-lg border bg-white transition-colors
+           focus-within:ring-2 focus-within:ring-navy-500/30;
+  }
+  .unit-field input {
+    @apply w-full min-w-0 border-0 bg-transparent px-3 py-2.5 text-[15px] font-bold tnum
+           text-navy-900 placeholder:font-normal placeholder:text-slate-300 focus:outline-none focus:ring-0;
+  }
+  .unit-suffix {
+    @apply shrink-0 px-3 text-[10px] font-bold uppercase tracking-wider;
+  }
+
+  /* Tinted expandable panels — dimensions and additional services. */
+  .panel { @apply rounded-xl border p-4; }
+  .panel-head {
+    @apply flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-[0.12em];
   }
 }
 
