@@ -1,5 +1,6 @@
 // FlowSetup.jsx — Complete rewrite with Tailwind CSS
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import WAFlowPreview from '../components/whatsapp/WAFlowPreview'
 import clsx from 'clsx'
 import {
   Plus, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -13,6 +14,7 @@ import {
   BookOpen, HelpCircle, AlertCircle, CreditCard, BarChart2, Briefcase,
   Video, Maximize2,
   ArrowRight, ArrowLeft, Activity,
+  Play,
 } from 'lucide-react'
 import { NativeSelect } from '../components/Select'
 
@@ -3591,6 +3593,7 @@ function BuilderView({ flow, onBack, allFlows=SAMPLE_FLOWS }) {
   const [flowName, setFlowName]     = useState(flow?.name || 'New Flow')
   const [editName, setEditName]     = useState(false)
   const [saved, setSaved]           = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
   const [history, setHistory]       = useState([{ nodes:initialGraph.nodes, edges:initialGraph.edges }])
   const [histIdx, setHistIdx]       = useState(0)
   // Port drag-to-connect state
@@ -3851,6 +3854,15 @@ function BuilderView({ flow, onBack, allFlows=SAMPLE_FLOWS }) {
           <Maximize2 size={11}/> Fit
         </button>
 
+        {/* Runs the graph currently on the canvas, unsaved edits included —
+            testing what was last saved would mean testing something the
+            merchant is not looking at. */}
+        <button onClick={()=>setShowPreview(p=>!p)}
+          className={clsx('text-[11px] border rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1',
+            showPreview ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-surface-border hover:bg-slate-50 text-slate-600')}>
+          <Play size={11}/> Preview
+        </button>
+
         {/* Card meter */}
         <div className="flex items-center gap-2 border border-surface-border rounded-lg px-2.5 py-1.5">
           <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -4015,6 +4027,20 @@ function BuilderView({ flow, onBack, allFlows=SAMPLE_FLOWS }) {
             onClose={()=>setSelectedId(null)}
             allFlows={allFlows}
             currentFlowId={flow?.id}/>
+        )}
+
+        {/* Live flow preview — keyed on the node/edge count so structural edits
+            restart the run rather than leaving it stranded mid-conversation on
+            a node that no longer exists. Content edits (copy, button labels)
+            deliberately do NOT restart it: rewording a prompt while testing
+            should not throw away the answers already given. */}
+        {showPreview && (
+          <WAFlowPreview
+            key={`${nodes.length}-${edges.length}`}
+            nodes={nodes}
+            edges={edges}
+            flowName={flowName}
+            onClose={()=>setShowPreview(false)}/>
         )}
 
         {/* Clone-to-flow toast */}
