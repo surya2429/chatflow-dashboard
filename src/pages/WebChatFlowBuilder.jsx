@@ -18,7 +18,7 @@ import { QUESTION_TYPES as WEBCHAT_QUESTION_TYPES } from '../constants/webchatQu
 import { WIDGET_CFG_STORAGE_KEY, useWidgetTheme, WidgetPreview, getLandingBotId, slugifyBotName } from './WebChatAppearance'
 import { usePublishSection, useLoadSection, SECTION_FLOWS } from '../lib/liveConfig'
 import { useBotId } from '../constants/webchat'
-import { AnswerControl, DEFAULT_FORM_FIELDS } from '../components/webchat/AnswerControls'
+import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
 
 /* ─── one draggable palette block per question type — "ask_<id>" — instead ──
@@ -627,8 +627,10 @@ function FormFieldsEditor({ fields, onChange }) {
   const update = (id, patch) => onChange(fields.map(f => f.id === id ? { ...f, ...patch } : f))
   const remove = id => onChange(fields.filter(f => f.id !== id))
   const addField = type => onChange([...fields, {
-    id: `field_${Date.now()}`, label: type === 'dropdown' ? 'New dropdown' : 'New field',
-    type, enabled: true, options: type === 'dropdown' ? ['Option A', 'Option B'] : undefined,
+    id: `field_${Date.now()}`,
+    label: FORM_FIELD_TYPES.find(t => t.id === type)?.label || 'New field',
+    type, enabled: true, required: false,
+    options: FORM_TYPES_WITH_OPTIONS.has(type) ? ['Option A', 'Option B'] : undefined,
   }])
   return (
     <div className="space-y-1.5">
@@ -648,9 +650,16 @@ function FormFieldsEditor({ fields, onChange }) {
                   </span>
                 ) : (
                   <div className="flex-shrink-0" style={{ width: 96 }}>
-                    <NativeSelect sm value={f.type} onChange={e => update(f.id, { type: e.target.value, options: e.target.value === 'dropdown' ? (f.options && f.options.length ? f.options : ['Option A', 'Option B']) : undefined })}>
-                      <option value="text">Text</option>
-                      <option value="dropdown">Dropdown</option>
+                    <NativeSelect sm value={f.type} onChange={e => {
+                      const type = e.target.value
+                      update(f.id, {
+                        type,
+                        options: FORM_TYPES_WITH_OPTIONS.has(type)
+                          ? (f.options && f.options.length ? f.options : ['Option A', 'Option B'])
+                          : undefined,
+                      })
+                    }}>
+                      {FORM_FIELD_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
                     </NativeSelect>
                   </div>
                 )}
@@ -662,18 +671,35 @@ function FormFieldsEditor({ fields, onChange }) {
                   <button onClick={() => remove(f.id)} className="p-1 text-slate-400 hover:text-red-500 flex-shrink-0"><X size={13}/></button>
                 )}
               </div>
-              {f.type === 'dropdown' && (
+              {FORM_TYPES_WITH_OPTIONS.has(f.type) && (
                 <input className="input-sm w-full" placeholder="Comma-separated options, e.g. Small, Medium, Large"
                   value={(f.options || []).join(', ')}
                   onChange={e => update(f.id, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}/>
+              )}
+              {f.type === 'checkbox' && (
+                <input className="input-sm w-full" placeholder="Consent wording, e.g. I agree to be contacted about my enquiry"
+                  value={f.text || ''} onChange={e => update(f.id, { text: e.target.value })}/>
+              )}
+              {f.type === 'number' && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  <input className="input-sm" placeholder="Min" value={f.min ?? ''} onChange={e => update(f.id, { min: e.target.value })}/>
+                  <input className="input-sm" placeholder="Max" value={f.max ?? ''} onChange={e => update(f.id, { max: e.target.value })}/>
+                </div>
+              )}
+              {!isDefault && (
+                <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 select-none">
+                  <input type="checkbox" className="w-3.5 h-3.5 rounded accent-primary" checked={Boolean(f.required)}
+                    onChange={e => update(f.id, { required: e.target.checked })}/>
+                  Required
+                </label>
               )}
             </div>
           )
         })}
       </div>
       <div className="flex gap-2">
-        <button onClick={() => addField('text')} className="text-[11px] text-primary font-semibold hover:underline flex items-center gap-1"><Plus size={11}/> Add text field</button>
-        <button onClick={() => addField('dropdown')} className="text-[11px] text-primary font-semibold hover:underline flex items-center gap-1"><Plus size={11}/> Add dropdown field</button>
+        <button onClick={() => addField('text')} className="text-[11px] text-primary font-semibold hover:underline flex items-center gap-1"><Plus size={11}/> Add field</button>
+        <span className="text-[10px] text-slate-400 self-center">then pick its type on the row</span>
       </div>
     </div>
   )

@@ -965,19 +965,45 @@ function OtpAnswer({ accent, dark, onSubmit, showTimer = true, showResend = true
    the default Name/Email/Phone set when no config is given (e.g. the
    Appearance tab's cosmetic preview, which has no per-node flow context). ── */
 export const DEFAULT_FORM_FIELDS = [
-  { id: 'name', label: 'Name', type: 'text', enabled: true },
-  { id: 'email', label: 'Email', type: 'email', enabled: true },
-  { id: 'phone', label: 'Phone', type: 'phone', enabled: true },
+  { id: 'name', label: 'Name', type: 'text', enabled: true, required: true },
+  { id: 'email', label: 'Email', type: 'email', enabled: true, required: true },
+  { id: 'phone', label: 'Phone', type: 'phone', enabled: true, required: false },
 ]
-const FORM_REQUIRED_IDS = new Set(['name', 'email'])
-function FormField({ label, dark, fieldStyle, children }) {
+
+/* The one catalog of field types a form can contain. Exported so the flow
+   builder's field editor renders its type picker from this rather than its own
+   hardcoded list — the previous editor offered only Text and Dropdown while the
+   renderer silently fell back to a plain text input for anything else, which is
+   how a "date" field ends up as a free-text box that accepts "next tuesdayish".
+
+   `options` marks the types that need a choice list. */
+export const FORM_FIELD_TYPES = [
+  { id: 'text',        label: 'Text' },
+  { id: 'textarea',    label: 'Long text' },
+  { id: 'email',       label: 'Email' },
+  { id: 'phone',       label: 'Phone' },
+  { id: 'number',      label: 'Number' },
+  { id: 'url',         label: 'Website / URL' },
+  { id: 'date',        label: 'Date' },
+  { id: 'time',        label: 'Time' },
+  { id: 'dropdown',    label: 'Dropdown', options: true },
+  { id: 'multiselect', label: 'Multi-select', options: true },
+  { id: 'radio',       label: 'Single choice', options: true },
+  { id: 'checkbox',    label: 'Checkbox / consent' },
+  { id: 'location',    label: 'Location' },
+]
+export const FORM_TYPES_WITH_OPTIONS = new Set(FORM_FIELD_TYPES.filter(t => t.options).map(t => t.id))
+
+function FormField({ label, dark, hint, children }) {
   return (
     <div className="min-w-0">
       <p className="text-[8.5px] font-bold uppercase tracking-wide mb-1" style={{ color: dark ? '#64748b' : '#94a3b8' }}>{label}</p>
       {children}
+      {hint && <p className="text-[8.5px] mt-0.5" style={{ color: dark ? '#64748b' : '#94a3b8' }}>{hint}</p>}
     </div>
   )
 }
+
 function FormPhoneField({ label, dark, fieldStyle, onChange }) {
   const [num, setNum] = useState('')
   const [country, setCountry] = useDetectedCountry()
@@ -992,6 +1018,7 @@ function FormPhoneField({ label, dark, fieldStyle, onChange }) {
     </FormField>
   )
 }
+
 function FormDropdownField({ label, dark, fieldStyle, options, onChange }) {
   const [val, setVal] = useState('')
   useEffect(() => { onChange(val) }, [val]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1005,35 +1032,207 @@ function FormDropdownField({ label, dark, fieldStyle, options, onChange }) {
     </FormField>
   )
 }
-function FormAnswer({ accent, dark, onSubmit, formFields }) {
+
+/* Chips rather than a native <select multiple>. A native multi-select needs
+   ctrl/cmd-click on desktop and renders as a cramped scroll box on phones,
+   where most of these forms are actually filled in — tapping chips is the only
+   version that works on a touch screen without instructions. */
+function FormMultiSelectField({ label, dark, accent, options, onChange }) {
+  const [picked, setPicked] = useState([])
+  useEffect(() => { onChange(picked.join(', ')) }, [picked]) // eslint-disable-line react-hooks/exhaustive-deps
+  const toggle = o => setPicked(p => p.includes(o) ? p.filter(x => x !== o) : [...p, o])
+  return (
+    <FormField label={label} dark={dark} hint={picked.length ? `${picked.length} selected` : 'Tap to select one or more'}>
+      <div className="flex flex-wrap gap-1">
+        {options.map(o => {
+          const on = picked.includes(o)
+          return (
+            <button key={o} type="button" onClick={() => toggle(o)}
+              className="px-2 py-1 rounded-full text-[10.5px] font-semibold transition-colors"
+              style={{
+                background: on ? accent : (dark ? '#111c30' : '#f4f6f9'),
+                color: on ? '#fff' : (dark ? '#94a3b8' : '#475569'),
+                border: `1.5px solid ${on ? accent : (dark ? '#22304a' : '#e3e8f0')}`,
+              }}>
+              {on && <Check size={9} className="inline mr-0.5 -mt-px"/>}{o}
+            </button>
+          )
+        })}
+      </div>
+    </FormField>
+  )
+}
+
+function FormRadioField({ label, dark, accent, options, onChange }) {
+  const [val, setVal] = useState('')
+  useEffect(() => { onChange(val) }, [val]) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <FormField label={label} dark={dark}>
+      <div className="flex flex-wrap gap-1">
+        {options.map(o => {
+          const on = val === o
+          return (
+            <button key={o} type="button" onClick={() => setVal(o)}
+              className="px-2 py-1 rounded-full text-[10.5px] font-semibold transition-colors"
+              style={{
+                background: on ? accent : (dark ? '#111c30' : '#f4f6f9'),
+                color: on ? '#fff' : (dark ? '#94a3b8' : '#475569'),
+                border: `1.5px solid ${on ? accent : (dark ? '#22304a' : '#e3e8f0')}`,
+              }}>
+              {o}
+            </button>
+          )
+        })}
+      </div>
+    </FormField>
+  )
+}
+
+/* A single tick — consent, terms, "keep me updated". Its value is the label
+   itself rather than "true", so the captured answer in the Inbox reads as the
+   thing that was agreed to instead of a bare boolean nobody can interpret
+   later. */
+function FormCheckboxField({ label, dark, accent, text, onChange }) {
+  const [on, setOn] = useState(false)
+  useEffect(() => { onChange(on ? (text || label) : '') }, [on]) // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <button type="button" onClick={() => setOn(v => !v)} className="w-full flex items-start gap-2 text-left">
+      <span className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 mt-px transition-colors"
+        style={{ background: on ? accent : 'transparent', border: `1.5px solid ${on ? accent : (dark ? '#22304a' : '#cbd5e1')}` }}>
+        {on && <Check size={11} className="text-white"/>}
+      </span>
+      <span className="text-[10.5px] leading-snug" style={{ color: dark ? '#cbd5e1' : '#475569' }}>{text || label}</span>
+    </button>
+  )
+}
+
+/* Address plus an optional pin. Deliberately lighter than the standalone Ask
+   Location control: inside a form this is one row among several, so it opens as
+   a plain address box and only grows a map once the visitor actually uses
+   "locate me" — a form that renders three maps on mount is unusable on a
+   phone. */
+function FormLocationField({ label, dark, accent, fieldStyle, apiKey, onChange }) {
+  const [text, setText] = useState('')
+  const [pin, setPin] = useState(null)
+  const [locating, setLocating] = useState(false)
+
+  useEffect(() => { onChange(pin?.address || text) }, [text, pin]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const locate = () => {
+    if (!navigator.geolocation) return
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      async pos => {
+        const { latitude: lat, longitude: lng } = pos.coords
+        const address = await reverseGeocode(lat, lng)
+        setLocating(false)
+        setPin({ lat, lng, address })
+        setText(address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+      },
+      () => setLocating(false),
+      { timeout: 5000 },
+    )
+  }
+
+  return (
+    <FormField label={label} dark={dark}>
+      <div className="flex items-center gap-1 rounded-lg px-2 py-1" style={fieldStyle}>
+        <input value={text} onChange={e => { setText(e.target.value); if (pin) setPin(null) }}
+          placeholder="Street, area, city"
+          className={clsx('flex-1 min-w-0 bg-transparent outline-none text-[11.5px] px-0.5 py-1', dark ? 'text-slate-100 placeholder-slate-500' : 'text-slate-800 placeholder-slate-400')}/>
+        <button type="button" onClick={locate} title="Use my current location"
+          className="flex-shrink-0 p-1 rounded-md" style={{ color: accent }}>
+          <LocateFixed size={13} className={locating ? 'animate-pulse' : ''}/>
+        </button>
+      </div>
+      {pin && (
+        <div className="mt-1.5">
+          <LocationMap lat={pin.lat} lng={pin.lng} address={pin.address}
+            apiKey={apiKey} accent={accent} dark={dark} height={96} interactive
+            onMove={({ lat, lng, address }) => { setPin({ lat, lng, address }); setText(address || `${lat.toFixed(5)}, ${lng.toFixed(5)}`) }}/>
+        </div>
+      )}
+    </FormField>
+  )
+}
+
+function FormAnswer({ accent, dark, onSubmit, formFields, googleMapsApiKey }) {
   const fields = (formFields && formFields.length ? formFields : DEFAULT_FORM_FIELDS).filter(f => f.enabled !== false)
   const [values, setValues] = useState({})
   const setField = (id, v) => setValues(p => ({ ...p, [id]: v }))
   const fieldStyle = { background: dark ? '#111c30' : '#f4f6f9', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}`, color: dark ? '#e2e8f0' : '#1e293b' }
-  const complete = fields.filter(f => FORM_REQUIRED_IDS.has(f.id)).every(f => (values[f.id] || '').trim())
+
+  /* Required-ness comes from the field's own flag, not from its id. It used to
+     be a hardcoded set of {name, email}, so a merchant's own required field was
+     never enforced and any field they happened to call "email" silently became
+     mandatory. */
+  const complete = fields.filter(f => f.required).every(f => String(values[f.id] || '').trim())
+
   const submit = () => {
-    const summary = fields.map(f => (values[f.id] || '').trim()).filter(Boolean).join(' · ')
+    /* Labelled pairs, not bare values joined by a dot. A six-field form
+       submitted as "Arjun · yes · 3 · Bengaluru" is unreadable in the Inbox,
+       and the agent reading it has no way to recover which answer was which. */
+    const summary = fields
+      .map(f => [f.label, String(values[f.id] || '').trim()])
+      .filter(([, v]) => v)
+      .map(([label, v]) => `${label}: ${v}`)
+      .join('\n')
     onSubmit?.(summary || '(empty form)')
   }
+
   return (
     <div className="w-full rounded-2xl p-3 space-y-2" style={{ background: dark ? '#0b1424' : '#fff', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}` }}>
       {fields.map(f => {
-        if (f.type === 'phone') {
-          return <FormPhoneField key={f.id} label={f.label} dark={dark} fieldStyle={fieldStyle} onChange={v => setField(f.id, v)}/>
+        const opts = f.options || []
+        const common = { key: f.id, label: f.label, dark, accent, fieldStyle, onChange: v => setField(f.id, v) }
+        switch (f.type) {
+          case 'phone':       return <FormPhoneField {...common}/>
+          case 'dropdown':    return <FormDropdownField {...common} options={opts}/>
+          case 'multiselect': return <FormMultiSelectField {...common} options={opts}/>
+          case 'radio':       return <FormRadioField {...common} options={opts}/>
+          case 'checkbox':    return <FormCheckboxField {...common} text={f.text}/>
+          case 'location':    return <FormLocationField {...common} apiKey={googleMapsApiKey}/>
+          case 'textarea':
+            return (
+              <FormField key={f.id} label={f.label} dark={dark}>
+                <textarea value={values[f.id] || ''} onChange={e => setField(f.id, e.target.value)}
+                  rows={3} placeholder={f.placeholder || f.label}
+                  className="w-full rounded-lg px-2.5 py-1.5 text-[11.5px] outline-none resize-none" style={fieldStyle}/>
+              </FormField>
+            )
+          default: {
+            /* Native input types do real work here: `number` brings up a
+               numeric keypad on a phone, `date`/`time` open the OS pickers,
+               and `url`/`email` get free format validation. Rendering all of
+               them as type="text" — which is what happened before — throws all
+               of that away. */
+            const nativeType =
+                f.type === 'number' ? 'number'
+              : f.type === 'date'   ? 'date'
+              : f.type === 'time'   ? 'time'
+              : f.type === 'url'    ? 'url'
+              : f.type === 'email'  ? 'email'
+              : 'text'
+            const placeholder =
+                f.type === 'email' ? 'you@example.com'
+              : f.type === 'url'   ? 'https://example.com'
+              : f.placeholder || f.label
+            return (
+              <FormField key={f.id} label={f.label} dark={dark}>
+                <input value={values[f.id] || ''} onChange={e => setField(f.id, e.target.value)}
+                  type={nativeType} placeholder={placeholder}
+                  min={f.min !== '' && f.min != null ? f.min : undefined}
+                  max={f.max !== '' && f.max != null ? f.max : undefined}
+                  inputMode={f.type === 'number' ? 'decimal' : undefined}
+                  className="w-full rounded-lg px-2.5 py-1.5 text-[11.5px] outline-none" style={fieldStyle}/>
+              </FormField>
+            )
+          }
         }
-        if (f.type === 'dropdown') {
-          return <FormDropdownField key={f.id} label={f.label} dark={dark} fieldStyle={fieldStyle} options={f.options || []} onChange={v => setField(f.id, v)}/>
-        }
-        return (
-          <FormField key={f.id} label={f.label} dark={dark}>
-            <input value={values[f.id] || ''} onChange={e => setField(f.id, e.target.value)}
-              placeholder={f.type === 'email' ? 'you@example.com' : f.label} type={f.type === 'email' ? 'email' : 'text'}
-              className="w-full rounded-lg px-2.5 py-1.5 text-[11.5px] outline-none" style={fieldStyle}/>
-          </FormField>
-        )
       })}
       <button disabled={!complete} onClick={submit}
-        className="w-full py-2 rounded-lg text-[11px] font-bold text-white transition-opacity" style={{ background: accent, opacity: complete ? 1 : 0.4 }}>
+        className="w-full py-2 rounded-lg text-[11px] font-bold transition-opacity"
+        style={{ background: accent, color: '#fff', opacity: complete ? 1 : 0.4 }}>
         Submit
       </button>
     </div>
@@ -1146,7 +1345,7 @@ export function AnswerControl({ questionType, accent = '#0066ff', dark = false, 
       return <OtpAnswer accent={accent} dark={dark} onSubmit={submit}
         showTimer={otpConfig?.showTimer ?? true} showResend={otpConfig?.showResend ?? true} seconds={otpConfig?.seconds ?? 30}/>
     case 'form':
-      return <FormAnswer accent={accent} dark={dark} onSubmit={submit} formFields={formFields}/>
+      return <FormAnswer accent={accent} dark={dark} onSubmit={submit} formFields={formFields} googleMapsApiKey={googleMapsApiKey}/>
     case 'carousel':
       return <CarouselAnswer accent={accent} dark={dark} onSubmit={submit}/>
     case 'carousel_buttons':

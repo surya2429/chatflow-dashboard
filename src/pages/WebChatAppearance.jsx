@@ -852,6 +852,11 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                       // widget no matter what was typed.
                       overflowWrap: 'break-word',
                       wordBreak: 'break-word',
+                      /* Honour newlines. A multi-field form submits as one
+                         "Label: value" per line, and any bot message a merchant
+                         writes across several lines means them — collapsing
+                         both into one run was losing real structure. */
+                      whiteSpace: 'pre-wrap',
                       background: isUser
                         ? (bubbleIsMinimal ? 'transparent' : (userBubbleBg || brandBg))
                         : (bubbleIsMinimal ? 'transparent' : botBubbleBg),
