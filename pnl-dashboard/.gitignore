@@ -1,0 +1,5 @@
+# Vite's dependency pre-bundle cache (this app keeps its own, see vite.config.js)
+.vite/
+
+# Build output
+dist/
