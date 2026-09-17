@@ -30,3 +30,7 @@ logs/
 
 # Dev-only bot number counter (see devBotsApi in vite.config.js)
 .dev-bot-sequence.json
+
+# Project snapshots — git already versions this tree; a 90MB zip of it
+# would sit in history permanently for every future clone.
+/claude.zip
