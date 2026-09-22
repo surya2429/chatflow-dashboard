@@ -1,0 +1,12 @@
+{
+  "name": "complaints-dashboard",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Project-wise complaints summary — multi-view (cards + table) community dashboard",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  }
+}

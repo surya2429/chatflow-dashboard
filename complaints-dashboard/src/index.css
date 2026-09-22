@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-bone-200 text-bone-900 font-sans antialiased;
+  }
+  /* Thin, recessive scrollbars — the table scrolls sideways on narrow screens and a
+     default-weight bar reads as part of the data. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb { @apply rounded-full bg-bone-500/60; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-bone-600; }
+}

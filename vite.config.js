@@ -190,4 +190,9 @@ function devBotsApi() {
 export default defineConfig({
   root: __dirname,
   plugins: [react(), devBotsApi()],
+  // Vite's default bind on this machine only listens on [::1], so anything that
+  // resolves `localhost` to 127.0.0.1 — most browsers, curl, the in-app preview
+  // pane — cannot connect and the page just never loads. `host: true` binds
+  // every interface, IPv4 included.
+  server: { host: true },
 })
