@@ -5,9 +5,14 @@ import {
   Type, AlignJustify, Hash, Mail, Phone, Link2, Circle, CheckSquare, ChevronDown,
   ToggleLeft, Star, BarChart2, Calendar, Clock, Upload, Image, Pencil, MapPin,
   CreditCard, Lock, FileText, Images, Layers, ShoppingBag,
+  Megaphone, HelpCircle, Sparkles, ShieldCheck, BadgeCheck,
 } from 'lucide-react'
 
-export const QUESTION_CATS = ['All', 'Text', 'Choice', 'Date & Time', 'Media', 'Special', 'Interactive']
+/* 'Content' covers the types where the bot is telling rather than asking — a
+   statement, a browsable FAQ, an AI answer. They still take a turn in the flow
+   and still record something, which is why they are question types and not
+   send-only blocks, but grouping them with Text or Choice would bury them. */
+export const QUESTION_CATS = ['All', 'Text', 'Choice', 'Date & Time', 'Media', 'Special', 'Content', 'Interactive']
 
 export const QUESTION_TYPES = [
   /* Text */
@@ -37,6 +42,12 @@ export const QUESTION_TYPES = [
   { id:'location',  cat:'Special',     icon:MapPin,       name:'Location',         desc:'Address autocomplete or map pin drop',    color:'#EF4444' },
   { id:'payment',   cat:'Special',     icon:CreditCard,   name:'Payment',          desc:'Secure card/UPI payment collection',      color:'#EF4444' },
   { id:'otp',       cat:'Special',     icon:Lock,         name:'OTP Verify',       desc:'Verify phone/email with a 6-digit OTP',  color:'#EF4444' },
+  { id:'consent',   cat:'Special',     icon:ShieldCheck,  name:'Consent',          desc:'Explicit opt-in that records what was agreed', color:'#EF4444' },
+  { id:'verify_doc',cat:'Special',     icon:BadgeCheck,   name:'Verify Document',  desc:'Upload an ID document and have it checked', color:'#EF4444' },
+  /* Content — the bot tells, shows or answers */
+  { id:'statement', cat:'Content',     icon:Megaphone,    name:'Statement',        desc:'Say something and wait for acknowledgement', color:'#64748B' },
+  { id:'faq',       cat:'Content',     icon:HelpCircle,   name:'FAQ',              desc:'Browse common questions and their answers', color:'#0EA5E9' },
+  { id:'ai_answer', cat:'Content',     icon:Sparkles,     name:'AI Answer',        desc:'Ask anything, answered from your knowledge base', color:'#8B5CF6' },
   /* Interactive — rich, multi-item message blocks */
   { id:'form',            cat:'Interactive', icon:FileText,    name:'Multi-field Form',       desc:'Collect several fields in one inline form',      color:'#0EA5E9' },
   { id:'carousel',        cat:'Interactive', icon:Images,      name:'Image Carousel',         desc:'Swipeable cards with image, title & description', color:'#0EA5E9' },

@@ -13,6 +13,7 @@ import {
   Send, Star, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown,
   Check, X, Upload, Image as ImageIcon, Pencil, MapPin, CreditCard, Lock,
   Clock, Search, LocateFixed, Plus, FileText, Paperclip,
+  HelpCircle, Sparkles, BadgeCheck, ExternalLink,
 } from 'lucide-react'
 
 /* ── shared style injection (custom keyframes Tailwind can't express) ───── */
@@ -1298,7 +1299,292 @@ function CatalogAnswer({ accent, dark, onSubmit }) {
 }
 
 /* ── public entry point ──────────────────────────────────────────────────── */
-export function AnswerControl({ questionType, accent = '#0066ff', dark = false, onSubmit, interactive = true, formFields, otpConfig, googleMapsApiKey }) {
+/* ── statement: the bot says something and waits for acknowledgement ──────
+   Not a question at all, which is exactly why it earns a type: disclaimers,
+   handover notices and "here is what happens next" currently have to be faked
+   with a Short Text nobody is meant to fill in, or a Send Message that races
+   past before it is read. This one stops and waits. */
+function StatementAnswer({ accent, dark, onSubmit, data = {} }) {
+  const label = data.continueLabel || 'Continue'
+  return (
+    <div className="w-full space-y-1.5">
+      {data.statementText && (
+        <div className="rounded-xl px-3 py-2.5 text-[11.5px] leading-relaxed"
+          style={{ background: dark ? '#111c30' : '#f4f6f9', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}`, color: dark ? '#cbd5e1' : '#475569' }}>
+          {data.statementText}
+        </div>
+      )}
+      <button type="button" onClick={() => onSubmit?.(label)}
+        className="w-full py-2 rounded-xl text-[11.5px] font-bold text-white" style={{ background: accent }}>
+        {label}
+      </button>
+    </div>
+  )
+}
+
+/* ── faq: browse the answers instead of asking for them ──────────────────
+   Answers open inline rather than being sent as chat messages. A visitor
+   checking three questions would otherwise bury their own conversation under
+   six bubbles, and the thing they wanted to compare scrolls away. */
+const FALLBACK_FAQS = [
+  { id: 'f1', q: 'What are your opening hours?', a: 'We are open Monday to Saturday, 9am to 7pm.' },
+  { id: 'f2', q: 'How long does delivery take?', a: 'Most orders arrive within 2–3 working days.' },
+  { id: 'f3', q: 'What is your refund policy?', a: 'Returns are accepted within 30 days, unused and in original packaging.' },
+]
+function FaqAnswer({ accent, dark, onSubmit, data = {} }) {
+  const items = (data.faqItems && data.faqItems.length ? data.faqItems : FALLBACK_FAQS)
+  const [openId, setOpenId] = useState(null)
+  const [viewed, setViewed] = useState([])
+  const surface = { background: dark ? '#111c30' : '#f4f6f9', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}` }
+
+  const open = item => {
+    setOpenId(o => (o === item.id ? null : item.id))
+    setViewed(v => (v.includes(item.q) ? v : [...v, item.q]))
+  }
+
+  return (
+    <div className="w-full space-y-1.5">
+      <div className="space-y-1 max-h-52 overflow-y-auto wc-scroll">
+        {items.map(item => {
+          const isOpen = openId === item.id
+          return (
+            <div key={item.id} className="rounded-xl overflow-hidden" style={surface}>
+              <button type="button" onClick={() => open(item)}
+                className="w-full flex items-start gap-2 px-2.5 py-2 text-left">
+                <HelpCircle size={12} style={{ color: accent, flexShrink: 0, marginTop: 1 }}/>
+                <span className="flex-1 text-[11.5px] font-semibold leading-snug" style={{ color: dark ? '#e2e8f0' : '#1e293b' }}>{item.q}</span>
+                <ChevronDown size={12} className={clsx('flex-shrink-0 transition-transform', isOpen && 'rotate-180')}
+                  style={{ color: dark ? '#64748b' : '#94a3b8', marginTop: 1 }}/>
+              </button>
+              {isOpen && (
+                <p className="px-2.5 pb-2.5 -mt-0.5 text-[11px] leading-relaxed wc-ac-fade" style={{ color: dark ? '#94a3b8' : '#64748b' }}>
+                  {item.a}
+                </p>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <button type="button"
+        onClick={() => onSubmit?.(viewed.length ? `Read: ${viewed.join(' · ')}` : (data.skipLabel || 'None of these'))}
+        className="w-full py-2 rounded-xl text-[11.5px] font-bold text-white" style={{ background: accent }}>
+        {viewed.length ? (data.doneLabel || 'That answers it') : (data.skipLabel || 'None of these — talk to someone')}
+      </button>
+    </div>
+  )
+}
+
+/* ── ai answer: ask anything, answered from the knowledge base ────────────
+   The control owns the whole ask→answer→ask-again loop rather than sending
+   each question into the flow, because an AI Q&A turn is one step from the
+   flow's point of view however many questions the visitor asks inside it.
+
+   There is no AI backend in this repo, so the answer shown comes from the
+   node's own `sampleAnswer`/`fallback`. That is deliberately visible in the
+   editor rather than hidden behind a fake spinner pretending to reason. */
+function AiAnswerAnswer({ accent, dark, onSubmit, data = {} }) {
+  const [q, setQ] = useState('')
+  const [asked, setAsked] = useState(null)
+  const [thinking, setThinking] = useState(false)
+  const answer = data.sampleAnswer || data.fallback
+    || "I don't have that in my knowledge base yet — let me pass you to someone who can help."
+
+  const ask = () => {
+    const value = q.trim()
+    if (!value) return
+    setAsked(value)
+    setQ('')
+    setThinking(true)
+    setTimeout(() => setThinking(false), 700)
+  }
+
+  return (
+    <div className="w-full space-y-1.5">
+      {asked && (
+        <div className="rounded-xl px-2.5 py-2 wc-ac-fade" style={{ background: dark ? '#111c30' : '#f4f6f9', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}` }}>
+          <p className="text-[10px] font-bold mb-1" style={{ color: dark ? '#64748b' : '#94a3b8' }}>You asked</p>
+          <p className="text-[11px] mb-2" style={{ color: dark ? '#cbd5e1' : '#475569' }}>{asked}</p>
+          {thinking ? (
+            <div className="flex items-center gap-1.5">
+              {[0, 1, 2].map(i => (
+                <span key={i} className="w-1.5 h-1.5 rounded-full" style={{ background: accent, opacity: 0.5, animation: `wcAcDot 1s ${i * 0.15}s infinite ease-in-out` }}/>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-1 mb-1">
+                <Sparkles size={10} style={{ color: accent }}/>
+                <p className="text-[10px] font-bold" style={{ color: accent }}>
+                  {data.kbName ? `From ${data.kbName}` : 'Answer'}
+                </p>
+              </div>
+              <p className="text-[11px] leading-relaxed" style={{ color: dark ? '#e2e8f0' : '#1e293b' }}>{answer}</p>
+            </>
+          )}
+        </div>
+      )}
+
+      <ComposerPill dark={dark} accent={accent}>
+        <Sparkles size={13} className="flex-shrink-0 mb-1.5" style={{ color: dark ? '#64748b' : '#94a3b8' }}/>
+        <input autoFocus value={q} onChange={e => setQ(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && ask()}
+          placeholder={data.placeholder || 'Ask anything…'}
+          className={clsx('flex-1 bg-transparent outline-none min-w-0 px-1 py-1.5 text-[12px]', dark ? 'text-slate-100 placeholder-slate-500' : 'text-slate-800 placeholder-slate-400')}/>
+        <SendBtn accent={accent} onClick={ask} disabled={!q.trim()}/>
+      </ComposerPill>
+
+      {asked && !thinking && (
+        <button type="button" onClick={() => onSubmit?.(asked)}
+          className="w-full py-1.5 rounded-xl text-[10.5px] font-bold"
+          style={{ background: dark ? '#111c30' : '#f4f6f9', color: accent, border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}` }}>
+          {data.doneLabel || 'That helps — continue'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* ── consent: an explicit, recorded opt-in ───────────────────────────────
+   Distinct from Yes/No because the record has to say WHAT was agreed to. A
+   stored "yes" is worthless six months later when someone asks which version
+   of the terms the customer accepted, so the submitted value carries the
+   wording rather than a bare boolean. */
+function ConsentAnswer({ accent, dark, onSubmit, data = {} }) {
+  const [ticked, setTicked] = useState(false)
+  const text = data.consentText || 'I agree to be contacted about my enquiry.'
+  return (
+    <div className="w-full space-y-2 rounded-xl p-2.5" style={{ background: dark ? '#0b1424' : '#fff', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}` }}>
+      <button type="button" onClick={() => setTicked(v => !v)} className="w-full flex items-start gap-2 text-left">
+        <span className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 mt-px transition-colors"
+          style={{ background: ticked ? accent : 'transparent', border: `1.5px solid ${ticked ? accent : (dark ? '#22304a' : '#cbd5e1')}` }}>
+          {ticked && <Check size={11} className="text-white"/>}
+        </span>
+        <span className="text-[11px] leading-snug" style={{ color: dark ? '#cbd5e1' : '#475569' }}>{text}</span>
+      </button>
+
+      {data.policyUrl && (
+        <a href={data.policyUrl} target="_blank" rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[10.5px] font-bold ml-6" style={{ color: accent }}>
+          {data.policyLabel || 'Read the full policy'} <ExternalLink size={9}/>
+        </a>
+      )}
+
+      <div className="flex gap-1.5">
+        <button type="button" disabled={!ticked}
+          onClick={() => onSubmit?.(`Agreed: ${text}`)}
+          className="flex-1 py-2 rounded-xl text-[11.5px] font-bold text-white transition-opacity"
+          style={{ background: accent, opacity: ticked ? 1 : 0.4 }}>
+          {data.agreeLabel || 'I agree'}
+        </button>
+        <button type="button" onClick={() => onSubmit?.(data.declineLabel || 'Declined')}
+          className="px-3 py-2 rounded-xl text-[11.5px] font-bold"
+          style={{ background: dark ? '#111c30' : '#f4f6f9', color: dark ? '#94a3b8' : '#64748b', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}` }}>
+          {data.declineLabel || 'Not now'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ── verify document: choose a document, upload it, see it checked ────────
+   The three states are separated on purpose. Collapsing upload and result
+   into one step is what makes identity checks feel like they silently failed:
+   the visitor needs to see that something is being examined, and then see the
+   verdict, before the conversation moves on.
+
+   The check itself is simulated here — there is no verification provider
+   wired up — which the editor says plainly rather than implying a real check
+   happened. */
+const DEFAULT_DOC_TYPES = ['Passport', 'Driving licence', 'National ID']
+function VerifyDocAnswer({ accent, dark, onSubmit, data = {} }) {
+  const types = (data.docTypes && data.docTypes.length ? data.docTypes : DEFAULT_DOC_TYPES)
+  const [docType, setDocType] = useState(null)
+  const [sides, setSides] = useState({})
+  const [stage, setStage] = useState('pick') // pick | upload | checking | done
+  const needsBack = data.requireBack !== false
+  const required = needsBack ? ['front', 'back'] : ['front']
+  const ready = required.every(s => sides[s])
+  const surface = { background: dark ? '#111c30' : '#f4f6f9', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}` }
+
+  const check = () => {
+    setStage('checking')
+    setTimeout(() => setStage('done'), 1200)
+  }
+
+  if (stage === 'done') {
+    return (
+      <div className="w-full rounded-xl px-3 py-2.5 flex items-center gap-2 wc-ac-fade"
+        style={{ background: `${accent}12`, border: `1.5px solid ${accent}55` }}>
+        <BadgeCheck size={16} style={{ color: accent, flexShrink: 0 }}/>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11.5px] font-bold" style={{ color: dark ? '#e2e8f0' : '#1e293b' }}>{docType} verified</p>
+          <p className="text-[10px]" style={{ color: dark ? '#64748b' : '#94a3b8' }}>Document accepted</p>
+        </div>
+        <button type="button" onClick={() => onSubmit?.(`${docType} verified`)}
+          className="px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold text-white flex-shrink-0" style={{ background: accent }}>
+          Continue
+        </button>
+      </div>
+    )
+  }
+
+  if (stage === 'checking') {
+    return (
+      <div className="w-full rounded-xl px-3 py-3 flex items-center gap-2" style={surface}>
+        {[0, 1, 2].map(i => (
+          <span key={i} className="w-1.5 h-1.5 rounded-full" style={{ background: accent, animation: `wcAcDot 1s ${i * 0.15}s infinite ease-in-out` }}/>
+        ))}
+        <p className="text-[11px] font-semibold ml-1" style={{ color: dark ? '#cbd5e1' : '#475569' }}>Checking your {docType?.toLowerCase()}…</p>
+      </div>
+    )
+  }
+
+  if (stage === 'pick') {
+    return (
+      <div className="w-full space-y-1">
+        <p className="text-[10px] font-bold uppercase tracking-wide px-0.5" style={{ color: dark ? '#64748b' : '#94a3b8' }}>Choose a document</p>
+        {types.map(t => (
+          <button key={t} type="button" onClick={() => { setDocType(t); setStage('upload') }}
+            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left" style={surface}>
+            <FileText size={13} style={{ color: accent, flexShrink: 0 }}/>
+            <span className="flex-1 text-[11.5px] font-semibold" style={{ color: dark ? '#e2e8f0' : '#1e293b' }}>{t}</span>
+            <ChevronRight size={12} style={{ color: dark ? '#64748b' : '#94a3b8' }}/>
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-full space-y-1.5">
+      <div className="flex items-center gap-1.5 px-0.5">
+        <button type="button" onClick={() => { setStage('pick'); setSides({}) }} style={{ color: dark ? '#64748b' : '#94a3b8' }}>
+          <ChevronLeft size={13}/>
+        </button>
+        <p className="text-[11px] font-bold" style={{ color: dark ? '#e2e8f0' : '#1e293b' }}>{docType}</p>
+      </div>
+      {required.map(side => (
+        <label key={side} className="flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer" style={surface}>
+          <input type="file" accept="image/*,application/pdf" className="hidden"
+            onChange={e => setSides(s => ({ ...s, [side]: e.target.files?.[0]?.name || 'uploaded' }))}/>
+          {sides[side]
+            ? <Check size={13} style={{ color: accent, flexShrink: 0 }}/>
+            : <Upload size={13} style={{ color: dark ? '#64748b' : '#94a3b8', flexShrink: 0 }}/>}
+          <span className="flex-1 text-[11px] truncate" style={{ color: sides[side] ? (dark ? '#e2e8f0' : '#1e293b') : (dark ? '#64748b' : '#94a3b8') }}>
+            {sides[side] || `Upload the ${side}`}
+          </span>
+        </label>
+      ))}
+      <button type="button" disabled={!ready} onClick={check}
+        className="w-full py-2 rounded-xl text-[11.5px] font-bold text-white transition-opacity"
+        style={{ background: accent, opacity: ready ? 1 : 0.4 }}>
+        Verify
+      </button>
+    </div>
+  )
+}
+
+export function AnswerControl({ questionType, accent = '#0066ff', dark = false, onSubmit, interactive = true, formFields, otpConfig, googleMapsApiKey, nodeData }) {
   useAnswerControlStyles()
   const submit = interactive ? onSubmit : undefined
 
@@ -1344,6 +1630,16 @@ export function AnswerControl({ questionType, accent = '#0066ff', dark = false, 
     case 'otp':
       return <OtpAnswer accent={accent} dark={dark} onSubmit={submit}
         showTimer={otpConfig?.showTimer ?? true} showResend={otpConfig?.showResend ?? true} seconds={otpConfig?.seconds ?? 30}/>
+    case 'statement':
+      return <StatementAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
+    case 'faq':
+      return <FaqAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
+    case 'ai_answer':
+      return <AiAnswerAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
+    case 'consent':
+      return <ConsentAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
+    case 'verify_doc':
+      return <VerifyDocAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'form':
       return <FormAnswer accent={accent} dark={dark} onSubmit={submit} formFields={formFields} googleMapsApiKey={googleMapsApiKey}/>
     case 'carousel':

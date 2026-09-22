@@ -623,6 +623,49 @@ function OtpConfigEditor({ config, onChange }) {
     </div>
   )
 }
+/* Question/answer pairs for the FAQ type. Kept editable inline rather than
+   pointing at a separate help-centre store: a bot's FAQ list is usually a
+   handful of questions specific to THIS conversation step ("before you book,
+   people usually ask…"), not the whole knowledge base. */
+function FaqItemsEditor({ items, onChange, d, set }) {
+  const update = (id, patch) => onChange(items.map(f => f.id === id ? { ...f, ...patch } : f))
+  const remove = id => onChange(items.filter(f => f.id !== id))
+  const add = () => onChange([...items, { id: `faq_${Date.now()}`, q: '', a: '' }])
+  return (
+    <div className="space-y-1.5">
+      <label className="label">Questions &amp; answers</label>
+      {items.length === 0 && (
+        <p className="text-[10px] text-slate-400">No questions yet — the preview falls back to three samples until you add some.</p>
+      )}
+      <div className="space-y-2">
+        {items.map((f, i) => (
+          <div key={f.id} className="p-2.5 rounded-xl border border-surface-border space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-slate-400 w-4 flex-shrink-0">{i + 1}</span>
+              <input className="input-sm flex-1" placeholder="Question" value={f.q || ''}
+                onChange={e => update(f.id, { q: e.target.value })}/>
+              <button onClick={() => remove(f.id)} className="p-1 text-slate-400 hover:text-red-500 flex-shrink-0"><X size={13}/></button>
+            </div>
+            <textarea className="textarea text-[11px]" rows={2} placeholder="Answer" value={f.a || ''}
+              onChange={e => update(f.id, { a: e.target.value })}/>
+          </div>
+        ))}
+      </div>
+      <button onClick={add} className="text-[11px] text-primary font-semibold hover:underline flex items-center gap-1">
+        <Plus size={11}/> Add question
+      </button>
+      <div className="grid grid-cols-2 gap-2 pt-1">
+        <div className="space-y-1"><label className="label">Done button</label>
+          <input className="input" value={d.doneLabel || ''} onChange={e => set('doneLabel', e.target.value)} placeholder="That answers it"/>
+        </div>
+        <div className="space-y-1"><label className="label">Escape hatch</label>
+          <input className="input" value={d.skipLabel || ''} onChange={e => set('skipLabel', e.target.value)} placeholder="None of these"/>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function FormFieldsEditor({ fields, onChange }) {
   const update = (id, patch) => onChange(fields.map(f => f.id === id ? { ...f, ...patch } : f))
   const remove = id => onChange(fields.filter(f => f.id !== id))
@@ -921,6 +964,91 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
               )}
               {def.questionType === 'otp' && (
                 <OtpConfigEditor config={d.otpConfig} onChange={v => set('otpConfig', v)}/>
+              )}
+
+              {def.questionType === 'statement' && (
+                <>
+                  <div className="space-y-1"><label className="label">Extra detail (optional)</label>
+                    <textarea className="textarea" rows={3} value={d.statementText || ''}
+                      onChange={e => set('statementText', e.target.value)}
+                      placeholder="Shown in a panel under the message — terms, next steps, opening hours…"/>
+                  </div>
+                  <div className="space-y-1"><label className="label">Button label</label>
+                    <input className="input" value={d.continueLabel || ''} onChange={e => set('continueLabel', e.target.value)} placeholder="Continue"/>
+                  </div>
+                </>
+              )}
+
+              {def.questionType === 'faq' && (
+                <FaqItemsEditor items={d.faqItems || []} onChange={v => set('faqItems', v)} d={d} set={set}/>
+              )}
+
+              {def.questionType === 'ai_answer' && (
+                <>
+                  <div className="space-y-1"><label className="label">Knowledge base name</label>
+                    <input className="input" value={d.kbName || ''} onChange={e => set('kbName', e.target.value)} placeholder="e.g. Help Centre"/>
+                  </div>
+                  <div className="space-y-1"><label className="label">Fallback when nothing matches</label>
+                    <textarea className="textarea" rows={2} value={d.fallback || ''} onChange={e => set('fallback', e.target.value)}
+                      placeholder="I don't have that yet — let me pass you to someone who can help."/>
+                  </div>
+                  <div className="space-y-1"><label className="label">Sample answer (preview only)</label>
+                    <textarea className="textarea" rows={2} value={d.sampleAnswer || ''} onChange={e => set('sampleAnswer', e.target.value)}
+                      placeholder="What the preview shows in place of a real AI reply"/>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-snug">
+                    There is no AI backend wired up yet, so the preview shows the sample answer
+                    (or the fallback). Connect the knowledge base to answer for real.
+                  </p>
+                </>
+              )}
+
+              {def.questionType === 'consent' && (
+                <>
+                  <div className="space-y-1"><label className="label">Consent wording</label>
+                    <textarea className="textarea" rows={2} value={d.consentText || ''} onChange={e => set('consentText', e.target.value)}
+                      placeholder="I agree to be contacted about my enquiry."/>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1"><label className="label">Policy link</label>
+                      <input className="input" value={d.policyUrl || ''} onChange={e => set('policyUrl', e.target.value)} placeholder="https://…/privacy"/>
+                    </div>
+                    <div className="space-y-1"><label className="label">Link label</label>
+                      <input className="input" value={d.policyLabel || ''} onChange={e => set('policyLabel', e.target.value)} placeholder="Read the full policy"/>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1"><label className="label">Agree button</label>
+                      <input className="input" value={d.agreeLabel || ''} onChange={e => set('agreeLabel', e.target.value)} placeholder="I agree"/>
+                    </div>
+                    <div className="space-y-1"><label className="label">Decline button</label>
+                      <input className="input" value={d.declineLabel || ''} onChange={e => set('declineLabel', e.target.value)} placeholder="Not now"/>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-snug">
+                    The stored answer carries the wording itself, not just “yes” — so the record
+                    still says what was agreed to if anyone asks later.
+                  </p>
+                </>
+              )}
+
+              {def.questionType === 'verify_doc' && (
+                <>
+                  <div className="space-y-1"><label className="label">Accepted documents</label>
+                    <input className="input" placeholder="Comma-separated, e.g. Passport, Driving licence, National ID"
+                      value={(d.docTypes || []).join(', ')}
+                      onChange={e => set('docTypes', e.target.value.split(',').map(x => x.trim()).filter(Boolean))}/>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 select-none">
+                    <input type="checkbox" className="w-3.5 h-3.5 rounded accent-primary" checked={d.requireBack !== false}
+                      onChange={e => set('requireBack', e.target.checked)}/>
+                    Ask for the back of the document too
+                  </label>
+                  <p className="text-[10px] text-slate-400 leading-snug">
+                    The check is simulated — no verification provider is connected. The visitor
+                    sees choose → upload → checking → verified, but nothing is actually validated.
+                  </p>
+                </>
               )}
             </>
           )}
@@ -1671,7 +1799,8 @@ export function renderFlowSimComposerControl({ awaiting, submitAsk, pickQuickRep
     // as the answer to the new question. Keying on the node id forces a
     // clean remount every time the simulation moves to a new question.
     return <AnswerControl key={awaiting.node.id} questionType={awaiting.node.data?.questionType} accent={accent || '#0066ff'} dark={dark} onSubmit={submitAsk} interactive
-      formFields={awaiting.node.data?.formFields} otpConfig={awaiting.node.data?.otpConfig} googleMapsApiKey={googleMapsApiKey}/>
+      formFields={awaiting.node.data?.formFields} otpConfig={awaiting.node.data?.otpConfig} googleMapsApiKey={googleMapsApiKey}
+      nodeData={awaiting.node.data}/>
   }
   if (awaiting.type === 'quick_replies') {
     return (
