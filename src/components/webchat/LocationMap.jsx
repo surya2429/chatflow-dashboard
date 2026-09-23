@@ -99,6 +99,57 @@ export function reverseGeocode(lat, lng) {
   })
 }
 
+/** Pulls postal code / city / state out of a Geocoder result's
+ *  address_components — the three fields an address FORM wants, which
+ *  `formatted_address` alone doesn't separate. Google's naming is not
+ *  intuitive: `locality` is the city and `administrative_area_level_1` is the
+ *  state, and either can be missing for a rural or non-Indian address, so
+ *  every lookup falls back to the next-broadest component rather than
+ *  leaving a field blank when a narrower one exists. */
+function pickComponents(components) {
+  const find = (...types) => components?.find(c => types.some(t => c.types.includes(t)))?.long_name || ''
+  return {
+    pincode: find('postal_code'),
+    city: find('locality', 'sublocality', 'administrative_area_level_2'),
+    state: find('administrative_area_level_1'),
+  }
+}
+
+/** Reverse-geocode a point into address + pincode/city/state, for a pin drag
+ *  or a "use my current location" tap that needs to fill an address FORM, not
+ *  just show a label. Resolves to null components (never throws) when Maps
+ *  isn't available — the caller's fields stay editable and empty instead. */
+export function reverseGeocodeDetailed(lat, lng) {
+  return new Promise(resolve => {
+    if (!window.google?.maps?.Geocoder) return resolve({ address: null, pincode: '', city: '', state: '' })
+    new window.google.maps.Geocoder().geocode({ location: { lat, lng } }, (results, status) => {
+      if (status !== 'OK' || !results?.[0]) return resolve({ address: null, pincode: '', city: '', state: '' })
+      resolve({ address: results[0].formatted_address, ...pickComponents(results[0].address_components) })
+    })
+  })
+}
+
+/** Forward-geocode: turn typed text (a city, an area, a 6-digit pincode) into
+ *  a point plus pincode/city/state. This is what powers "Or enter pincode →
+ *  Use Pin" and a plain-text search that wasn't picked from the Autocomplete
+ *  dropdown. Resolves to null when Maps isn't available or nothing matches,
+ *  so the caller can fall back to entering everything by hand. */
+export function geocodeAddress(query) {
+  return new Promise(resolve => {
+    const q = (query || '').trim()
+    if (!q || !window.google?.maps?.Geocoder) return resolve(null)
+    new window.google.maps.Geocoder().geocode({ address: q }, (results, status) => {
+      if (status !== 'OK' || !results?.[0]) return resolve(null)
+      const r = results[0]
+      const loc = r.geometry?.location
+      resolve({
+        address: r.formatted_address, lat: loc ? loc.lat() : null, lng: loc ? loc.lng() : null,
+        ...pickComponents(r.address_components),
+      })
+    })
+  })
+}
+
 /** Keyless deep link — opens the native app on mobile, maps.google.com on
  *  desktop. Used by both the live map and the no-key fallback. */
 export function mapsLink(lat, lng, address) {

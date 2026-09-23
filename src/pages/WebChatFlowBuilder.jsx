@@ -1032,6 +1032,39 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
                 </>
               )}
 
+              {def.questionType === 'shipment_booking' && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1"><label className="label">Currency symbol</label>
+                      <input className="input" value={d.currency || ''} onChange={e => set('currency', e.target.value)} placeholder="₹"/>
+                    </div>
+                    <div className="space-y-1"><label className="label">Rate estimate (per kg)</label>
+                      <input className="input" value={d.ratePerKg ?? ''} onChange={e => set('ratePerKg', e.target.value)} placeholder="5"/>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {[
+                      ['showDimensions', 'Ask for box dimensions (volumetric weight)'],
+                      ['codEnabled', 'Allow Cash on Delivery'],
+                      ['appointmentEnabled', 'Allow appointment delivery'],
+                      ['insuranceEnabled', 'Offer insurance (owner / carrier)'],
+                    ].map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 select-none">
+                        <input type="checkbox" className="w-3.5 h-3.5 rounded accent-primary" checked={d[key] !== false}
+                          onChange={e => set(key, e.target.checked)}/>
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-snug">
+                    "Check Rates" is a simulated estimate (chargeable weight × the rate above) — no
+                    carrier rate card is connected. The pickup/delivery pickers use Google Maps if a
+                    key is set in Behavior settings, and fall back to hand-typed pincode/city/state
+                    otherwise.
+                  </p>
+                </>
+              )}
+
               {def.questionType === 'verify_doc' && (
                 <>
                   <div className="space-y-1"><label className="label">Accepted documents</label>

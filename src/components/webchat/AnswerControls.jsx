@@ -9,6 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import clsx from 'clsx'
 import LocationMap, { useGoogleMaps, reverseGeocode } from './LocationMap'
+import ShipmentBookingAnswer from './ShipmentBookingAnswer'
 import {
   Send, Star, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown,
   Check, X, Upload, Image as ImageIcon, Pencil, MapPin, CreditCard, Lock,
@@ -1640,6 +1641,8 @@ export function AnswerControl({ questionType, accent = '#0066ff', dark = false, 
       return <ConsentAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'verify_doc':
       return <VerifyDocAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
+    case 'shipment_booking':
+      return <ShipmentBookingAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData} googleMapsApiKey={googleMapsApiKey}/>
     case 'form':
       return <FormAnswer accent={accent} dark={dark} onSubmit={submit} formFields={formFields} googleMapsApiKey={googleMapsApiKey}/>
     case 'carousel':
