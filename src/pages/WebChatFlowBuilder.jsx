@@ -371,6 +371,8 @@ const QUESTION_PROMPTS = {
   carousel:          'Check out our top products',
   carousel_buttons:  'Pick an option below',
   catalog:           'Browse our catalog and add something to your cart',
+  shipment_booking:     "Let's get your courier booked — pickup, delivery and parcel details in one go:",
+  shipment_calculation: "Let's work out a shipping estimate — pickup, delivery and parcel details:",
 }
 
 /* ─── Question Types Test flow — one "ask_<id>" node per entry in Web Chat's
@@ -1061,6 +1063,29 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
                     carrier rate card is connected. The pickup/delivery pickers use Google Maps if a
                     key is set in Behavior settings, and fall back to hand-typed pincode/city/state
                     otherwise.
+                  </p>
+                </>
+              )}
+
+              {def.questionType === 'shipment_calculation' && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1"><label className="label">Currency symbol</label>
+                      <input className="input" value={d.currency || ''} onChange={e => set('currency', e.target.value)} placeholder="₹"/>
+                    </div>
+                    <div className="space-y-1"><label className="label">Rate estimate (per kg)</label>
+                      <input className="input" value={d.ratePerKg ?? ''} onChange={e => set('ratePerKg', e.target.value)} placeholder="5"/>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 select-none">
+                    <input type="checkbox" className="w-3.5 h-3.5 rounded accent-primary" checked={d.showDimensions !== false}
+                      onChange={e => set('showDimensions', e.target.checked)}/>
+                    Ask for box dimensions (volumetric weight)
+                  </label>
+                  <p className="text-[10px] text-slate-400 leading-snug">
+                    A quote-only version of Shipment Booking — pickup, delivery and package details in,
+                    an instant estimated rate out, no payment or booking step. Use this when you want a
+                    rate calculator on your site without a live booking pipeline behind it.
                   </p>
                 </>
               )}

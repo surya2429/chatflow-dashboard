@@ -5,7 +5,7 @@ import {
   Type, AlignJustify, Hash, Mail, Phone, Link2, Circle, CheckSquare, ChevronDown,
   ToggleLeft, Star, BarChart2, Calendar, Clock, Upload, Image, Pencil, MapPin,
   CreditCard, Lock, FileText, Images, Layers, ShoppingBag,
-  Megaphone, HelpCircle, Sparkles, ShieldCheck, BadgeCheck, Truck,
+  Megaphone, HelpCircle, Sparkles, ShieldCheck, BadgeCheck, Truck, Calculator,
 } from 'lucide-react'
 
 /* 'Content' covers the types where the bot is telling rather than asking — a
@@ -45,6 +45,7 @@ export const QUESTION_TYPES = [
   { id:'consent',   cat:'Special',     icon:ShieldCheck,  name:'Consent',          desc:'Explicit opt-in that records what was agreed', color:'#EF4444' },
   { id:'verify_doc',cat:'Special',     icon:BadgeCheck,   name:'Verify Document',  desc:'Upload an ID document and have it checked', color:'#EF4444' },
   { id:'shipment_booking', cat:'Special', icon:Truck,      name:'Shipment Booking', desc:'Pickup, delivery, package details and 1-click book', color:'#EF4444' },
+  { id:'shipment_calculation', cat:'Special', icon:Calculator, name:'Rate Calculator', desc:'Pickup, delivery and package details → instant rate estimate', color:'#EF4444' },
   /* Content — the bot tells, shows or answers */
   { id:'statement', cat:'Content',     icon:Megaphone,    name:'Statement',        desc:'Say something and wait for acknowledgement', color:'#64748B' },
   { id:'faq',       cat:'Content',     icon:HelpCircle,   name:'FAQ',              desc:'Browse common questions and their answers', color:'#0EA5E9' },
