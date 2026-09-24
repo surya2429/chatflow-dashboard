@@ -113,7 +113,7 @@ function Toggle({ options, value, onChange, accent, dark }) {
         const on = value === o.value
         return (
           <button key={o.value} type="button" onClick={() => onChange(o.value)}
-            className="flex-1 text-[10.5px] font-bold py-2 transition-colors"
+            className="flex-1 text-[10.5px] font-bold py-2 px-2.5 whitespace-nowrap transition-colors"
             style={{ background: on ? accent : 'transparent', color: on ? '#fff' : faint(dark), borderLeft: i > 0 ? `1.5px solid ${dark ? '#22304a' : '#e2e8f0'}` : 'none' }}>
             {o.label}
           </button>
@@ -289,15 +289,15 @@ function DimensionsEditor({ boxes, onChange, unit, onUnitChange, accent, dark })
 
   return (
     <div className="rounded-xl p-2.5 space-y-1.5 wc-ac-fade" style={{ background: dark ? '#0d1626' : '#f8fafc', border: `1.5px dashed ${dark ? '#22304a' : '#e2e8f0'}` }}>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-[9.5px] font-bold uppercase tracking-wide" style={{ color: faint(dark) }}>Length · Width · Height</p>
-        <div className="flex items-center gap-1">
-          <Toggle options={[{ value: 'cm', label: 'CM' }, { value: 'in', label: 'IN' }, { value: 'ft', label: 'FT' }]} value={unit} onChange={onUnitChange} accent={accent} dark={dark}/>
-          <button type="button" onClick={addBox} className="flex items-center gap-0.5 px-2 py-1 rounded-lg text-[10px] font-bold flex-shrink-0" style={{ background: `${accent}15`, color: accent }}>
-            <Plus size={10}/> Box
-          </button>
-        </div>
+        <button type="button" onClick={addBox}
+          className="flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-lg text-[10px] font-bold flex-shrink-0"
+          style={{ background: `${accent}15`, color: accent }}>
+          <Plus size={11}/> Add box
+        </button>
       </div>
+      <Toggle options={[{ value: 'cm', label: 'Centimetres' }, { value: 'in', label: 'Inches' }, { value: 'ft', label: 'Feet' }]} value={unit} onChange={onUnitChange} accent={accent} dark={dark}/>
       {boxes.map((b, i) => (
         <div key={i} className="grid items-center gap-1" style={{ gridTemplateColumns: '1fr 1fr 1fr 40px 18px' }}>
           {['l', 'w', 'h'].map(k => (
