@@ -280,9 +280,23 @@ function PhoneAnswer({ accent, dark, onSubmit }) {
 // 20 options, not 3 — the realistic case this whole style/scroll system was
 // built for (see CHOICE_LIST_MAX_H below). Three options never actually
 // exercised the "good for 20+" scroll behavior a style like Buttons or
-// Outline claims in its own picker description; this does.
+// Outline claims in its own picker description; this does. Deliberately
+// mixed lengths (2 chars to a full sentence) rather than uniform "Option A"
+// text — a merchant's real option list is never uniform, and a style whose
+// layout only holds up for short, evenly-sized labels isn't actually usable.
 const OPTION_LETTERS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i))
-const OPTIONS = OPTION_LETTERS.slice(0, 20).map(l => `Option ${l}`)
+const OPTIONS = [
+  'Yes', 'No', 'Maybe later',
+  'Basic', 'Pro', 'Enterprise',
+  'Free Shipping', 'International Delivery', 'Same-Day Dispatch',
+  '24/7 Customer Support', 'Extended Warranty Coverage',
+  'I already have an account with you',
+  'Send me a text message instead of email',
+  'North America', 'European Union', 'Asia Pacific',
+  'None of the above, something else entirely',
+  'A', 'Option with a genuinely very long label that keeps going and going',
+  'Standard (5-7 business days)',
+]
 const CHOICE_LIST_MAX_H = 260
 export const CHOICE_STYLES = [
   { id: 'list',    label: 'List',    icon: List,       desc: 'Grouped rows, one card' },
@@ -349,11 +363,16 @@ function ChoiceTile({ letter, label, selected, accent, dark, onClick, shape = 'r
     </button>
   )
 }
-/* 'pills' style — compact wrapping chips, no letter badge (too tight) */
+/* 'pills' style — compact wrapping chips, no letter badge (too tight).
+   Capped width + truncate: an un-bounded chip stretches to fit a long label
+   on its own line, which breaks the whole point of a "compact chip row" —
+   one oversized, two-line chip sitting among short ones reads as broken,
+   not as content. Every other style truncates a long label the same way;
+   this was the one style that didn't. */
 function ChoicePill({ label, selected, accent, dark, onClick }) {
   return (
     <button onClick={onClick} type="button"
-      className="px-3.5 py-2 rounded-full text-[11.5px] font-bold transition-all active:scale-[0.96]"
+      className="max-w-[168px] px-3.5 py-2 rounded-full text-[11.5px] font-bold truncate transition-all active:scale-[0.96]"
       style={{
         background: selected ? accent : (dark ? '#111c30' : '#f1f5f9'),
         color: selected ? '#fff' : (dark ? '#cbd5e1' : '#475569'),
