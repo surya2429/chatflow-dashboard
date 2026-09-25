@@ -270,7 +270,13 @@ function PhoneAnswer({ accent, dark, onSubmit }) {
               other common "menu of buttons" look (courier-app style quick
               actions). Both new styles, plus pills/grid, scroll internally
               past CHOICE_LIST_MAX_H rather than growing the composer
-              without bound, since a real option list can run past 20. ──── */
+              without bound, since a real option list can run past 20.
+
+   `inline: true` (buttons, outline) marks a style that answers attached
+   under its OWN question bubble instead of the fixed composer slot — see
+   isInlineAskAwaiting in WebChatFlowBuilder.jsx, which is what actually
+   reads this flag. Kept on the style's own catalog entry rather than a
+   separate list so the two can never drift out of sync with each other. ── */
 const OPTIONS = ['Option A', 'Option B', 'Option C']
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
 const CHOICE_LIST_MAX_H = 260
@@ -279,8 +285,8 @@ export const CHOICE_STYLES = [
   { id: 'cards',   label: 'Cards',   icon: Layers,     desc: 'Separate tappable cards' },
   { id: 'pills',   label: 'Pills',   icon: Tags,       desc: 'Compact wrapping chips' },
   { id: 'grid',    label: 'Grid',    icon: LayoutGrid, desc: '2-column tiles' },
-  { id: 'buttons', label: 'Buttons', icon: AlignJustify, desc: 'Solid stacked buttons — good for 20+' },
-  { id: 'outline', label: 'Outline', icon: Grid2x2,    desc: '2-column outlined pills — good for 20+' },
+  { id: 'buttons', label: 'Buttons', icon: AlignJustify, desc: 'Stacked buttons under the message — good for 20+', inline: true },
+  { id: 'outline', label: 'Outline', icon: Grid2x2,    desc: '2-column pills under the message — good for 20+', inline: true },
 ]
 
 function ChoiceBadge({ letter, selected, accent, dark, shape }) {
@@ -378,7 +384,7 @@ function ChoiceGridTile({ letter, label, selected, accent, dark, onClick, shape 
 function ChoiceButton({ label, selected, accent, dark, onClick }) {
   return (
     <button onClick={onClick} type="button"
-      className="w-full flex items-center justify-center gap-1.5 px-4 py-3 rounded-full text-[12.5px] font-bold text-white text-center transition-all active:scale-[0.98]"
+      className="w-full flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-full text-[11px] font-bold text-white text-center transition-all active:scale-[0.98]"
       style={{
         background: accent,
         boxShadow: selected
@@ -396,7 +402,7 @@ function ChoiceButton({ label, selected, accent, dark, onClick }) {
 function ChoiceOutlinePill({ label, selected, accent, dark, onClick }) {
   return (
     <button onClick={onClick} type="button"
-      className="flex items-center justify-center gap-1 px-3 py-2.5 rounded-full text-[11.5px] font-bold text-center transition-all active:scale-[0.96]"
+      className="flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-full text-[10.5px] font-bold text-center transition-all active:scale-[0.96]"
       style={{
         background: selected ? `${accent}14` : (dark ? '#0b1526' : '#fff'),
         color: accent,
@@ -452,7 +458,7 @@ function ChoiceOptions({ options, mode, style, isSelected, onPick, accent, dark 
   }
   if (style === 'buttons') {
     return (
-      <ChoiceScroll className="flex flex-col gap-2">
+      <ChoiceScroll className="flex flex-col gap-1.5">
         {options.map(o => (
           <ChoiceButton key={o} label={o} selected={isSelected(o)} accent={accent} dark={dark} onClick={() => onPick(o)}/>
         ))}
@@ -461,7 +467,7 @@ function ChoiceOptions({ options, mode, style, isSelected, onPick, accent, dark 
   }
   if (style === 'outline') {
     return (
-      <ChoiceScroll className="grid grid-cols-2 gap-2">
+      <ChoiceScroll className="grid grid-cols-2 gap-1.5">
         {options.map(o => (
           <ChoiceOutlinePill key={o} label={o} selected={isSelected(o)} accent={accent} dark={dark} onClick={() => onPick(o)}/>
         ))}

@@ -330,7 +330,7 @@ export function useWidgetTheme(cfg) {
   }
 }
 
-export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQType, activeTab, setActiveTab, simThread, simComposerBanner, simComposerControl, setScreen: setScreenProp, onVoiceCall, onVideoCall, onRestartChat }) {
+export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQType, activeTab, setActiveTab, simThread, simComposerBanner, simComposerControl, simInlineControl, simInlineMsgId, setScreen: setScreenProp, onVoiceCall, onVideoCall, onRestartChat }) {
   useGoogleFont(cfg.fontFamily)
   // `setScreen` is only meaningful to callers that actually own a "screen"
   // state to transition (the Appearance page's own live preview) — callers
@@ -914,6 +914,15 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                     <div className="mt-2">
                       <AnswerControl questionType={m.questionType.id} accent={cfg.color} dark={dark} interactive={false} googleMapsApiKey={cfg.googleMapsApiKey}/>
                     </div>
+                  )}
+
+                  {/* The live sim's control for THIS question, attached under
+                      its own bubble instead of the fixed composer — only for
+                      choice styles designed to read as a menu of buttons
+                      (see isInlineAskAwaiting). Every other question type
+                      still answers from the composer below, unchanged. */}
+                  {simInlineControl && simInlineMsgId === m.id && (
+                    <div className="mt-2">{simInlineControl}</div>
                   )}
 
                   {/* Rich plan cards — an example of a structured bot reply */}

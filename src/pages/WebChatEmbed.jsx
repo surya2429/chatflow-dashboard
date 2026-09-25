@@ -31,7 +31,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { WidgetPreview, useWidgetTheme } from './WebChatAppearance'
-import { useFlowSimulation, renderFlowSimComposerControl } from './WebChatFlowBuilder'
+import { useFlowSimulation, renderFlowSimComposerControl, isInlineAskAwaiting } from './WebChatFlowBuilder'
 import { useLiveConfig, SECTION_APPEARANCE, SECTION_FLOWS } from '../lib/liveConfig'
 import { useVisitorCall } from '../hooks/useVisitorCall'
 import { VisitorCallOverlay } from '../components/webchat/VisitorCallOverlay'
@@ -178,7 +178,7 @@ function EmbedShell({ botId, cfg, flow, allFlows }) {
   const simComposerBanner = hasFlow && sim.ended
     ? { text: 'This conversation has ended', actionLabel: '↻ Start over', onAction: sim.reset }
     : null
-  const simComposerControl = hasFlow && sim.awaiting
+  const simControl = hasFlow && sim.awaiting
     ? renderFlowSimComposerControl({
         awaiting: sim.awaiting, submitAsk: sim.submitAsk,
         pickQuickReply: sim.pickQuickReply, pickBranch: sim.pickBranch,
@@ -186,6 +186,10 @@ function EmbedShell({ botId, cfg, flow, allFlows }) {
         quickReplyStyle: cfg.quickReplyStyle, googleMapsApiKey: cfg.googleMapsApiKey,
       })
     : null
+  const inline = hasFlow && isInlineAskAwaiting(sim.awaiting)
+  const simComposerControl = inline ? null : simControl
+  const simInlineControl = inline ? simControl : null
+  const simInlineMsgId = inline ? sim.awaiting.msgId : null
 
   return (
     <div className="w-screen h-screen overflow-hidden" style={{ background: 'transparent' }}>
@@ -197,6 +201,7 @@ function EmbedShell({ botId, cfg, flow, allFlows }) {
           simThread={hasFlow ? sim.messages : undefined}
           simComposerBanner={simComposerBanner}
           simComposerControl={simComposerControl}
+          simInlineControl={simInlineControl} simInlineMsgId={simInlineMsgId}
           onRestartChat={hasFlow ? sim.reset : undefined}
           onVoiceCall={() => call.callAgent(false)}
           onVideoCall={() => call.callAgent(true)}/>

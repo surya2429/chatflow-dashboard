@@ -1855,15 +1855,30 @@ export function useFlowSimulation(flow, allFlows) {
   return { messages, awaiting, ended, activity, activityOpen, setActivityOpen, reset, submitAsk, pickQuickReply, pickBranch, injectAgentMessage }
 }
 
+/* A Single/Multiple Choice node whose style reads as a menu of buttons
+   (see CHOICE_STYLES' `inline` flag — Buttons and Outline, matching a Quick
+   Replies / Main Menu look) answers attached under its OWN question bubble
+   instead of the fixed composer, the same way quick_replies chips visually
+   read as part of the message they belong to. Every other question type
+   still answers from the one consistent composer location below. A caller
+   uses this to decide which of `simComposerControl` / `simInlineControl` a
+   pending ask-node's control should be built into. */
+export function isInlineAskAwaiting(awaiting) {
+  if (awaiting?.type !== 'ask') return false
+  const style = CHOICE_STYLES.find(s => s.id === (awaiting.node.data?.choiceStyle || 'list'))
+  return Boolean(style?.inline)
+}
+
 /* Renders whichever interactive control the simulation is currently awaiting
    an answer for — quick-reply chips, branch-test chips, or the real shared
-   answer control for an `ask_*` node — for the widget's bottom composer slot
-   (`simComposerControl`) instead of attaching it under the question's own
-   bubble, so every question type answers from one consistent location. Pure
-   function of the hook's own outputs plus the small bit of widget theming
-   needed to match the chip look exactly — shared by both the popup preview
-   and the standalone full-page live preview so there's exactly one
-   implementation of "what does the composer show right now". */
+   answer control for an `ask_*` node — as either the widget's bottom
+   composer slot (`simComposerControl`) or, for an inline-styled choice
+   question (see `isInlineAskAwaiting`), attached under its own question
+   bubble (`simInlineControl`) instead. Pure function of the hook's own
+   outputs plus the small bit of widget theming needed to match the chip look
+   exactly — shared by both the popup preview and the standalone full-page
+   live preview so there's exactly one implementation of "what does the
+   pending question's control look like right now". */
 export function renderFlowSimComposerControl({ awaiting, submitAsk, pickQuickReply, pickBranch, accent, dark, cornerR, fs, quickReplyStyle, googleMapsApiKey }) {
   if (!awaiting) return null
 
@@ -1949,9 +1964,13 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
   }, [messages, flow])
 
   const simComposerBanner = ended ? { text: 'This simulation has ended', actionLabel: '↻ Restart', onAction: reset } : null
-  const simComposerControl = awaiting
+  const simControl = awaiting
     ? renderFlowSimComposerControl({ awaiting, submitAsk, pickQuickReply, pickBranch, accent: cfg.color, dark, cornerR, fs, quickReplyStyle: cfg.quickReplyStyle, googleMapsApiKey: cfg.googleMapsApiKey })
     : null
+  const inline = isInlineAskAwaiting(awaiting)
+  const simComposerControl = inline ? null : simControl
+  const simInlineControl = inline ? simControl : null
+  const simInlineMsgId = inline ? awaiting.msgId : null
 
   return (
     <div className="fixed bottom-2.5 right-5 z-[70] flex flex-col items-end gap-2 max-h-[calc(100vh-20px)]">
@@ -1979,6 +1998,7 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
           setScreen={s => { if (s === 'closed') onClose() }}
           simThread={messages} simComposerBanner={simComposerBanner}
           simComposerControl={simComposerControl}
+          simInlineControl={simInlineControl} simInlineMsgId={simInlineMsgId}
           onRestartChat={reset}/>
       </div>
 

@@ -16,7 +16,7 @@
 import { useState, useEffect } from 'react'
 import { MessageSquareText } from 'lucide-react'
 import { WidgetPreview, useWidgetTheme } from './WebChatAppearance'
-import { useFlowSimulation, renderFlowSimComposerControl, useWidgetCfg, FLOW_PREVIEW_STORAGE_KEY, recordFlowTestTurn, useAgentReplyBridge, hashToVisitorNumber } from './WebChatFlowBuilder'
+import { useFlowSimulation, renderFlowSimComposerControl, isInlineAskAwaiting, useWidgetCfg, FLOW_PREVIEW_STORAGE_KEY, recordFlowTestTurn, useAgentReplyBridge, hashToVisitorNumber } from './WebChatFlowBuilder'
 import { useVisitorCall } from '../hooks/useVisitorCall'
 import { VisitorCallOverlay } from '../components/webchat/VisitorCallOverlay'
 
@@ -72,9 +72,13 @@ function LiveFlowPreview({ flow, allFlows }) {
   }, [messages, flow])
 
   const simComposerBanner = ended ? { text: 'This simulation has ended', actionLabel: '↻ Restart', onAction: reset } : null
-  const simComposerControl = awaiting
+  const simControl = awaiting
     ? renderFlowSimComposerControl({ awaiting, submitAsk, pickQuickReply, pickBranch, accent: cfg.color, dark, cornerR, fs, quickReplyStyle: cfg.quickReplyStyle, googleMapsApiKey: cfg.googleMapsApiKey })
     : null
+  const inline = isInlineAskAwaiting(awaiting)
+  const simComposerControl = inline ? null : simControl
+  const simInlineControl = inline ? simControl : null
+  const simInlineMsgId = inline ? awaiting.msgId : null
 
   return (
     <div className="min-h-screen w-full bg-white flex items-center justify-center p-4 sm:p-8">
@@ -89,6 +93,7 @@ function LiveFlowPreview({ flow, allFlows }) {
           activeTab="chat" setActiveTab={() => {}}
           simThread={messages} simComposerBanner={simComposerBanner}
           simComposerControl={simComposerControl}
+          simInlineControl={simInlineControl} simInlineMsgId={simInlineMsgId}
           onRestartChat={reset}
           onVoiceCall={() => call.callAgent(false)}
           onVideoCall={() => call.callAgent(true)}/>
