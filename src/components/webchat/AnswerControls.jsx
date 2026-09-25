@@ -277,8 +277,12 @@ function PhoneAnswer({ accent, dark, onSubmit }) {
    isInlineAskAwaiting in WebChatFlowBuilder.jsx, which is what actually
    reads this flag. Kept on the style's own catalog entry rather than a
    separate list so the two can never drift out of sync with each other. ── */
-const OPTIONS = ['Option A', 'Option B', 'Option C']
-const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
+// 20 options, not 3 — the realistic case this whole style/scroll system was
+// built for (see CHOICE_LIST_MAX_H below). Three options never actually
+// exercised the "good for 20+" scroll behavior a style like Buttons or
+// Outline claims in its own picker description; this does.
+const OPTION_LETTERS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i))
+const OPTIONS = OPTION_LETTERS.slice(0, 20).map(l => `Option ${l}`)
 const CHOICE_LIST_MAX_H = 260
 export const CHOICE_STYLES = [
   { id: 'list',    label: 'List',    icon: List,       desc: 'Grouped rows, one card' },
