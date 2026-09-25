@@ -1013,8 +1013,20 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
            composer, the interactive answer control (ask control, or the
            quick-reply/branch chip row) renders full-width right here in the
            composer slot, the single consistent location for every question
-           type rather than one attached under each message bubble. */
-        <div className={clsx('flex-shrink-0 px-3 pt-2.5 pb-2.5', dark ? 'bg-slate-900' : 'bg-white')}
+           type rather than one attached under each message bubble.
+
+           The panel itself is a fixed height, so this slot can't just grow
+           without bound the way the choice controls' own content now does
+           (no truncation, no internal scroll of their own — see
+           AnswerControls.jsx). Left unconstrained, a long option list used
+           to demand more height than the panel had, and flexbox met that
+           demand by shrinking the message thread above it toward zero —
+           the question bubble scrolled almost entirely out of view instead
+           of the composer giving an inch. `max-h-[62%]` + its own scroll
+           caps the composer's share of the panel so the thread always keeps
+           real room, and a genuinely long list scrolls as one smooth region
+           here instead of clipping invisibly against the panel's edge. */
+        <div className={clsx('flex-shrink-0 overflow-y-auto wc-scroll px-3 pt-2.5 pb-2.5 max-h-[62%]', dark ? 'bg-slate-900' : 'bg-white')}
           style={{ boxShadow: dark ? '0 -1px 0 rgba(255,255,255,0.06)' : '0 -1px 0 rgba(15,23,42,0.06)' }}>
           {simComposerControl}
         </div>
