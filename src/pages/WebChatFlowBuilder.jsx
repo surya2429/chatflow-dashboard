@@ -18,7 +18,7 @@ import { QUESTION_TYPES as WEBCHAT_QUESTION_TYPES } from '../constants/webchatQu
 import { WIDGET_CFG_STORAGE_KEY, useWidgetTheme, WidgetPreview, getLandingBotId, slugifyBotName } from './WebChatAppearance'
 import { usePublishSection, useLoadSection, SECTION_FLOWS } from '../lib/liveConfig'
 import { useBotId } from '../constants/webchat'
-import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS } from '../components/webchat/AnswerControls'
+import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
 
 /* ─── one draggable palette block per question type — "ask_<id>" — instead ──
@@ -625,6 +625,32 @@ function OtpConfigEditor({ config, onChange }) {
     </div>
   )
 }
+/* Style picker for Single/Multiple Choice — CHOICE_STYLES is the single
+   source of truth (also drives AnswerControls.jsx's rendering), so this
+   picker can never drift out of sync with what a chosen style actually
+   looks like. A 2x2 grid of labelled cards rather than a plain dropdown:
+   the whole point of the choice is visual, so the picker should read like
+   a small preview of the options, not a blind text list. */
+function ChoiceStyleEditor({ value, onChange }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="label">Answer layout</label>
+      <div className="grid grid-cols-2 gap-1.5">
+        {CHOICE_STYLES.map(s => (
+          <button key={s.id} type="button" onClick={() => onChange(s.id)}
+            className={clsx('flex items-start gap-2 p-2.5 rounded-xl border text-left transition-colors',
+              value === s.id ? 'border-primary bg-primary-50' : 'border-surface-border hover:bg-surface-hover')}>
+            <s.icon size={13} className={clsx('flex-shrink-0 mt-0.5', value === s.id ? 'text-primary' : 'text-slate-400')}/>
+            <span className="min-w-0">
+              <span className={clsx('block text-[11px] font-bold', value === s.id ? 'text-primary' : 'text-slate-700')}>{s.label}</span>
+              <span className="block text-[9.5px] text-slate-400 leading-snug">{s.desc}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 /* Question/answer pairs for the FAQ type. Kept editable inline rather than
    pointing at a separate help-centre store: a bot's FAQ list is usually a
    handful of questions specific to THIS conversation step ("before you book,
@@ -966,6 +992,9 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
               )}
               {def.questionType === 'otp' && (
                 <OtpConfigEditor config={d.otpConfig} onChange={v => set('otpConfig', v)}/>
+              )}
+              {(def.questionType === 'single' || def.questionType === 'multi') && (
+                <ChoiceStyleEditor value={d.choiceStyle || 'list'} onChange={v => set('choiceStyle', v)}/>
               )}
 
               {def.questionType === 'statement' && (

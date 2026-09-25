@@ -15,7 +15,7 @@ import {
   Send, Star, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown,
   Check, X, Upload, Image as ImageIcon, Pencil, MapPin, CreditCard, Lock,
   Clock, Search, LocateFixed, Plus, FileText, Paperclip,
-  HelpCircle, Sparkles, BadgeCheck, ExternalLink,
+  HelpCircle, Sparkles, BadgeCheck, ExternalLink, List, Layers, Tags, LayoutGrid,
 } from 'lucide-react'
 
 /* ── shared style injection (custom keyframes Tailwind can't express) ───── */
@@ -247,13 +247,44 @@ function PhoneAnswer({ accent, dark, onSubmit }) {
   )
 }
 
-/* ── single / multi choice: ONE grouped card with divided rows — a bare
-   radio circle on plain floating pills read as flat/generic ("this ui is
-   not good"). Modern chat polls (WhatsApp/Telegram list messages) present
-   options as rows of a single cohesive card, each with a lettered badge,
-   not a scatter of separately-bordered pills — that's the bar to match. ── */
+/* ── single / multi choice — FOUR selectable UI styles, picked per-node from
+   the flow builder's edit-question popup (`data.choiceStyle`, default
+   'list'). One shared renderer (`ChoiceOptions`) so single-select
+   (auto-submits on pick) and multi-select (submits via a Done button) stay
+   visually identical for whichever style is chosen — the two question types
+   differ in selection behavior, not in layout options. ────────────────────
+   - list:  WhatsApp/Telegram-style grouped card with divided rows — the
+            original design here, kept as the default.
+   - cards: the same row content, but each option is its own separate
+            tappable card — more presence per option, better for longer or
+            more important-feeling choices.
+   - pills: compact wrapping chip row — best for many short options (tags,
+            categories) where a full-width list wastes space.
+   - grid:  2-column tiles — best for 4+ short options that benefit from
+            being scannable as a block rather than a long vertical list. ── */
 const OPTIONS = ['Option A', 'Option B', 'Option C']
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
+export const CHOICE_STYLES = [
+  { id: 'list',  label: 'List',  icon: List,      desc: 'Grouped rows, one card' },
+  { id: 'cards', label: 'Cards', icon: Layers,    desc: 'Separate tappable cards' },
+  { id: 'pills', label: 'Pills', icon: Tags,      desc: 'Compact wrapping chips' },
+  { id: 'grid',  label: 'Grid',  icon: LayoutGrid, desc: '2-column tiles' },
+]
+
+function ChoiceBadge({ letter, selected, accent, dark, shape }) {
+  return (
+    <span className="flex items-center justify-center flex-shrink-0 font-bold transition-all"
+      style={{
+        width: 26, height: 26, borderRadius: shape === 'radio' ? '50%' : 8,
+        fontSize: 11,
+        background: selected ? accent : (dark ? '#1e293b' : '#eef1f6'),
+        color: selected ? '#fff' : (dark ? '#94a3b8' : '#94a3b8'),
+        boxShadow: selected ? `0 3px 10px -3px ${accent}99` : 'none',
+      }}>
+      {selected ? <Check size={13} strokeWidth={3} className="wc-ac-pop"/> : letter}
+    </span>
+  )
+}
 function ChoiceRow({ letter, label, selected, accent, dark, onClick, shape = 'radio', last }) {
   const [hover, setHover] = useState(false)
   return (
@@ -264,16 +295,7 @@ function ChoiceRow({ letter, label, selected, accent, dark, onClick, shape = 'ra
         borderBottom: last ? 'none' : `1px solid ${dark ? '#1e293b' : '#f1f5f9'}`,
         background: selected ? `${accent}12` : hover ? (dark ? '#111c30' : '#f8fafc') : 'transparent',
       }}>
-      <span className="flex items-center justify-center flex-shrink-0 font-bold transition-all"
-        style={{
-          width: 26, height: 26, borderRadius: shape === 'radio' ? '50%' : 8,
-          fontSize: 11,
-          background: selected ? accent : (dark ? '#1e293b' : '#eef1f6'),
-          color: selected ? '#fff' : (dark ? '#94a3b8' : '#94a3b8'),
-          boxShadow: selected ? `0 3px 10px -3px ${accent}99` : 'none',
-        }}>
-        {selected ? <Check size={13} strokeWidth={3} className="wc-ac-pop"/> : letter}
-      </span>
+      <ChoiceBadge letter={letter} selected={selected} accent={accent} dark={dark} shape={shape}/>
       <span className="flex-1 text-[12.5px] font-semibold truncate" style={{ color: selected ? accent : (dark ? '#e2e8f0' : '#334155') }}>{label}</span>
     </button>
   )
@@ -290,29 +312,108 @@ function ChoiceCard({ children, dark }) {
     </div>
   )
 }
-function SingleChoiceAnswer({ accent, dark, onSubmit }) {
-  const [sel, setSel] = useState(null)
+/* 'cards' style — the same row content as ChoiceRow, as its own card */
+function ChoiceTile({ letter, label, selected, accent, dark, onClick, shape = 'radio' }) {
+  return (
+    <button onClick={onClick} type="button"
+      className="w-full flex items-center gap-3 px-3.5 py-3 rounded-2xl text-left transition-all active:scale-[0.98]"
+      style={{
+        background: selected ? `${accent}12` : (dark ? '#0b1526' : '#fff'),
+        border: `1.5px solid ${selected ? accent : (dark ? '#1e293b' : '#eef1f6')}`,
+        boxShadow: selected ? `0 6px 16px -10px ${accent}99` : (dark ? 'none' : '0 4px 14px -10px rgba(15,23,42,0.12)'),
+      }}>
+      <ChoiceBadge letter={letter} selected={selected} accent={accent} dark={dark} shape={shape}/>
+      <span className="flex-1 text-[12.5px] font-semibold truncate" style={{ color: selected ? accent : (dark ? '#e2e8f0' : '#334155') }}>{label}</span>
+    </button>
+  )
+}
+/* 'pills' style — compact wrapping chips, no letter badge (too tight) */
+function ChoicePill({ label, selected, accent, dark, onClick }) {
+  return (
+    <button onClick={onClick} type="button"
+      className="px-3.5 py-2 rounded-full text-[11.5px] font-bold transition-all active:scale-[0.96]"
+      style={{
+        background: selected ? accent : (dark ? '#111c30' : '#f1f5f9'),
+        color: selected ? '#fff' : (dark ? '#cbd5e1' : '#475569'),
+        border: `1.5px solid ${selected ? accent : (dark ? '#22304a' : '#e2e8f0')}`,
+        boxShadow: selected ? `0 4px 12px -6px ${accent}99` : 'none',
+      }}>
+      {label}
+    </button>
+  )
+}
+/* 'grid' style — 2-column tiles, badge above label so short text stays centred */
+function ChoiceGridTile({ letter, label, selected, accent, dark, onClick, shape = 'radio' }) {
+  return (
+    <button onClick={onClick} type="button"
+      className="flex flex-col items-center justify-center gap-1.5 px-2 py-3.5 rounded-2xl text-center transition-all active:scale-[0.97]"
+      style={{
+        background: selected ? `${accent}12` : (dark ? '#0b1526' : '#fff'),
+        border: `1.5px solid ${selected ? accent : (dark ? '#1e293b' : '#eef1f6')}`,
+        boxShadow: selected ? `0 6px 16px -10px ${accent}99` : (dark ? 'none' : '0 4px 14px -10px rgba(15,23,42,0.12)'),
+      }}>
+      <ChoiceBadge letter={letter} selected={selected} accent={accent} dark={dark} shape={shape}/>
+      <span className="text-[11.5px] font-semibold leading-snug" style={{ color: selected ? accent : (dark ? '#e2e8f0' : '#334155') }}>{label}</span>
+    </button>
+  )
+}
+
+function ChoiceOptions({ options, mode, style, isSelected, onPick, accent, dark }) {
+  const shape = mode === 'multi' ? 'check' : 'radio'
+  if (style === 'cards') {
+    return (
+      <div className="flex flex-col gap-2 w-full">
+        {options.map((o, i) => (
+          <ChoiceTile key={o} letter={OPTION_LETTERS[i]} label={o} selected={isSelected(o)} shape={shape}
+            accent={accent} dark={dark} onClick={() => onPick(o)}/>
+        ))}
+      </div>
+    )
+  }
+  if (style === 'pills') {
+    return (
+      <div className="flex flex-wrap gap-2 w-full">
+        {options.map(o => (
+          <ChoicePill key={o} label={o} selected={isSelected(o)} accent={accent} dark={dark} onClick={() => onPick(o)}/>
+        ))}
+      </div>
+    )
+  }
+  if (style === 'grid') {
+    return (
+      <div className="grid grid-cols-2 gap-2 w-full">
+        {options.map((o, i) => (
+          <ChoiceGridTile key={o} letter={OPTION_LETTERS[i]} label={o} selected={isSelected(o)} shape={shape}
+            accent={accent} dark={dark} onClick={() => onPick(o)}/>
+        ))}
+      </div>
+    )
+  }
+  // 'list' — default
   return (
     <ChoiceCard dark={dark}>
-      {OPTIONS.map((o, i) => (
-        <ChoiceRow key={o} letter={OPTION_LETTERS[i]} label={o} selected={sel === o} accent={accent} dark={dark}
-          last={i === OPTIONS.length - 1}
-          onClick={() => { setSel(o); onSubmit?.(o) }}/>
+      {options.map((o, i) => (
+        <ChoiceRow key={o} letter={OPTION_LETTERS[i]} label={o} selected={isSelected(o)} accent={accent} dark={dark}
+          shape={shape} last={i === options.length - 1} onClick={() => onPick(o)}/>
       ))}
     </ChoiceCard>
   )
 }
-function MultiChoiceAnswer({ accent, dark, onSubmit }) {
+
+function SingleChoiceAnswer({ accent, dark, onSubmit, data = {} }) {
+  const [sel, setSel] = useState(null)
+  return (
+    <ChoiceOptions options={OPTIONS} mode="single" style={data.choiceStyle || 'list'} accent={accent} dark={dark}
+      isSelected={o => sel === o} onPick={o => { setSel(o); onSubmit?.(o) }}/>
+  )
+}
+function MultiChoiceAnswer({ accent, dark, onSubmit, data = {} }) {
   const [sel, setSel] = useState([])
   const toggle = o => setSel(p => p.includes(o) ? p.filter(x => x !== o) : [...p, o])
   return (
     <div className="flex flex-col gap-2 w-full">
-      <ChoiceCard dark={dark}>
-        {OPTIONS.map((o, i) => (
-          <ChoiceRow key={o} letter={OPTION_LETTERS[i]} label={o} selected={sel.includes(o)} accent={accent} dark={dark}
-            shape="check" last={i === OPTIONS.length - 1} onClick={() => toggle(o)}/>
-        ))}
-      </ChoiceCard>
+      <ChoiceOptions options={OPTIONS} mode="multi" style={data.choiceStyle || 'list'} accent={accent} dark={dark}
+        isSelected={o => sel.includes(o)} onPick={toggle}/>
       <button onClick={() => onSubmit?.(sel.length ? sel.join(', ') : '(none selected)')}
         className="w-full py-2.5 rounded-2xl text-[12px] font-bold text-white transition-all active:scale-[0.98]"
         style={{ background: accent, boxShadow: `0 6px 16px -8px ${accent}99` }}>
@@ -1600,9 +1701,9 @@ export function AnswerControl({ questionType, accent = '#0066ff', dark = false, 
     case 'phone':
       return <PhoneAnswer accent={accent} dark={dark} onSubmit={submit}/>
     case 'single':
-      return <SingleChoiceAnswer accent={accent} dark={dark} onSubmit={submit}/>
+      return <SingleChoiceAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'multi':
-      return <MultiChoiceAnswer accent={accent} dark={dark} onSubmit={submit}/>
+      return <MultiChoiceAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'dropdown':
       return <DropdownAnswer accent={accent} dark={dark} onSubmit={submit}/>
     case 'yesno':
