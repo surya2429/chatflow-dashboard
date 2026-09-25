@@ -16,6 +16,7 @@ import {
   Check, X, Upload, Image as ImageIcon, Pencil, MapPin, CreditCard, Lock,
   Clock, Search, LocateFixed, Plus, FileText, Paperclip,
   HelpCircle, Sparkles, BadgeCheck, ExternalLink, List, Layers, Tags, LayoutGrid,
+  AlignJustify, Grid2x2,
 } from 'lucide-react'
 
 /* ── shared style injection (custom keyframes Tailwind can't express) ───── */
@@ -260,15 +261,26 @@ function PhoneAnswer({ accent, dark, onSubmit }) {
             more important-feeling choices.
    - pills: compact wrapping chip row — best for many short options (tags,
             categories) where a full-width list wastes space.
-   - grid:  2-column tiles — best for 4+ short options that benefit from
-            being scannable as a block rather than a long vertical list. ── */
+   - grid:    2-column tiles — best for 4+ short options that benefit from
+              being scannable as a block rather than a long vertical list.
+   - buttons: solid full-width stacked buttons — a menu of actions rather
+              than a form field (matches a Quick Replies / Main Menu look),
+              for when the options ARE the point of the message.
+   - outline: 2-column outlined pills, accent-colored even at rest — the
+              other common "menu of buttons" look (courier-app style quick
+              actions). Both new styles, plus pills/grid, scroll internally
+              past CHOICE_LIST_MAX_H rather than growing the composer
+              without bound, since a real option list can run past 20. ──── */
 const OPTIONS = ['Option A', 'Option B', 'Option C']
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
+const CHOICE_LIST_MAX_H = 260
 export const CHOICE_STYLES = [
-  { id: 'list',  label: 'List',  icon: List,      desc: 'Grouped rows, one card' },
-  { id: 'cards', label: 'Cards', icon: Layers,    desc: 'Separate tappable cards' },
-  { id: 'pills', label: 'Pills', icon: Tags,      desc: 'Compact wrapping chips' },
-  { id: 'grid',  label: 'Grid',  icon: LayoutGrid, desc: '2-column tiles' },
+  { id: 'list',    label: 'List',    icon: List,       desc: 'Grouped rows, one card' },
+  { id: 'cards',   label: 'Cards',   icon: Layers,     desc: 'Separate tappable cards' },
+  { id: 'pills',   label: 'Pills',   icon: Tags,       desc: 'Compact wrapping chips' },
+  { id: 'grid',    label: 'Grid',    icon: LayoutGrid, desc: '2-column tiles' },
+  { id: 'buttons', label: 'Buttons', icon: AlignJustify, desc: 'Solid stacked buttons — good for 20+' },
+  { id: 'outline', label: 'Outline', icon: Grid2x2,    desc: '2-column outlined pills — good for 20+' },
 ]
 
 function ChoiceBadge({ letter, selected, accent, dark, shape }) {
@@ -357,45 +369,114 @@ function ChoiceGridTile({ letter, label, selected, accent, dark, onClick, shape 
     </button>
   )
 }
+/* 'buttons' style — solid full-width stacked buttons, matching a merchant's
+   own Quick Replies / Main Menu look rather than a form control: every
+   option reads at full visual weight, not just the selected one. Selection
+   (multi mode) shows as a check + a white ring rather than a color change,
+   since there's no "unselected" tint to fall back to on an already-solid
+   button. */
+function ChoiceButton({ label, selected, accent, dark, onClick }) {
+  return (
+    <button onClick={onClick} type="button"
+      className="w-full flex items-center justify-center gap-1.5 px-4 py-3 rounded-full text-[12.5px] font-bold text-white text-center transition-all active:scale-[0.98]"
+      style={{
+        background: accent,
+        boxShadow: selected
+          ? `0 0 0 2px ${dark ? '#0b1526' : '#fff'}, 0 0 0 4px ${accent}, 0 6px 16px -6px ${accent}b3`
+          : `0 5px 14px -6px ${accent}99`,
+      }}>
+      {selected && <Check size={13} strokeWidth={3} className="wc-ac-pop flex-shrink-0"/>}
+      <span className="truncate">{label}</span>
+    </button>
+  )
+}
+/* 'outline' style — 2-column outlined pills, accent-colored even at rest
+   (no gray "unselected" state) — the other common quick-action-menu look,
+   e.g. a courier app's "Courier Booking / Track Shipment / …" buttons. */
+function ChoiceOutlinePill({ label, selected, accent, dark, onClick }) {
+  return (
+    <button onClick={onClick} type="button"
+      className="flex items-center justify-center gap-1 px-3 py-2.5 rounded-full text-[11.5px] font-bold text-center transition-all active:scale-[0.96]"
+      style={{
+        background: selected ? `${accent}14` : (dark ? '#0b1526' : '#fff'),
+        color: accent,
+        border: `1.5px solid ${selected ? accent : `${accent}80`}`,
+      }}>
+      {selected && <Check size={12} strokeWidth={3} className="wc-ac-pop flex-shrink-0"/>}
+      <span className="truncate">{label}</span>
+    </button>
+  )
+}
+
+/* Options past this count scroll inside their own container instead of
+   growing the composer without bound — the real-world case this exists for
+   is a merchant with 20+ options (a country list, a product range). */
+function ChoiceScroll({ children, className }) {
+  return (
+    <div className={clsx('w-full overflow-y-auto wc-scroll', className)} style={{ maxHeight: CHOICE_LIST_MAX_H }}>
+      {children}
+    </div>
+  )
+}
 
 function ChoiceOptions({ options, mode, style, isSelected, onPick, accent, dark }) {
   const shape = mode === 'multi' ? 'check' : 'radio'
   if (style === 'cards') {
     return (
-      <div className="flex flex-col gap-2 w-full">
+      <ChoiceScroll className="flex flex-col gap-2">
         {options.map((o, i) => (
           <ChoiceTile key={o} letter={OPTION_LETTERS[i]} label={o} selected={isSelected(o)} shape={shape}
             accent={accent} dark={dark} onClick={() => onPick(o)}/>
         ))}
-      </div>
+      </ChoiceScroll>
     )
   }
   if (style === 'pills') {
     return (
-      <div className="flex flex-wrap gap-2 w-full">
+      <ChoiceScroll className="flex flex-wrap gap-2">
         {options.map(o => (
           <ChoicePill key={o} label={o} selected={isSelected(o)} accent={accent} dark={dark} onClick={() => onPick(o)}/>
         ))}
-      </div>
+      </ChoiceScroll>
     )
   }
   if (style === 'grid') {
     return (
-      <div className="grid grid-cols-2 gap-2 w-full">
+      <ChoiceScroll className="grid grid-cols-2 gap-2">
         {options.map((o, i) => (
           <ChoiceGridTile key={o} letter={OPTION_LETTERS[i]} label={o} selected={isSelected(o)} shape={shape}
             accent={accent} dark={dark} onClick={() => onPick(o)}/>
         ))}
-      </div>
+      </ChoiceScroll>
+    )
+  }
+  if (style === 'buttons') {
+    return (
+      <ChoiceScroll className="flex flex-col gap-2">
+        {options.map(o => (
+          <ChoiceButton key={o} label={o} selected={isSelected(o)} accent={accent} dark={dark} onClick={() => onPick(o)}/>
+        ))}
+      </ChoiceScroll>
+    )
+  }
+  if (style === 'outline') {
+    return (
+      <ChoiceScroll className="grid grid-cols-2 gap-2">
+        {options.map(o => (
+          <ChoiceOutlinePill key={o} label={o} selected={isSelected(o)} accent={accent} dark={dark} onClick={() => onPick(o)}/>
+        ))}
+      </ChoiceScroll>
     )
   }
   // 'list' — default
   return (
     <ChoiceCard dark={dark}>
-      {options.map((o, i) => (
-        <ChoiceRow key={o} letter={OPTION_LETTERS[i]} label={o} selected={isSelected(o)} accent={accent} dark={dark}
-          shape={shape} last={i === options.length - 1} onClick={() => onPick(o)}/>
-      ))}
+      <ChoiceScroll>
+        {options.map((o, i) => (
+          <ChoiceRow key={o} letter={OPTION_LETTERS[i]} label={o} selected={isSelected(o)} accent={accent} dark={dark}
+            shape={shape} last={i === options.length - 1} onClick={() => onPick(o)}/>
+        ))}
+      </ChoiceScroll>
     </ChoiceCard>
   )
 }
