@@ -18,7 +18,7 @@ import { QUESTION_TYPES as WEBCHAT_QUESTION_TYPES } from '../constants/webchatQu
 import { WIDGET_CFG_STORAGE_KEY, useWidgetTheme, WidgetPreview, getLandingBotId, slugifyBotName } from './WebChatAppearance'
 import { usePublishSection, useLoadSection, SECTION_FLOWS } from '../lib/liveConfig'
 import { useBotId } from '../constants/webchat'
-import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES } from '../components/webchat/AnswerControls'
+import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES, CHOICE_DIRECTIONS, CHOICE_DEFAULT_DIRECTION } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
 
 /* ─── one draggable palette block per question type — "ask_<id>" — instead ──
@@ -651,6 +651,31 @@ function ChoiceStyleEditor({ value, onChange }) {
     </div>
   )
 }
+/* Direction picker — Vertical (one option per row) or Horizontal (side by
+   side, wraps). Not shown for 'list' (see the caller): a grouped card of
+   divided rows has no horizontal equivalent, so the toggle would have
+   nothing to do. CHOICE_DIRECTIONS is the same single-source-of-truth
+   pattern as CHOICE_STYLES above. */
+function ChoiceDirectionEditor({ value, onChange }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="label">Options direction</label>
+      <div className="grid grid-cols-2 gap-1.5">
+        {CHOICE_DIRECTIONS.map(dir => (
+          <button key={dir.id} type="button" onClick={() => onChange(dir.id)}
+            className={clsx('flex items-start gap-2 p-2.5 rounded-xl border text-left transition-colors',
+              value === dir.id ? 'border-primary bg-primary-50' : 'border-surface-border hover:bg-surface-hover')}>
+            <dir.icon size={13} className={clsx('flex-shrink-0 mt-0.5', value === dir.id ? 'text-primary' : 'text-slate-400')}/>
+            <span className="min-w-0">
+              <span className={clsx('block text-[11px] font-bold', value === dir.id ? 'text-primary' : 'text-slate-700')}>{dir.label}</span>
+              <span className="block text-[9.5px] text-slate-400 leading-snug">{dir.desc}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 /* Question/answer pairs for the FAQ type. Kept editable inline rather than
    pointing at a separate help-centre store: a bot's FAQ list is usually a
    handful of questions specific to THIS conversation step ("before you book,
@@ -994,7 +1019,14 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
                 <OtpConfigEditor config={d.otpConfig} onChange={v => set('otpConfig', v)}/>
               )}
               {(def.questionType === 'single' || def.questionType === 'multi') && (
-                <ChoiceStyleEditor value={d.choiceStyle || 'list'} onChange={v => set('choiceStyle', v)}/>
+                <>
+                  <ChoiceStyleEditor value={d.choiceStyle || 'list'} onChange={v => set('choiceStyle', v)}/>
+                  {(d.choiceStyle || 'list') !== 'list' && (
+                    <ChoiceDirectionEditor
+                      value={d.choiceDirection || CHOICE_DEFAULT_DIRECTION[d.choiceStyle || 'list'] || 'vertical'}
+                      onChange={v => set('choiceDirection', v)}/>
+                  )}
+                </>
               )}
 
               {def.questionType === 'statement' && (
