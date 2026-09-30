@@ -12,6 +12,7 @@ import { useApp } from '../context/AppContext'
 import { startInstagramOAuth, INSTAGRAM_OAUTH_SCOPES } from '../utils/instagramOAuth'
 import { apiGet, apiPost } from '../utils/api'
 import { useBotId, isBotIdLoaded } from '../constants/webchat'
+import { buildLandingUrl, buildLocalLandingUrl, slugifyBotName, WIDGET_CFG_STORAGE_KEY } from './WebChatAppearance'
 
 /* ─── Real Meta / WhatsApp credentials ──────────────────────────── */
 const APP_CONFIG = {
@@ -1158,6 +1159,23 @@ function WCCodeBlock({ code, lang = 'js', id, copied, onCopy }) {
   )
 }
 
+/* The landing page's own display name lives in the Widget Builder's draft
+   cache (WIDGET_CFG_STORAGE_KEY), not in anything Installation.jsx otherwise
+   has state for. Read it the same way WebChatLandingPage.jsx does — the
+   fallback matches WebChatAppearance.jsx's own default so a bot that has
+   never opened the Landing Page tab still gets a real, working URL here
+   instead of "undefined". */
+function useLandingName() {
+  const [name, setName] = useState('Support_Bot')
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(WIDGET_CFG_STORAGE_KEY) || 'null')
+      if (saved?.landingName) setName(saved.landingName)
+    } catch {}
+  }, [])
+  return name
+}
+
 function WebChatInstallSection() {
   const { copied, copy } = useCopy()
   const [target, setTarget] = useState('html')
@@ -1166,6 +1184,10 @@ function WebChatInstallSection() {
   const assigned = isBotIdLoaded()
   const snippet = universalSnippet(BOT_ID)
   const chatUrl = `https://chat.chatflow.io/w/${BOT_ID}`
+
+  const landingName = useLandingName()
+  const landingUrl = buildLandingUrl(landingName)
+  const embedCode = `<iframe src="${landingUrl}" width="100%" height="640" style="border:0;border-radius:16px" title="${slugifyBotName(landingName)}"></iframe>`
 
   return (
     <div className="space-y-5">
@@ -1239,6 +1261,55 @@ function WebChatInstallSection() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Embedded widget — inline in a page section, not a floating
+          launcher. The code and the URL are the same page the Widget
+          Builder's Landing Page tab already generates (buildLandingUrl /
+          buildLocalLandingUrl) — this just surfaces it here too, since
+          "how do I embed it in my own page" is exactly what a developer
+          reads Installation to find out, not the Widget Builder. ── */}
+      <div className="bg-white border border-surface-border rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-border">
+          <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+            <Monitor size={15} className="text-purple-600"/>
+          </div>
+          <div>
+            <p className="text-xs font-bold text-slate-900">Prefer it embedded, not floating?</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              Some customers want the chat sitting inline in a page — a Support or Contact section — instead of a launcher bubble in the corner.
+            </p>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <WCCodeBlock code={embedCode} lang="html" id="embed-iframe" copied={copied} onCopy={copy}/>
+          <p className="text-[10px] text-slate-400">
+            Paste this in place of the script tag, inside whatever <code className="font-mono bg-slate-100 px-1 rounded">&lt;div&gt;</code> should hold it. It's the same hosted chat page as the Landing Page URL below, just sized to a container instead of the full screen.
+          </p>
+
+          <div className="border-t border-surface-border -mx-4 px-4 pt-3">
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Landing Page URL</label>
+            <div className="flex items-stretch gap-1.5">
+              <div className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-surface-border bg-slate-50 text-[11px] font-mono text-slate-600 overflow-x-auto whitespace-nowrap wc-scroll">
+                {landingUrl}
+              </div>
+              <button onClick={() => copy(landingUrl, 'landing-url')}
+                className={clsx('px-3 rounded-lg border text-[11px] font-semibold transition-all flex items-center gap-1.5 flex-shrink-0',
+                  copied === 'landing-url' ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-surface-border bg-white text-slate-600 hover:bg-surface-hover')}>
+                {copied === 'landing-url' ? <><Check size={12}/>Copied</> : <><Copy size={12}/>Copy</>}
+              </button>
+              <a href={buildLocalLandingUrl(landingName)} target="_blank" rel="noreferrer"
+                className="px-3 rounded-lg border border-surface-border bg-white text-slate-600 hover:bg-surface-hover text-[11px] font-semibold flex items-center gap-1.5 flex-shrink-0">
+                <Eye size={12}/> Preview
+              </a>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1.5">
+              A full-screen version of the same page — share it directly in an email, a QR code, or a bio link where pasting a script isn't possible.
+              Colors, avatar and greeting come from the Widget Builder, so anything changed there shows up here too.
+            </p>
           </div>
         </div>
       </div>
