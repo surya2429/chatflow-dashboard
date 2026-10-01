@@ -37,6 +37,189 @@ const CANNED = [
 ]
 const EMOJIS = ['😊','😂','❤️','👍','🙏','🎉','✅','⭐','🔥','💯','😭','🤔','👀','💪','🙌','😍','🥳','😅','👋','🤝']
 
+/* ─── Instagram message templates ────────────────────────────────
+   Instagram has no WhatsApp-style pre-approved template system — per
+   Meta's docs, it has no equivalent that lets a business reach someone
+   outside the 24-hour messaging window. What it DOES have are two real
+   Send API structured message types, and this models their actual
+   schema/limits rather than borrowing WhatsApp's category/approval
+   concept, which doesn't apply here:
+     - generic: a card, or a horizontally-scrolling carousel when more
+       than one element is given. Up to 10 elements, each with a title
+       (required, ≤80 chars), an optional subtitle (≤80 chars), an
+       optional image, and up to 3 buttons.
+     - button: plain text (≤640 chars) with up to 3 buttons attached.
+   Both button types Meta supports: 'web_url' (opens a link) and
+   'postback' (sends a payload string to the webhook — a quick-reply
+   style option, not a literal WhatsApp "quick reply" button). */
+const IG_TEMPLATE_LIMITS = { maxElements: 10, maxButtons: 3, titleMax: 80, subtitleMax: 80, textMax: 640 }
+
+const IG_TEMPLATE_PRESETS = {
+  generic: [
+    { label: 'Product card', elements: [
+      { title: 'Classic Tote Bag', subtitle: '₹1,499 · Available in 3 colors', imageUrl: '', buttons: [{ type: 'web_url', title: 'Shop now', url: 'https://example.com/product' }] },
+    ] },
+    { label: '2-card carousel', elements: [
+      { title: 'Classic Tote Bag', subtitle: '₹1,499', imageUrl: '', buttons: [{ type: 'web_url', title: 'Shop now', url: 'https://example.com/tote' }] },
+      { title: 'Mini Crossbody', subtitle: '₹999', imageUrl: '', buttons: [{ type: 'web_url', title: 'Shop now', url: 'https://example.com/crossbody' }] },
+    ] },
+  ],
+  button: [
+    { label: 'Quick options', text: 'How can we help today?', buttons: [
+      { type: 'postback', title: 'Track my order', payload: 'TRACK_ORDER' },
+      { type: 'postback', title: 'Talk to support', payload: 'TALK_TO_SUPPORT' },
+    ] },
+  ],
+}
+
+/* Shared by a generic element's buttons and a button-template's own —
+   same type/limit rules either way. */
+function IgButtonsEditor({ buttons, onChange }) {
+  function update(i, patch) { onChange(buttons.map((b, idx) => idx === i ? { ...b, ...patch } : b)) }
+  function add() { if (buttons.length >= IG_TEMPLATE_LIMITS.maxButtons) return; onChange([...buttons, { type: 'web_url', title: '', url: '' }]) }
+  function remove(i) { onChange(buttons.filter((_, idx) => idx !== i)) }
+  return (
+    <div className="space-y-1.5">
+      {buttons.map((b, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <NativeSelect sm value={b.type} onChange={e => update(i, { type: e.target.value })} className="flex-shrink-0 w-[92px]">
+            <option value="web_url">Link</option>
+            <option value="postback">Quick reply</option>
+          </NativeSelect>
+          <input value={b.title} onChange={e => update(i, { title: e.target.value.slice(0, 20) })}
+            placeholder="Button text" className="input-sm flex-1 min-w-0"/>
+          {b.type === 'web_url' ? (
+            <input value={b.url || ''} onChange={e => update(i, { url: e.target.value })}
+              placeholder="https://…" className="input-sm flex-1 min-w-0"/>
+          ) : (
+            <input value={b.payload || ''} onChange={e => update(i, { payload: e.target.value })}
+              placeholder="Payload sent to webhook" className="input-sm flex-1 min-w-0"/>
+          )}
+          <button onClick={() => remove(i)} className="text-slate-300 hover:text-red-500 flex-shrink-0"><X size={12}/></button>
+        </div>
+      ))}
+      {buttons.length < IG_TEMPLATE_LIMITS.maxButtons && (
+        <button onClick={add} className="text-[10px] font-semibold text-primary hover:underline flex items-center gap-1">
+          <Plus size={10}/> Add button ({buttons.length}/{IG_TEMPLATE_LIMITS.maxButtons})
+        </button>
+      )}
+    </div>
+  )
+}
+
+function InstagramTemplateComposer({ onSend, onClose }) {
+  const [kind, setKind] = useState('generic') // 'generic' | 'button'
+  const [elements, setElements] = useState([{ title: '', subtitle: '', imageUrl: '', buttons: [] }])
+  const [text, setText] = useState('')
+  const [buttons, setButtons] = useState([])
+
+  function addElement() { if (elements.length >= IG_TEMPLATE_LIMITS.maxElements) return; setElements([...elements, { title: '', subtitle: '', imageUrl: '', buttons: [] }]) }
+  function updateElement(i, patch) { setElements(elements.map((e, idx) => idx === i ? { ...e, ...patch } : e)) }
+  function removeElement(i) { setElements(elements.filter((_, idx) => idx !== i)) }
+  function loadPreset(p) {
+    if (kind === 'generic') setElements(p.elements.map(e => ({ ...e, buttons: e.buttons.map(b => ({ ...b })) })))
+    else { setText(p.text); setButtons(p.buttons.map(b => ({ ...b }))) }
+  }
+
+  const genericValid = elements.length > 0 && elements.every(e => e.title.trim())
+  const buttonValid = text.trim().length > 0
+  const canSend = kind === 'generic' ? genericValid : buttonValid
+
+  function handleSend() {
+    if (!canSend) return
+    onSend(kind === 'generic' ? { kind: 'generic', elements } : { kind: 'button', text, buttons })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/25 z-50 flex items-center justify-center p-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-modal animate-fade-in overflow-hidden flex flex-col max-h-[85vh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border flex-shrink-0">
+          <div>
+            <h3 className="font-bold text-slate-900">Send a template message</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Instagram's structured Generic &amp; Button templates</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-surface-hover text-slate-400 hover:text-slate-600 transition-colors"><X size={16} /></button>
+        </div>
+
+        <div className="flex gap-1.5 px-5 pt-3 flex-shrink-0">
+          {[['generic', 'Generic (card / carousel)'], ['button', 'Button']].map(([k, label]) => (
+            <button key={k} onClick={() => setKind(k)}
+              className={clsx('px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
+                kind === k ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">Start from</span>
+            {IG_TEMPLATE_PRESETS[kind].map(p => (
+              <button key={p.label} onClick={() => loadPreset(p)}
+                className="text-[10.5px] px-2 py-1 rounded-full border border-surface-border text-slate-600 hover:border-primary hover:text-primary transition-colors">
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {kind === 'generic' ? (
+            <div className="space-y-3">
+              {elements.map((el, i) => (
+                <div key={i} className="border border-surface-border rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Card {i + 1}</span>
+                    {elements.length > 1 && <button onClick={() => removeElement(i)} className="text-slate-300 hover:text-red-500"><X size={12}/></button>}
+                  </div>
+                  <div>
+                    <input value={el.title} onChange={e => updateElement(i, { title: e.target.value.slice(0, IG_TEMPLATE_LIMITS.titleMax) })}
+                      placeholder="Title (required)" className="input-sm w-full"/>
+                    <p className="text-[9px] text-slate-400 text-right mt-0.5">{el.title.length}/{IG_TEMPLATE_LIMITS.titleMax}</p>
+                  </div>
+                  <input value={el.subtitle} onChange={e => updateElement(i, { subtitle: e.target.value.slice(0, IG_TEMPLATE_LIMITS.subtitleMax) })}
+                    placeholder="Subtitle (optional)" className="input-sm w-full"/>
+                  <input value={el.imageUrl} onChange={e => updateElement(i, { imageUrl: e.target.value })}
+                    placeholder="Image URL (optional)" className="input-sm w-full"/>
+                  <IgButtonsEditor buttons={el.buttons} onChange={b => updateElement(i, { buttons: b })}/>
+                </div>
+              ))}
+              {elements.length < IG_TEMPLATE_LIMITS.maxElements && (
+                <button onClick={addElement} className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-1">
+                  <Plus size={11}/> Add card ({elements.length}/{IG_TEMPLATE_LIMITS.maxElements})
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div>
+                <textarea value={text} onChange={e => setText(e.target.value.slice(0, IG_TEMPLATE_LIMITS.textMax))} rows={3}
+                  placeholder="Message text (required)" className="textarea w-full text-xs"/>
+                <p className="text-[9px] text-slate-400 text-right mt-0.5">{text.length}/{IG_TEMPLATE_LIMITS.textMax}</p>
+              </div>
+              <IgButtonsEditor buttons={buttons} onChange={setButtons}/>
+            </div>
+          )}
+
+          <div className="flex items-start gap-2 p-2.5 rounded-lg bg-blue-50 border border-blue-100">
+            <AlertCircle size={12} className="text-blue-500 flex-shrink-0 mt-0.5"/>
+            <p className="text-[10.5px] text-blue-800 leading-relaxed">
+              Unlike WhatsApp, Instagram has no pre-approved templates — this still only sends within the
+              standard 24-hour reply window, or up to 7 days if the conversation is tagged <code className="font-mono">HUMAN_AGENT</code> for
+              an ongoing support case (never for marketing).
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-2 px-5 pb-4 pt-1 flex-shrink-0">
+          <button onClick={onClose} className="btn-secondary flex-1 justify-center text-sm">Cancel</button>
+          <button onClick={handleSend} disabled={!canSend} className={clsx('flex-1 justify-center text-sm', canSend ? 'btn-primary' : 'btn-secondary opacity-50 cursor-not-allowed')}>
+            <Send size={14}/> Send template
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const CONVERSATIONS = [
   { id: 'ic1', name: 'Ananya Rao', handle: '@ananya.rao', avatar: 'AR', time: '2m', unread: 2, starred: true,
     status: 'bot', agentId: null, agentName: null, source: 'dm', labels: ['lead'],
@@ -841,7 +1024,7 @@ function ConversationList({ conversations, allConversations, activeId, onSelect,
 }
 
 /* ─── Chat window ─────────────────────────────────────────────── */
-function ChatWindow({ conversation, onSend, onTakeover, onResolve, onReopen, onStar, onArchive, onAddLabel, onRemoveLabel, onSnooze, onAssign, adminOnline, showPanel, onTogglePanel }) {
+function ChatWindow({ conversation, onSend, onSendTemplate, onTakeover, onResolve, onReopen, onStar, onArchive, onAddLabel, onRemoveLabel, onSnooze, onAssign, adminOnline, showPanel, onTogglePanel }) {
   const [message, setMessage] = useState('')
   const [showMore, setShowMore] = useState(false)
   const [showLabels, setShowLabels] = useState(false)
@@ -849,6 +1032,7 @@ function ChatWindow({ conversation, onSend, onTakeover, onResolve, onReopen, onS
   const [showTransfer, setShowTransfer] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
   const [showCanned, setShowCanned] = useState(false)
+  const [showTemplateComposer, setShowTemplateComposer] = useState(false)
   const [archiveConfirm, setArchiveConfirm] = useState(false)
   const moreRef = useRef(null)
   const snoozeRef = useRef(null)
@@ -996,6 +1180,57 @@ function ChatWindow({ conversation, onSend, onTakeover, onResolve, onReopen, onS
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-2 bg-[#f0f4f8]">
         {conversation.messages.map(m => {
+          if (m.type === 'template') {
+            const t = m.igTemplate
+            return (
+              <div key={m.id} className="flex justify-end my-1">
+                <div className="max-w-[78%] rounded-2xl border border-surface-border bg-white overflow-hidden shadow-sm">
+                  <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                      {t.kind === 'generic' ? (t.elements.length > 1 ? 'Card carousel' : 'Card') : 'Button template'}
+                    </span>
+                    <span className="text-[9px] font-bold text-pink-500">Instagram</span>
+                  </div>
+                  {t.kind === 'generic' ? (
+                    <div className={clsx('flex gap-2 px-3 pb-2.5', t.elements.length > 1 && 'overflow-x-auto')}>
+                      {t.elements.map((el, i) => (
+                        <div key={i} className="flex-shrink-0 w-44 border border-surface-border rounded-xl overflow-hidden">
+                          {el.imageUrl && <img src={el.imageUrl} alt="" className="w-full h-24 object-cover bg-slate-100"/>}
+                          <div className="p-2">
+                            <p className="font-bold text-slate-900 text-[11px] leading-tight">{el.title}</p>
+                            {el.subtitle && <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">{el.subtitle}</p>}
+                          </div>
+                          {el.buttons?.length > 0 && (
+                            <div className="border-t border-surface-border">
+                              {el.buttons.map((btn, bi) => (
+                                <button key={bi} className={clsx('w-full py-1.5 text-[10.5px] font-semibold text-primary hover:bg-primary-50 flex items-center justify-center gap-1', bi > 0 && 'border-t border-surface-border')}>
+                                  {btn.type === 'web_url' && <Link2 size={9}/>}{btn.title}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="px-3 pb-2"><p className="text-xs text-slate-700 leading-relaxed">{t.text}</p></div>
+                      {t.buttons?.length > 0 && (
+                        <div className="border-t border-surface-border">
+                          {t.buttons.map((btn, bi) => (
+                            <button key={bi} className={clsx('w-full py-2 text-xs font-semibold text-primary hover:bg-primary-50 flex items-center justify-center gap-1.5', bi > 0 && 'border-t border-surface-border')}>
+                              {btn.type === 'web_url' && <Link2 size={11}/>}{btn.title}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <div className="px-3 pb-2 pt-1.5 text-right"><span className="text-[9px] text-slate-400">{m.time}</span></div>
+                </div>
+              </div>
+            )
+          }
           const outgoing = m.from === 'bot' || m.from === 'agent'
           return (
             <div key={m.id} className={clsx('flex items-end gap-2', outgoing ? 'justify-end' : 'justify-start')}>
@@ -1024,6 +1259,10 @@ function ChatWindow({ conversation, onSend, onTakeover, onResolve, onReopen, onS
                 {showCanned && <CannedPicker onSelect={body => setMessage(body)} onClose={() => setShowCanned(false)}/>}
               </div>
               <button className="p-1.5 rounded-lg text-slate-400 hover:bg-surface-hover hover:text-slate-600"><Paperclip size={15}/></button>
+              <button onClick={() => setShowTemplateComposer(true)} title="Send Template"
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-surface-hover hover:text-primary transition-colors">
+                <FileText size={15}/>
+              </button>
             </div>
             <textarea
               value={message} onChange={e => setMessage(e.target.value)}
@@ -1050,6 +1289,13 @@ function ChatWindow({ conversation, onSend, onTakeover, onResolve, onReopen, onS
 
       {showTransfer && (
         <TransferModal conversation={conversation} onClose={() => setShowTransfer(false)} onAssign={onAssign} adminOnline={adminOnline}/>
+      )}
+
+      {showTemplateComposer && (
+        <InstagramTemplateComposer
+          onClose={() => setShowTemplateComposer(false)}
+          onSend={payload => { onSendTemplate(conversation.id, payload); setShowTemplateComposer(false) }}
+        />
       )}
     </div>
   )
@@ -1369,6 +1615,14 @@ export default function InstagramInbox() {
       ? { ...c, lastMessage: text, messages: [...c.messages, { id: Date.now(), from: 'agent', sender: 'You', text, time: 'now' }] }
       : c))
   }
+  function sendTemplate(id, payload) {
+    const preview = payload.kind === 'generic'
+      ? `📇 ${payload.elements[0]?.title || 'Template'}${payload.elements.length > 1 ? ` +${payload.elements.length - 1} more` : ''}`
+      : `🔘 ${payload.text.slice(0, 60)}`
+    setConversations(p => p.map(c => c.id === id
+      ? { ...c, lastMessage: preview, messages: [...c.messages, { id: Date.now(), from: 'agent', sender: 'You', time: 'now', type: 'template', igTemplate: payload }] }
+      : c))
+  }
   function takeover(id) { updateConv(id, { status: 'agent', agentId: 'admin', agentName: 'Deepak Kumar' }) }
   function resolve(id)  { updateConv(id, { status: 'resolved', unread: 0 }) }
   function reopen(id)   { updateConv(id, { status: 'bot', agentId: null, agentName: null }) }
@@ -1426,7 +1680,7 @@ export default function InstagramInbox() {
           <InboxInsightsPanel allConversations={conversations} adminOnline={adminOnline}/>
         ) : (
           <>
-            <ChatWindow conversation={active} onSend={sendMessage} onTakeover={takeover} onResolve={resolve} onReopen={reopen}
+            <ChatWindow conversation={active} onSend={sendMessage} onSendTemplate={sendTemplate} onTakeover={takeover} onResolve={resolve} onReopen={reopen}
               onStar={toggleStar} onArchive={archive} onAddLabel={addLabel} onRemoveLabel={removeLabel}
               onSnooze={snoozeConversation} onAssign={assignAgent} adminOnline={adminOnline}
               showPanel={showPanel} onTogglePanel={() => setShowPanel(p => !p)} />
