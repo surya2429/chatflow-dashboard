@@ -35,6 +35,12 @@ const EnvSchema = z.object({
   IG_APP_SECRET: z.string().min(1),
   IG_REDIRECT_URI: z.string().url(),
   IG_GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/, 'expected format vXX.X, e.g. v21.0').default('v21.0'),
+
+  // ── Live-agent service (agent-api/) ──────────────────────────────────────
+  // When set, inbound messages and delivery receipts are forwarded to it
+  // (src/services/agentDeskClient.ts). Unset = not forwarded.
+  AGENT_API_URL: z.string().url().optional(),
+  AGENT_API_INTERNAL_KEY: z.string().min(24).optional(),
 })
 
 export type Env = z.infer<typeof EnvSchema>

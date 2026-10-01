@@ -1,5 +1,6 @@
 import { Worker, type Job } from 'bullmq'
 import { redis } from '../../redis/client.js'
+import { agentDeskClient } from '../../services/agentDeskClient.js'
 import { logger } from '../../config/logger.js'
 import { messageRepository } from '../../db/repositories/messageRepository.js'
 import { campaignRepository } from '../../db/repositories/campaignRepository.js'
@@ -28,6 +29,10 @@ export function startStatusUpdateWorker(): Worker<StatusUpdateJob> {
     async (job: Job<StatusUpdateJob>) => {
       const { waMessageId, status, errors } = job.data
       const log = logger.child({ queue: 'status-update', jobId: job.id, waMessageId, status })
+
+      // Replies sent from the agent inbox are sent by agent-api, so they're
+      // unknown to this service's messages table — forward the receipt first.
+      await agentDeskClient.forwardStatus(waMessageId, status)
 
       const errorCode = errors?.[0]?.code?.toString()
       const message = await messageRepository.updateStatus(

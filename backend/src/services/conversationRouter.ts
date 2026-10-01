@@ -1,10 +1,13 @@
 import { logger } from '../config/logger.js'
 import { priorityQueue } from '../queues/queues.js'
+import { agentDeskClient } from './agentDeskClient.js'
 
 export interface InboundRoutingContext {
   conversationId: string
   contactId: string
   waId: string
+  waMessageId: string
+  profileName?: string | undefined
   phoneNumberId: string
   messageType: string
   text?: string | undefined
@@ -27,9 +30,19 @@ export interface InboundRoutingContext {
 export const conversationRouter = {
   async handleInbound(ctx: InboundRoutingContext): Promise<void> {
     logger.info(
-      { conversationId: ctx.conversationId, campaignId: ctx.campaignId, messageType: ctx.messageType },
-      'Routing inbound message — plug bot flow engine / agent desk in here',
+      { conversationId: ctx.conversationId, campaignId: ctx.campaignId, messageType: ctx.messageType, agentDesk: agentDeskClient.enabled },
+      'Routing inbound message',
     )
+
+    // The agent inbox (agent-api/ + mobile app) gets every customer message.
+    await agentDeskClient.forwardInbound({
+      waId: ctx.waId,
+      profileName: ctx.profileName,
+      waMessageId: ctx.waMessageId,
+      messageType: ctx.messageType,
+      text: ctx.text,
+      fromCampaign: Boolean(ctx.campaignId),
+    })
 
     if (ctx.campaignId) {
       await priorityQueue.add('campaign-reply-ack', {

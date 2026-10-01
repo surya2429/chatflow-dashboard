@@ -81,6 +81,8 @@ export function startInboundMessageWorker(): Worker<InboundMessageJob> {
         conversationId: conversation.id,
         contactId: contact.id,
         waId: from,
+        waMessageId,
+        profileName,
         phoneNumberId,
         messageType: type,
         text,
