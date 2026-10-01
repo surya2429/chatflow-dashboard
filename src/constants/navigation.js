@@ -42,9 +42,10 @@ export const COMMON_NAV_ITEMS = [
   { id: 'settings',     label: 'Settings',      icon: 'Settings',     path: '/settings' },
 ]
 
-/** Common-nav item ids to hide while a given product is active — e.g. Voice Bot has no Instagram equivalent. */
+/** Common-nav item ids to hide while a given product is active — e.g. Voice Bot has no Instagram or Website Chat equivalent. */
 export const PRODUCT_HIDDEN_COMMON_IDS = {
   instagram: ['voice'],
+  webchat: ['voice'],
 }
 
 /** Flat list of every nav item across every product — used by role-based access checks that don't care which product is active. */
