@@ -7,19 +7,21 @@
 import { useState, useRef, useMemo } from 'react'
 import clsx from 'clsx'
 import {
-  X, Check, Plus, Trash2, Link2, Reply, LayoutGrid, Type, MousePointerClick, Sun, Moon,
-  Copy, CheckCircle2, Circle, Info, ArrowLeft, ArrowRight, Code2, Smartphone, Wand2,
+  X, Check, Plus, LayoutGrid, Type, MousePointerClick, Sun, Moon, ShoppingBag,
+  Copy, CheckCircle2, Circle, Info, ArrowLeft, ArrowRight, Code2, Smartphone,
   ChevronLeft, ChevronRight, Image as ImageIcon, Save, ShieldCheck,
 } from 'lucide-react'
 import IgDmPreview from './IgDmPreview'
+import { Field, ButtonsEditor, QuickRepliesEditor, MediaEditor, ProductsEditor, TokenBar, insertAtFocus } from './IgEditors'
 import {
-  LIMITS, KINDS, TOKENS, emptyTemplate, newCard, newButton, validateTemplate, toApiPayload, tokensIn,
+  LIMITS, KINDS, emptyTemplate, newCard, validateTemplate, toApiPayloads, tokensIn,
 } from './igTemplateKit'
 
 const STEPS = ['Setup', 'Design', 'Review']
-const KIND_ICON = { generic: LayoutGrid, button: MousePointerClick, text: Type }
+const KIND_ICON = { generic: LayoutGrid, product: ShoppingBag, button: MousePointerClick, text: Type }
 const KIND_TONE = {
   generic: 'bg-pink-50 text-pink-600',
+  product: 'bg-amber-50 text-amber-600',
   button:  'bg-violet-50 text-violet-600',
   text:    'bg-sky-50 text-sky-600',
 }
@@ -30,106 +32,7 @@ const SAMPLE_IMAGES = [
   'https://picsum.photos/seed/igcafe/600/314',
 ]
 
-const slug = s => s.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '')
-
-/* ── small shared pieces (module level so inputs keep focus) ───────────── */
-function Counter({ n, max }) {
-  return <span className={clsx('text-[10px] tabular-nums', n > max * 0.9 ? 'text-amber-600 font-semibold' : 'text-slate-400')}>{n}/{max}</span>
-}
-
-function Field({ label, hint, value, onChange, max, multiline, rows = 3, placeholder, focusRef, invalid, mono }) {
-  const props = {
-    value, placeholder, maxLength: max,
-    onChange: e => onChange(e.target.value),
-    onFocus: e => { focusRef.current = { el: e.target, set: onChange, max } },
-    className: clsx('input w-full text-xs', multiline && 'textarea', mono && 'font-mono', invalid && '!border-red-300'),
-  }
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <label className="label !mb-0">{label}</label>
-        {max ? <Counter n={value.length} max={max}/> : null}
-      </div>
-      {multiline ? <textarea rows={rows} {...props}/> : <input {...props}/>}
-      {hint && <p className="text-[10.5px] text-slate-400 mt-1">{hint}</p>}
-    </div>
-  )
-}
-
-function ButtonsEditor({ buttons, onChange, focusRef, max = LIMITS.maxButtons, required }) {
-  const set = (j, p) => onChange(buttons.map((b, k) => {
-    if (k !== j) return b
-    const next = { ...b, ...p }
-    // keep an auto-derived payload in step with the title until the user edits it
-    if ('title' in p && b.type === 'postback' && (!b.payload || b.payload === slug(b.title))) next.payload = slug(p.title)
-    return next
-  }))
-  const setType = (j, type) => onChange(buttons.map((b, k) => k !== j ? b : (
-    type === 'web_url'
-      ? { type, title: b.title, url: '' }
-      : { type, title: b.title, payload: slug(b.title) }
-  )))
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="label !mb-0">Buttons {required ? '' : <span className="font-normal text-slate-400">(optional)</span>}</p>
-        <span className="text-[10px] text-slate-400 tabular-nums">{buttons.length}/{max}</span>
-      </div>
-      {buttons.map((b, j) => (
-        <div key={j} className="rounded-xl border border-surface-border bg-slate-50/60 p-3 space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="flex bg-white border border-surface-border rounded-lg p-0.5">
-              {[['web_url', 'Open link', Link2], ['postback', 'Quick reply', Reply]].map(([k, l, Icon]) => (
-                <button key={k} type="button" onClick={() => b.type !== k && setType(j, k)}
-                  className={clsx('flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-colors',
-                    b.type === k ? 'bg-primary text-white' : 'text-slate-500 hover:text-slate-700')}>
-                  <Icon size={11}/> {l}
-                </button>
-              ))}
-            </div>
-            <button type="button" onClick={() => onChange(buttons.filter((_, k) => k !== j))}
-              className="ml-auto p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Remove button">
-              <Trash2 size={13}/>
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <Field label="Button text" value={b.title} max={LIMITS.buttonTitle} focusRef={focusRef}
-              placeholder={b.type === 'web_url' ? 'Shop now' : 'Track my order'}
-              onChange={v => set(j, { title: v })}/>
-            {b.type === 'web_url'
-              ? <Field label="Link" value={b.url || ''} focusRef={focusRef} placeholder="https://example.com/product"
-                  onChange={v => set(j, { url: v })}/>
-              : <Field label="Payload" value={b.payload || ''} focusRef={focusRef} mono placeholder="TRACK_ORDER"
-                  hint="Sent to your webhook when tapped" onChange={v => set(j, { payload: v })}/>}
-          </div>
-        </div>
-      ))}
-      {buttons.length < max && (
-        <button type="button" onClick={() => onChange([...buttons, newButton()])}
-          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-slate-300 text-xs font-semibold text-slate-500 hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors">
-          <Plus size={13}/> Add button
-        </button>
-      )}
-    </div>
-  )
-}
-
-function TokenBar({ onInsert }) {
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="text-[10.5px] font-semibold text-slate-400 mr-0.5 flex items-center gap-1"><Wand2 size={11}/> Personalise</span>
-      {TOKENS.map(tk => (
-        <button key={tk.key} type="button"
-          onMouseDown={e => e.preventDefault()}
-          onClick={() => onInsert(tk.key)}
-          className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-white border border-surface-border text-slate-600 hover:border-primary hover:text-primary transition-colors">
-          {`{{${tk.key}}}`}
-        </button>
-      ))}
-    </div>
-  )
-}
-
+/* ── small shared pieces ───────────────────────────────────────────────── */
 function CheckList({ checks, compact }) {
   return (
     <ul className={clsx('space-y-1.5', compact && 'space-y-1')}>
@@ -149,7 +52,7 @@ function CheckList({ checks, compact }) {
 function SetupStep({ t, patch, locked }) {
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="max-w-3xl mx-auto px-5 py-8 space-y-7">
+      <div className="max-w-4xl mx-auto px-5 py-8 space-y-7">
         <div>
           <h2 className="text-base font-bold text-slate-900">Name your template</h2>
           <p className="text-xs text-slate-500 mt-0.5">Only your team sees the name. Customers never do.</p>
@@ -162,7 +65,7 @@ function SetupStep({ t, patch, locked }) {
           <p className="text-xs text-slate-500 mt-0.5">
             {locked ? "The format can't be changed once a template exists — duplicate it into a new one instead." : 'Instagram supports these message layouts.'}
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
             {Object.entries(KINDS).map(([k, info]) => {
               const Icon = KIND_ICON[k]
               const on = t.kind === k
@@ -198,7 +101,7 @@ function SetupStep({ t, patch, locked }) {
           <p className="text-[11.5px] text-blue-900 leading-relaxed">
             <b>Unlike WhatsApp, Instagram templates aren't submitted to Meta for review</b> — they're ready the moment you save.
             The trade-off: a template can't reopen a closed conversation. It can only be delivered to someone who messaged you in the
-            last 24 hours, or used as a private reply to a recent comment (text format only).
+            last 24 hours, or used as a private reply to a recent comment (plain text only).
           </p>
         </div>
       </div>
@@ -234,18 +137,7 @@ function DesignStep({ t, setT, patch, focusRef, dark, setDark, active, setActive
     setActive(j)
   }
 
-  function insertToken(key) {
-    const f = focusRef.current
-    if (!f || !f.el.isConnected) return
-    const tok = `{{${key}}}`
-    const el = f.el
-    const s = el.selectionStart ?? el.value.length
-    const e = el.selectionEnd ?? s
-    const next = el.value.slice(0, s) + tok + el.value.slice(e)
-    if (f.max && next.length > f.max) return
-    f.set(next)
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + tok.length, s + tok.length) })
-  }
+  const insertToken = key => insertAtFocus(focusRef, key)
 
   return (
     <div className="flex-1 flex min-h-0 flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
@@ -262,7 +154,7 @@ function DesignStep({ t, setT, patch, focusRef, dark, setDark, active, setActive
             </div>
           </div>
 
-          <TokenBar onInsert={insertToken}/>
+          {t.kind !== 'product' && <TokenBar onInsert={insertToken}/>}
 
           {t.kind === 'generic' && (
             <>
@@ -326,8 +218,14 @@ function DesignStep({ t, setT, patch, focusRef, dark, setDark, active, setActive
 
                 <Field label="Title" value={card.title} max={LIMITS.title} focusRef={focusRef} placeholder="Classic Tote Bag"
                   onChange={val => patchCard(active, { title: val })}/>
-                <Field label="Subtitle" value={card.subtitle} max={LIMITS.subtitle} focusRef={focusRef} placeholder="₹1,499 · 3 colours"
-                  onChange={val => patchCard(active, { subtitle: val })}/>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <Field label="Price" value={card.price || ''} focusRef={focusRef} placeholder="₹1,499" onChange={val => patchCard(active, { price: val })}/>
+                  <div className="sm:col-span-2">
+                    <Field label="Subtitle" value={card.subtitle} max={LIMITS.subtitle} focusRef={focusRef} placeholder="3 colours · free shipping"
+                      onChange={val => patchCard(active, { subtitle: val })}/>
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-slate-400 -mt-2">Instagram has no price field, so the price is shown in front of the subtitle ("₹1,499 · 3 colours") — together they must fit in {LIMITS.subtitle} characters.</p>
                 <Field label="When the card is tapped, open" value={card.actionUrl} focusRef={focusRef} placeholder="https://example.com/product"
                   hint="Optional. The whole card becomes a link (default_action)."
                   onChange={val => patchCard(active, { actionUrl: val })}/>
@@ -338,7 +236,13 @@ function DesignStep({ t, setT, patch, focusRef, dark, setDark, active, setActive
             </>
           )}
 
-          {t.kind !== 'generic' && (
+          {t.kind === 'product' && (
+            <div className="rounded-2xl border border-surface-border bg-white p-4">
+              <ProductsEditor products={t.products || []} onChange={ps => patch({ products: ps })}/>
+            </div>
+          )}
+
+          {(t.kind === 'button' || t.kind === 'text') && (
             <div className="rounded-2xl border border-surface-border bg-white p-4 space-y-4">
               <Field label="Message" multiline rows={t.kind === 'text' ? 6 : 4} value={t.text} focusRef={focusRef}
                 max={t.kind === 'button' ? LIMITS.buttonText : LIMITS.text}
@@ -348,6 +252,10 @@ function DesignStep({ t, setT, patch, focusRef, dark, setDark, active, setActive
               {t.kind === 'button' && (
                 <ButtonsEditor buttons={t.buttons} required focusRef={focusRef} onChange={bs => patch({ buttons: bs })}/>
               )}
+              {t.kind === 'text' && (
+                <QuickRepliesEditor replies={t.quickReplies || []} focusRef={focusRef} onChange={qs => patch({ quickReplies: qs })}/>
+              )}
+              <MediaEditor media={t.media} focusRef={focusRef} onChange={m => patch({ media: m })}/>
             </div>
           )}
         </div>
@@ -391,7 +299,8 @@ function ReviewStep({ t }) {
   const v = useMemo(() => validateTemplate(t), [t])
   const [view, setView] = useState('preview')
   const [copied, setCopied] = useState(false)
-  const json = useMemo(() => JSON.stringify(v.valid || t.name ? toApiPayload(t) : {}, null, 2), [t, v.valid])
+  const calls = useMemo(() => toApiPayloads(t), [t])
+  const json = useMemo(() => JSON.stringify(calls.length === 1 ? calls[0].body : calls.map(c => c.body), null, 2), [calls])
   const used = tokensIn(t)
 
   function copy() {
@@ -454,7 +363,7 @@ function ReviewStep({ t }) {
         ) : (
           <div className="mt-4 rounded-xl overflow-hidden border border-slate-800 bg-slate-900">
             <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800">
-              <p className="text-[11px] font-mono text-slate-400">POST /me/messages</p>
+              <p className="text-[11px] font-mono text-slate-400">POST /me/messages{calls.length > 1 ? ` × ${calls.length}, in order: ${calls.map(c => c.label).join(' → ')}` : ''}</p>
               <button type="button" onClick={copy} className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-300 hover:text-white">
                 {copied ? <><Check size={12} className="text-emerald-400"/> Copied</> : <><Copy size={12}/> Copy</>}
               </button>
@@ -464,7 +373,7 @@ function ReviewStep({ t }) {
         )}
         {view === 'payload' && (
           <p className="text-[11px] text-slate-400 mt-3 leading-snug">
-            Exactly what is sent to Instagram's Send API for one recipient. <span className="font-mono">{'<IGSID>'}</span> is replaced per contact, and
+            Exactly what is sent to Instagram's Send API for one recipient{calls.length > 1 ? ` — ${calls.length} messages, in this order` : ''}. <span className="font-mono">{'<IGSID>'}</span> is replaced per contact, and
             placeholders are filled in before sending.
           </p>
         )}

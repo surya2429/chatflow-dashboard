@@ -7,8 +7,8 @@
 // full-width row per button). It is a faithful approximation, not a pixel
 // copy — Instagram restyles its apps often, so the page says so.
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, Phone, Video, Mic, Image as ImageIcon, Smile, Camera, Signal, Wifi, BatteryFull, ImageOff } from 'lucide-react'
-import { personalizeTemplate, SAMPLE_CONTACT } from './igTemplateKit'
+import { ChevronLeft, Phone, Video, Mic, Image as ImageIcon, Smile, Camera, Signal, Wifi, BatteryFull, ImageOff, Play, FileText, Pause } from 'lucide-react'
+import { personalizeTemplate, SAMPLE_CONTACT, cardSubtitle, mediaFileName } from './igTemplateKit'
 
 const W = 290          // phone width at scale 1
 const H = 580          // phone height at scale 1
@@ -55,9 +55,65 @@ function Card({ el, c, active }) {
         <p className="text-[13px] font-semibold leading-snug break-words" style={{ color: c.fg }}>
           {el.title || <span style={{ color: c.sub }}>Card title</span>}
         </p>
-        {el.subtitle && <p className="text-[12px] leading-snug mt-0.5 break-words" style={{ color: c.sub }}>{el.subtitle}</p>}
+        {cardSubtitle(el) && <p className="text-[12px] leading-snug mt-0.5 break-words" style={{ color: c.sub }}>{cardSubtitle(el)}</p>}
       </div>
       <Rows buttons={el.buttons} c={c}/>
+    </div>
+  )
+}
+
+function MediaBubble({ media, c }) {
+  const [bad, setBad] = useState(false)
+  useEffect(() => setBad(false), [media?.url])
+  if (media.type === 'image') {
+    if (!media.url || bad) {
+      return (
+        <div className="w-[170px] h-[150px] rounded-[18px] flex flex-col items-center justify-center gap-1" style={{ background: c.bubble, color: c.sub }}>
+          <ImageOff size={18}/><span className="text-[10px]">{media.url ? "Image can't be loaded" : 'Image link'}</span>
+        </div>
+      )
+    }
+    return <img src={media.url} alt="" onError={() => setBad(true)} className="w-[170px] max-h-[210px] object-cover rounded-[18px] block"/>
+  }
+  if (media.type === 'video') {
+    return (
+      <div className="w-[170px] h-[210px] rounded-[18px] bg-neutral-900 flex items-center justify-center relative overflow-hidden">
+        <div className="w-11 h-11 rounded-full bg-white/25 backdrop-blur flex items-center justify-center"><Play size={18} color="#fff" fill="#fff"/></div>
+        <span className="absolute bottom-2 left-2 text-[10px] text-white/80 font-semibold">Video</span>
+      </div>
+    )
+  }
+  if (media.type === 'audio') {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 rounded-[22px] w-[190px]" style={{ background: c.bubble }}>
+        <Pause size={14} color={c.fg} fill={c.fg}/>
+        <div className="flex-1 flex items-center gap-[2px] h-5">
+          {[6, 12, 8, 16, 10, 14, 7, 12, 5, 11, 15, 8, 6, 10].map((h, i) => <span key={i} className="w-[2px] rounded" style={{ height: h, background: c.sub }}/>)}
+        </div>
+        <span className="text-[10px]" style={{ color: c.sub }}>0:12</span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-[18px] w-[200px]" style={{ background: c.bubble }}>
+      <span className="w-8 h-9 rounded-md bg-red-500 flex items-center justify-center flex-shrink-0"><FileText size={15} color="#fff"/></span>
+      <span className="min-w-0">
+        <span className="block text-[12px] font-semibold truncate" style={{ color: c.fg }}>{mediaFileName(media)}</span>
+        <span className="block text-[10px]" style={{ color: c.sub }}>PDF document</span>
+      </span>
+    </div>
+  )
+}
+
+function ProductCard({ p, c }) {
+  return (
+    <div data-card className="flex-shrink-0 snap-start overflow-hidden" style={{ width: 150, borderRadius: 18, background: c.bubble }}>
+      <div className="h-[110px] flex items-center justify-center text-4xl" style={{ background: p.tint || '#e5e7eb' }}>{p.emoji || '🛍️'}</div>
+      <div className="px-3 py-2.5">
+        <p className="text-[12.5px] font-semibold leading-snug break-words" style={{ color: c.fg }}>{p.name || 'Product'}</p>
+        {p.price && <p className="text-[12px] mt-0.5" style={{ color: c.sub }}>{p.price}</p>}
+      </div>
+      <div className="py-[9px] text-center text-[12px] font-semibold" style={{ borderTop: `1px solid ${c.line}`, color: c.fg }}>View product</div>
     </div>
   )
 }
@@ -96,6 +152,17 @@ export default function IgDmPreview({
         <div className="mb-0.5">{avatar(20)}</div>
         <div ref={scroller} className="flex gap-2 overflow-x-auto snap-x min-w-0 pb-1 -mr-3 pr-3" style={{ scrollbarWidth: 'none' }}>
           {t.elements.map((el, i) => <Card key={i} el={el} c={c} active={focusCard === i && t.elements.length > 1}/>)}
+        </div>
+      </div>
+    )
+  } else if (t.kind === 'product') {
+    body = (
+      <div className="flex items-end gap-1.5">
+        <div className="mb-0.5">{avatar(20)}</div>
+        <div ref={scroller} className="flex gap-2 overflow-x-auto snap-x min-w-0 pb-1 -mr-3 pr-3" style={{ scrollbarWidth: 'none' }}>
+          {(t.products || []).length
+            ? t.products.map((p, i) => <ProductCard key={i} p={p} c={c}/>)
+            : <div className="text-[12px] px-3 py-8" style={{ color: c.sub }}>Add products to preview</div>}
         </div>
       </div>
     )
@@ -153,8 +220,24 @@ export default function IgDmPreview({
                 {customerMessage}
               </div>
             </div>
+            {t?.media && t.kind !== 'generic' && t.kind !== 'product' && (
+              <div className="flex items-end gap-1.5">
+                <div className="mb-0.5">{avatar(20)}</div>
+                <MediaBubble media={t.media} c={c}/>
+              </div>
+            )}
             {body}
           </div>
+          {t?.kind === 'text' && (t.quickReplies || []).length > 0 && (
+            <div className="px-3 pt-1 flex gap-1.5 overflow-x-auto flex-shrink-0" style={{ scrollbarWidth: 'none' }}>
+              {t.quickReplies.map((r, i) => (
+                <span key={i} className="flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold whitespace-nowrap"
+                  style={{ border: '1px solid #6228d7', color: dark ? '#b794ff' : '#6228d7' }}>
+                  {r.title || 'Reply'}
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* composer */}
           <div className="px-3 pb-3 pt-1.5 flex-shrink-0">

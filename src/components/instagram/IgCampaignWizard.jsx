@@ -8,12 +8,14 @@ import igPortal from './igPortal'
 import clsx from 'clsx'
 import {
   X, Check, Search, FileText, Users, Wand2, Calendar, CheckCircle2, Send,
-  AlertCircle, CalendarClock, Loader2, Info, Reply, Pencil,
+  AlertCircle, CalendarClock, Loader2, Info, Reply, Pencil, Plus,
 } from 'lucide-react'
 import { NativeSelect } from '../Select'
 import IgDmPreview from './IgDmPreview'
+import IgTemplateBuilder from './IgTemplateBuilder'
+import { CustomMessageEditor, emptyDraft, draftToTemplate, draftProblems } from './IgEditors'
 import {
-  HOUR, LIMITS, TOKENS, KINDS, POSTS, tokensIn, personalizeTemplate, summarize, windowState, commentState,
+  HOUR, TOKENS, KINDS, POSTS, isPlainText, tokensIn, personalizeTemplate, summarize, windowState, commentState,
 } from './igTemplateKit'
 
 export const CHIP = {
@@ -30,7 +32,7 @@ const STEPS = [
   { label: 'Review',      icon: CheckCircle2 },
 ]
 
-const KIND_DOT = { generic: 'bg-pink-50 text-pink-500', button: 'bg-violet-50 text-violet-500', text: 'bg-sky-50 text-sky-500' }
+const KIND_DOT = { generic: 'bg-pink-50 text-pink-500', product: 'bg-amber-50 text-amber-500', button: 'bg-violet-50 text-violet-500', text: 'bg-sky-50 text-sky-500' }
 const localIso = ms => new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 
 function Stat({ label, value, tone }) {
@@ -47,9 +49,10 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
   const [type, setType] = useState('dm') // 'dm' | 'comments'
   const [tplPicked, setTplPicked] = useState(initialTemplate)
   const [source, setSource] = useState('template') // 'template' | 'custom'
-  const [customText, setCustomText] = useState('')
+  const [draft, setDraft] = useState(emptyDraft)
+  const [showBuilder, setShowBuilder] = useState(false)
   const [saveAsTpl, setSaveAsTpl] = useState(false)
-  const customRef = useRef(null)
+  const focusRef = useRef(null)
   const [tplSearch, setTplSearch] = useState('')
   const [segment, setSegment] = useState('all')
   const [postId, setPostId] = useState(POSTS[0].id)
@@ -63,17 +66,13 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
   const dm = type === 'dm'
   // A custom message is an unsaved text template, so everything downstream
   // (personalise, preview, send) treats both sources the same way.
-  const tpl = source === 'custom'
-    ? (customText.trim() ? { id: null, name: 'Custom message', kind: 'text', status: 'ready', note: '', elements: [], text: customText, buttons: [] } : null)
-    : tplPicked
-  const unknownTokens = source === 'custom'
-    ? [...customText.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)].map(m => m[1]).filter(k => !TOKENS.some(t => t.key === k))
-    : []
+  const tpl = source === 'custom' ? draftToTemplate(draft, !dm) : tplPicked
+  const customProblems = source === 'custom' ? draftProblems(draft, !dm) : []
   const sendAt = when === 'later' ? new Date(laterAt).getTime() : Date.now()
 
   const tplList = useMemo(() => {
     const q = tplSearch.trim().toLowerCase()
-    return templates.filter(t => t.status === 'ready' && (dm || t.kind === 'text') &&
+    return templates.filter(t => t.status === 'ready' && (dm || isPlainText(t)) &&
       (!q || t.name.toLowerCase().includes(q) || summarize(t).toLowerCase().includes(q)))
   }, [templates, tplSearch, dm])
 
@@ -111,26 +110,15 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
     ? eligible.slice(0, 3).map(r => r.c)
     : replyable.slice(0, 3).map(r => ({ name: r.cm.user.replace('@', '').replace(/[._]/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()), handle: r.cm.user, city: '' }))
 
-  function insertToken(key) {
-    const el = customRef.current
-    const tok = '{{' + key + '}}'
-    const a = el?.selectionStart ?? customText.length
-    const b = el?.selectionEnd ?? a
-    const next = customText.slice(0, a) + tok + customText.slice(b)
-    if (next.length > LIMITS.text) return
-    setCustomText(next)
-    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(a + tok.length, a + tok.length) })
-  }
-
   function pickType(t) {
     if (t === type) return
     setType(t)
-    if (tplPicked && t === 'comments' && tplPicked.kind !== 'text') setTplPicked(null)
+    if (tplPicked && t === 'comments' && !isPlainText(tplPicked)) setTplPicked(null)
     if (t === 'comments') setWhen('now')
   }
 
   const scheduleOk = !!name.trim() && (when === 'now' || sendAt > Date.now())
-  const canNext = [!!tpl && unknownTokens.length === 0, reach > 0, true, scheduleOk, true][step]
+  const canNext = [!!tpl && customProblems.length === 0 && (dm || isPlainText(tpl)), reach > 0, true, scheduleOk, true][step]
 
   function next() {
     if (step === 2 && !name.trim() && tpl) {
@@ -161,6 +149,18 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
     setLaunching(false)
     setLaunched(true)
     setTimeout(onClose, 1500)
+  }
+
+  if (showBuilder) {
+    return igPortal(
+      <IgTemplateBuilder initial={null} onBack={() => setShowBuilder(false)}
+        onSave={t => {
+          const saved = onSaveTemplate ? onSaveTemplate(t) : t
+          setTplPicked(saved)
+          setSource('template')
+          setShowBuilder(false)
+        }}/>,
+    )
   }
 
   return igPortal(
@@ -232,32 +232,8 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
               <div className="flex flex-1 min-h-0">
                 {source === 'custom' ? (
                   <div className="flex-1 min-w-0 border-r border-surface-border p-4 space-y-3 overflow-y-auto">
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="label !mb-0">Your message</label>
-                        <span className={clsx('text-[10px] tabular-nums', customText.length > LIMITS.text * 0.9 ? 'text-amber-600 font-semibold' : 'text-slate-400')}>{customText.length}/{LIMITS.text}</span>
-                      </div>
-                      <textarea ref={customRef} className="textarea w-full text-xs" rows={7} maxLength={LIMITS.text} autoFocus
-                        value={customText} onChange={e => setCustomText(e.target.value)}
-                        placeholder={dm ? 'Hi {{first_name}}! Just a quick update on your order…' : 'Thanks for commenting, {{first_name}}! Here is the link you asked about…'}/>
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10.5px] font-semibold text-slate-400 mr-0.5 flex items-center gap-1"><Wand2 size={11}/> Personalise</span>
-                      {TOKENS.map(tk => (
-                        <button key={tk.key} type="button" onMouseDown={e => e.preventDefault()} onClick={() => insertToken(tk.key)}
-                          className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-white border border-surface-border text-slate-600 hover:border-primary hover:text-primary transition-colors">
-                          {'{{' + tk.key + '}}'}
-                        </button>
-                      ))}
-                    </div>
-                    {unknownTokens.length > 0 && (
-                      <p className="flex items-start gap-1.5 text-[11px] text-red-600"><AlertCircle size={12} className="flex-shrink-0 mt-0.5"/> Unknown placeholder {'{{' + unknownTokens[0] + '}}'} — use one of the buttons above.</p>
-                    )}
-                    <p className="flex items-start gap-1.5 text-[10.5px] text-slate-500 leading-snug">
-                      <Info size={12} className="flex-shrink-0 mt-0.5"/>
-                      Plain text, no cards or buttons. {dm ? 'It is still only delivered inside each contact\'s 24-hour window.' : 'This is the format Instagram allows for a private reply.'}
-                    </p>
-                    <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+                    <CustomMessageEditor draft={draft} onChange={setDraft} textOnly={!dm} focusRef={focusRef}/>
+                    <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none pt-1">
                       <input type="checkbox" className="accent-primary" checked={saveAsTpl} onChange={e => setSaveAsTpl(e.target.checked)}/>
                       Also save this message as a template
                     </label>
@@ -270,7 +246,10 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
                       <input className="w-full pl-9 pr-4 py-2 text-sm border border-surface-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder-slate-400"
                         placeholder={dm ? 'Search ready templates…' : 'Search text templates…'} value={tplSearch} onChange={e => setTplSearch(e.target.value)}/>
                     </div>
-                    {!dm && <p className="text-[10.5px] text-slate-400 mt-2">Instagram only allows plain text in a private reply, so only Text templates are listed.</p>}
+                    <div className="flex items-center justify-between gap-2 mt-2">
+                      <p className="text-[10.5px] text-slate-400">{dm ? 'Need something new — a carousel, product cards, buttons?' : 'Instagram only allows plain text in a private reply, so only plain Text templates are listed.'}</p>
+                      <button onClick={() => setShowBuilder(true)} className="flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline whitespace-nowrap flex-shrink-0"><Plus size={11}/> Create template</button>
+                    </div>
                   </div>
                   <div className="flex-1 overflow-y-auto divide-y divide-surface-border">
                     {tplList.length === 0 ? (

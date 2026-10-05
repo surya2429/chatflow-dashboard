@@ -29,8 +29,9 @@ import IgDmPreview from '../components/instagram/IgDmPreview'
 import IgTemplateBuilder from '../components/instagram/IgTemplateBuilder'
 import IgTemplatesView, { IgStatusPill } from '../components/instagram/IgTemplatesView'
 import IgCampaignWizard, { CHIP } from '../components/instagram/IgCampaignWizard'
+import { CustomMessageEditor, emptyDraft, draftToTemplate, draftProblems } from '../components/instagram/IgEditors'
 import {
-  HOUR, LIMITS, TOKENS, POSTS, commentState, windowState, summarize, personalizeTemplate,
+  HOUR, POSTS, commentState, windowState, summarize, personalizeTemplate,
   loadTemplates, saveTemplates,
 } from '../components/instagram/igTemplateKit'
 
@@ -40,7 +41,7 @@ const PAGE_SIZE = 10
 
 const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0)
 const fmt = ms => new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
-const KIND_TONE = { generic: 'bg-pink-50 text-pink-500', button: 'bg-violet-50 text-violet-500', text: 'bg-sky-50 text-sky-500' }
+const KIND_TONE = { generic: 'bg-pink-50 text-pink-500', product: 'bg-amber-50 text-amber-500', button: 'bg-violet-50 text-violet-500', text: 'bg-sky-50 text-sky-500' }
 
 /* ── seed data ─────────────────────────────────────────────────────────── */
 function seedCampaigns(templates) {
@@ -384,8 +385,8 @@ function QuickSendModal({ templates, contacts, onClose, onSent }) {
   const [contactId, setContactId] = useState(null)
   const [tplId, setTplId] = useState(null)
   const [mode, setMode] = useState('template') // 'template' | 'custom'
-  const [customText, setCustomText] = useState('')
-  const customRef = useRef(null)
+  const [draft, setDraft] = useState(emptyDraft)
+  const focusRef = useRef(null)
   const [sending, setSending] = useState(false)
   const now = Date.now()
 
@@ -395,24 +396,10 @@ function QuickSendModal({ templates, contacts, onClose, onSent }) {
     return !q || c.name.toLowerCase().includes(q) || c.handle.toLowerCase().includes(q)
   }).map(c => ({ c, w: windowState(c, now) }))
   const contact = contacts.find(c => c.id === contactId)
-  const tpl = mode === 'custom'
-    ? (customText.trim() ? { id: null, name: 'Custom message', kind: 'text', status: 'ready', note: '', elements: [], text: customText, buttons: [] } : null)
-    : templates.find(t => t.id === tplId)
-  const unknownTok = mode === 'custom'
-    ? [...customText.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)].map(m => m[1]).filter(k => !TOKENS.some(t => t.key === k))
-    : []
-  function insertToken(key) {
-    const el = customRef.current
-    const tok = '{{' + key + '}}'
-    const a = el?.selectionStart ?? customText.length
-    const b = el?.selectionEnd ?? a
-    const next = customText.slice(0, a) + tok + customText.slice(b)
-    if (next.length > LIMITS.text) return
-    setCustomText(next)
-    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(a + tok.length, a + tok.length) })
-  }
+  const tpl = mode === 'custom' ? draftToTemplate(draft) : templates.find(t => t.id === tplId)
+  const customProblems = mode === 'custom' ? draftProblems(draft) : []
   const preview = tpl && contact ? personalizeTemplate(tpl, contact) : tpl
-  const ok = contact && tpl && unknownTok.length === 0 && windowState(contact, now).key === 'eligible'
+  const ok = contact && tpl && customProblems.length === 0 && windowState(contact, now).key === 'eligible'
 
   async function send() {
     if (!ok) return
@@ -472,24 +459,7 @@ function QuickSendModal({ templates, contacts, onClose, onSent }) {
                 </div>
               </div>
               {mode === 'custom' ? (
-                <div className="space-y-2">
-                  <textarea ref={customRef} rows={5} maxLength={LIMITS.text} value={customText} onChange={e => setCustomText(e.target.value)}
-                    className="textarea w-full text-xs" placeholder="Hi {{first_name}}, thanks for getting in touch…"/>
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <Wand2 size={11} className="text-slate-400"/>
-                      {TOKENS.map(tk => (
-                        <button key={tk.key} type="button" onMouseDown={e => e.preventDefault()} onClick={() => insertToken(tk.key)}
-                          className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-white border border-surface-border text-slate-600 hover:border-primary hover:text-primary transition-colors">
-                          {'{{' + tk.key + '}}'}
-                        </button>
-                      ))}
-                    </div>
-                    <span className="text-[10px] tabular-nums text-slate-400">{customText.length}/{LIMITS.text}</span>
-                  </div>
-                  {unknownTok.length > 0 && <p className="text-[11px] text-red-600">Unknown placeholder {'{{' + unknownTok[0] + '}}'} — use one of the buttons above.</p>}
-                  <p className="text-[10.5px] text-slate-400">Plain text, sent as you type it — no template needed.</p>
-                </div>
+                <CustomMessageEditor draft={draft} onChange={setDraft} focusRef={focusRef}/>
               ) : (
               <div className="border border-surface-border rounded-xl divide-y divide-surface-border max-h-44 overflow-y-auto">
                 {ready.length === 0 && <p className="text-xs text-slate-400 text-center py-5">No ready templates yet</p>}
@@ -695,7 +665,9 @@ export default function InstagramBroadcasts() {
   }
   function saveFromWizard(t) {
     const now = new Date().toISOString()
-    setTemplates(list => [{ ...t, id: `tpl_${Date.now()}`, status: 'ready', createdAt: now, updatedAt: now, sent: 0, seen: 0 }, ...list])
+    const saved = { status: 'ready', ...t, id: `tpl_${Date.now()}`, createdAt: now, updatedAt: now, sent: 0, seen: 0 }
+    setTemplates(list => [saved, ...list])
+    return saved
   }
   const deleteTemplate = id => { setTemplates(l => l.filter(t => t.id !== id)); flash('Template deleted') }
   const deleteMany = ids => { setTemplates(l => l.filter(t => !ids.includes(t.id))); flash(`${ids.length} template${ids.length > 1 ? 's' : ''} deleted`) }

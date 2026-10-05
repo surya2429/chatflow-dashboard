@@ -7,15 +7,16 @@ import igPortal from './igPortal'
 import clsx from 'clsx'
 import {
   Search, FileText, Pencil, Trash2, Copy, Eye, MoreHorizontal, X, Sun, Moon, Plus,
-  LayoutGrid, MousePointerClick, Type, ChevronLeft, ChevronRight, Send,
+  LayoutGrid, MousePointerClick, Type, ShoppingBag, ChevronLeft, ChevronRight, Send,
 } from 'lucide-react'
 import { NativeSelect } from '../Select'
 import IgDmPreview from './IgDmPreview'
 import { KINDS, summarize, tokensIn } from './igTemplateKit'
 
-const KIND_ICON = { generic: LayoutGrid, button: MousePointerClick, text: Type }
+const KIND_ICON = { generic: LayoutGrid, product: ShoppingBag, button: MousePointerClick, text: Type }
 const KIND_TONE = {
   generic: { icon: 'bg-pink-50 text-pink-500',     tag: 'bg-pink-50 text-pink-600' },
+  product: { icon: 'bg-amber-50 text-amber-500',   tag: 'bg-amber-50 text-amber-600' },
   button:  { icon: 'bg-violet-50 text-violet-500', tag: 'bg-violet-50 text-violet-600' },
   text:    { icon: 'bg-sky-50 text-sky-500',       tag: 'bg-sky-50 text-sky-600' },
 }
