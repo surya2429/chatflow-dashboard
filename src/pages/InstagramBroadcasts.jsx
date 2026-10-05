@@ -1,390 +1,1011 @@
-// InstagramBroadcasts.jsx — bulk outreach on Instagram, built to what Meta's
-// Messaging API actually permits rather than to WhatsApp's broadcast model.
+// InstagramBroadcasts.jsx — Instagram's counterpart to the WhatsApp Broadcasts
+// page: the same Campaigns / Templates / Template Logs layout, campaign wizard,
+// Quick Send and campaign insights, built to what Meta's Messaging API allows.
 //
-// WhatsApp can message anyone opted-in at any time using an approved template.
-// Instagram cannot. Per Meta's docs (checked October 2026):
+// What differs from WhatsApp, and why (Meta docs, checked October 2026):
 //   - A business may message a user only within 24 hours of that user's last
-//     message to it. There are no approved templates that reopen a closed window.
-//   - The HUMAN_AGENT tag stretches that to 7 days, but only for a real person
-//     handling a support case — never for automated or promotional sends.
-//   - One-Time Notifications and Sponsored Messages are Messenger-only, and
-//     Recurring Notifications / Marketing Messages ended on 10 Feb 2026.
-//   - A private reply to a comment is the one supported way to start a DM
-//     with someone who has not messaged first: ONE text message per comment,
-//     within 7 days of the comment.
-// So an Instagram "broadcast" here is (1) a DM to contacts whose window is
-// still open, with everyone else skipped and counted rather than silently
-// dropped, and (2) private replies to recent comments on a post.
-import { useState, useMemo } from 'react'
+//     message. There are no approved templates that reopen a closed window,
+//     so templates here are not submitted for review (Ready / Draft only).
+//   - HUMAN_AGENT (7 days) is for a person handling support, never for
+//     automated or promotional sends. One-Time Notifications and Sponsored
+//     Messages are Messenger-only; Recurring Notifications / Marketing
+//     Messages ended on 10 Feb 2026.
+//   - A private reply to a comment is the one supported way to start a DM with
+//     someone who has not messaged first: ONE text message per comment, within
+//     7 days.
+// So a campaign delivers to contacts whose window is open at the SEND time;
+// everyone else is skipped and counted, never queued.
+import { useState, useMemo, useEffect, useRef } from 'react'
+import igPortal from '../components/instagram/igPortal'
 import clsx from 'clsx'
 import {
-  Radio, Send, Clock, Users, CheckCircle2, AlertCircle, MessageCircle, FileText,
-  CalendarClock, ShieldCheck, Eye, Reply,
+  Plus, Search, ChevronLeft, ChevronRight, X, Send, FileText, History, BarChart2, Inbox, Eye, Shield,
+  CornerUpLeft, CheckCircle2, AlertCircle, Zap, Copy, Check, Download, MailOpen,
+  MousePointerClick, Users, MessageCircle, Reply, ShieldCheck, Link2,
 } from 'lucide-react'
 import { NativeSelect } from '../components/Select'
 import { INIT_CONTACTS, INIT_GROUPS } from './InstagramContacts'
-import { InstagramTemplateComposer } from './InstagramInbox'
+import IgDmPreview from '../components/instagram/IgDmPreview'
+import IgTemplateBuilder from '../components/instagram/IgTemplateBuilder'
+import IgTemplatesView, { IgStatusPill } from '../components/instagram/IgTemplatesView'
+import IgCampaignWizard, { CHIP } from '../components/instagram/IgCampaignWizard'
+import {
+  HOUR, POSTS, commentState, windowState, summarize, personalizeTemplate,
+  loadTemplates, saveTemplates,
+} from '../components/instagram/igTemplateKit'
 
-const HOUR = 3600000
-const WINDOW_MS = 24 * HOUR
-const COMMENT_WINDOW_MS = 7 * 24 * HOUR
-const TEXT_MAX = 1000
+const DAY = 86400000
+const STATUS_TABS = ['All', 'Sending', 'Scheduled', 'Completed', 'Failed']
+const PAGE_SIZE = 10
 
-/* Whether a DM sent at `at` still lands: opted-out contacts never do, and
-   everyone else only while their 24h window (from their last message) is open.
-   Evaluated at the SEND time, not now — a scheduled broadcast can outlive the
-   window of someone who is eligible today. */
-function windowState(contact, at) {
-  if (contact.status !== 'active') return { key: 'optout', label: 'Unsubscribed' }
-  const left = new Date(contact.last).getTime() + WINDOW_MS - at
-  if (left <= 0) return { key: 'expired', label: 'Window closed' }
-  const h = Math.floor(left / HOUR), m = Math.floor((left % HOUR) / 60000)
-  return { key: 'eligible', label: h > 0 ? `${h}h ${m}m left` : `${m}m left` }
+const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0)
+const fmt = ms => new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+const KIND_TONE = { generic: 'bg-pink-50 text-pink-500', button: 'bg-violet-50 text-violet-500', text: 'bg-sky-50 text-sky-500' }
+
+/* ── seed data ─────────────────────────────────────────────────────────── */
+function seedCampaigns(templates) {
+  const tpl = id => templates.find(t => t.id === id) || templates[0]
+  const now = Date.now()
+  return [
+    { id: 'c1', name: 'Summer drop — new arrivals', type: 'dm', template: tpl('tpl_seed_1'), audienceLabel: 'All contacts',
+      sendAt: now - 3 * DAY, targeted: 214, planned: 96, skippedExpired: 108, skippedOptout: 10,
+      sent: 96, delivered: 93, seen: 71, replied: 24, failed: 3, clicks: 38, status: 'Completed' },
+    { id: 'c2', name: 'Support menu nudge', type: 'dm', template: tpl('tpl_seed_2'), audienceLabel: 'Tag · customer',
+      sendAt: now - 6 * DAY, targeted: 140, planned: 62, skippedExpired: 70, skippedOptout: 8,
+      sent: 62, delivered: 60, seen: 44, replied: 19, failed: 2, clicks: 27, status: 'Completed' },
+    { id: 'c3', name: 'Reel comment follow-up', type: 'comments', template: tpl('tpl_seed_4'), audienceLabel: 'Summer collection reel',
+      sendAt: now - 4 * DAY, targeted: 9, planned: 6, skippedExpired: 1, skippedOptout: 2,
+      sent: 6, delivered: 6, seen: 4, replied: 3, failed: 0, clicks: 0, status: 'Completed' },
+    { id: 'c4', name: 'Back in stock — weekend', type: 'dm', template: tpl('tpl_seed_3'), audienceLabel: 'Tag · warm lead',
+      sendAt: now + DAY, targeted: 52, planned: 18, skippedExpired: 31, skippedOptout: 3,
+      sent: 0, delivered: 0, seen: 0, replied: 0, failed: 0, clicks: 0, status: 'Scheduled' },
+    { id: 'c5', name: 'Flash sale carousel', type: 'dm', template: tpl('tpl_seed_1'), audienceLabel: 'Group · VIP Customers',
+      sendAt: now - 9 * DAY, targeted: 80, planned: 31, skippedExpired: 44, skippedOptout: 5,
+      sent: 0, delivered: 0, seen: 0, replied: 0, failed: 31, clicks: 0, status: 'Failed',
+      error: 'Instagram could not fetch a card image (the link returned 404), so nothing was delivered.' },
+  ]
 }
 
-const CHIP = {
-  eligible: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  expired:  'bg-amber-50 text-amber-700 border-amber-200',
-  optout:   'bg-slate-100 text-slate-500 border-slate-200',
+const mid = i => `aWdfZAG1${(i * 7919 + 104729).toString(36).toUpperCase()}faXRlbToxOklHTWVzc2FnZAUlE${(i * 31).toString(36)}`
+function seedLogs() {
+  const now = Date.now()
+  const names = ['Ananya Rao', 'Karthik Iyer', 'Meera Nair', 'Sneha Kapoor', 'Vikram Singh', 'Pooja Reddy', 'Arjun Das', 'Neha Gupta']
+  const tp = ['New arrivals carousel', 'Support quick options', 'Back in stock', 'Comment thank-you']
+  const st = ['seen', 'delivered', 'seen', 'delivered', 'seen', 'sent', 'failed', 'seen', 'delivered', 'seen', 'seen', 'failed', 'delivered', 'seen', 'delivered', 'seen', 'seen', 'delivered', 'sent', 'seen']
+  return st.map((status, i) => {
+    const n = names[i % names.length]
+    return {
+      id: `l${i}`, name: n, handle: `@${n.toLowerCase().replace(' ', '.')}`, tpl: tp[i % tp.length], mid: mid(i), status,
+      resp: status === 'failed' ? (i % 2 ? 'Outside the 24-hour window' : 'Image could not be fetched') : 'Success',
+      sentAt: now - (i * 3.4 + 0.6) * HOUR,
+    }
+  })
 }
 
-const POSTS = [
-  { id: 'p1', title: 'Summer collection reel', comments: [
-    { id: 'c1', user: '@meera.creates', text: 'Love this! Where can I buy?', ageH: 3,  replied: false },
-    { id: 'c2', user: '@ananya.rao',    text: 'Is the blue one in stock?',   ageH: 20, replied: false },
-    { id: 'c3', user: '@pooja.reddy',   text: 'Price please 😍',             ageH: 70, replied: true  },
-    { id: 'c4', user: '@rohit.s',       text: 'Shipping to Mumbai?',         ageH: 200, replied: false },
-  ] },
-  { id: 'p2', title: 'Flash sale carousel', comments: [
-    { id: 'c5', user: '@karthik.iyer',  text: 'Code?',                       ageH: 30, replied: false },
-    { id: 'c6', user: '@sneha.kapoor',  text: 'Does this ship to Delhi?',    ageH: 52, replied: false },
-  ] },
-  { id: 'p3', title: 'Behind the scenes story', comments: [
-    { id: 'c7', user: '@vikram.singh',  text: 'Nice!',                       ageH: 400, replied: false },
-  ] },
-]
-
-const SEED_HISTORY = [
-  { id: 'h1', name: 'Weekend restock alert', type: 'dm', kind: 'Card carousel', audience: 'VIP Customers',
-    at: Date.now() - 2 * 86400000, status: 'sent', targeted: 18, skipped: 11, sent: 7, delivered: 7, seen: 5, replies: 2 },
-  { id: 'h2', name: 'Reel comment follow-up', type: 'comments', kind: 'Private reply', audience: 'Summer collection reel',
-    at: Date.now() - 4 * 86400000, status: 'sent', targeted: 9, skipped: 3, sent: 6, delivered: 6, seen: 4, replies: 3 },
-]
-
-function summarize(t) {
-  if (!t) return ''
-  if (t.kind === 'generic') return `Card${t.elements.length > 1 ? ` carousel · ${t.elements.length} cards` : ''} · ${t.elements[0]?.title || ''}`
-  return `Button template · ${t.text.slice(0, 40)}`
+/* ── small pieces ──────────────────────────────────────────────────────── */
+const STATUS_CFG = {
+  Completed: { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500', ring: 'ring-emerald-200' },
+  Sending:   { bg: 'bg-blue-50',    text: 'text-blue-700',    dot: 'bg-blue-500',    ring: 'ring-blue-200' },
+  Scheduled: { bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-500',   ring: 'ring-amber-200' },
+  Failed:    { bg: 'bg-red-50',     text: 'text-red-700',     dot: 'bg-red-500',     ring: 'ring-red-200' },
+}
+function StatusPill({ status }) {
+  const c = STATUS_CFG[status] || STATUS_CFG.Scheduled
+  return (
+    <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ring-1', c.bg, c.text, c.ring)}>
+      <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', c.dot, status === 'Sending' && 'animate-pulse')}/>{status}
+    </span>
+  )
 }
 
 function Stat({ label, value, tone }) {
   return (
     <div className={clsx('rounded-lg border px-3 py-2', tone)}>
-      <p className="text-lg font-bold leading-none">{value}</p>
+      <p className="text-lg font-bold leading-none tabular-nums">{value}</p>
       <p className="text-[10px] font-medium mt-1 opacity-80">{label}</p>
     </div>
   )
 }
 
-export default function InstagramBroadcasts() {
-  const [tab, setTab] = useState('dm')
-  const [history, setHistory] = useState(SEED_HISTORY)
-  const [toast, setToast] = useState('')
+const th = 'px-4 py-3 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap'
 
-  // DM broadcast
-  const [name, setName] = useState('')
-  const [segment, setSegment] = useState('all')
-  const [mode, setMode] = useState('text') // 'text' | 'template'
-  const [text, setText] = useState('')
-  const [template, setTemplate] = useState(null)
-  const [showComposer, setShowComposer] = useState(false)
-  const [when, setWhen] = useState('now') // 'now' | 'later'
-  const [laterAt, setLaterAt] = useState(() => new Date(Date.now() + 2 * HOUR - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16))
+/* ── recipients for the insights table ─────────────────────────────────── */
+const POOL = ['Ananya Rao', 'Karthik Iyer', 'Meera Nair', 'Rohit Sharma', 'Divya Menon', 'Sneha Kapoor', 'Vikram Singh', 'Pooja Reddy',
+  'Arjun Das', 'Neha Gupta', 'Ishaan Malhotra', 'Kavya Pillai', 'Aditya Verma', 'Riya Banerjee', 'Manish Joshi']
+const handleOf = n => `@${n.toLowerCase().replace(/\s+/g, '.')}`
 
-  // Comment campaign
-  const [postId, setPostId] = useState('p1')
-  const [replyText, setReplyText] = useState('')
-
-  const sendAt = when === 'later' ? new Date(laterAt).getTime() : Date.now()
-
-  const segments = useMemo(() => {
-    const tags = [...new Set(INIT_CONTACTS.flatMap(c => c.tags))]
-    return [
-      { value: 'all', label: 'All contacts', fn: () => true },
-      ...INIT_GROUPS.map(g => ({ value: `g:${g.id}`, label: `Group · ${g.name}`, fn: c => c.groupIds.includes(g.id) })),
-      ...tags.map(t => ({ value: `t:${t}`, label: `Tag · ${t}`, fn: c => c.tags.includes(t) })),
-    ]
-  }, [])
-  const seg = segments.find(s => s.value === segment) || segments[0]
-
-  const audience = useMemo(
-    () => INIT_CONTACTS.filter(seg.fn).map(c => ({ c, w: windowState(c, sendAt) })),
-    [seg, sendAt],
-  )
-  const eligible = audience.filter(a => a.w.key === 'eligible')
-  const expired = audience.filter(a => a.w.key === 'expired').length
-  const optout = audience.filter(a => a.w.key === 'optout').length
-
-  const contentReady = mode === 'text' ? text.trim().length > 0 : Boolean(template)
-  const canSendDm = name.trim() && contentReady && eligible.length > 0 && (when === 'now' || sendAt > Date.now())
-
-  function record(rec) {
-    setHistory(h => [rec, ...h])
-    setTab('history')
-  }
-  function sendDm() {
-    if (!canSendDm) return
-    const n = eligible.length
-    const now = when === 'now'
-    record({
-      id: `h${Date.now()}`, name: name.trim(), type: 'dm',
-      kind: mode === 'text' ? 'Text' : (template.kind === 'generic' ? 'Card' : 'Button template'),
-      audience: seg.label, at: sendAt, status: now ? 'sent' : 'scheduled',
-      targeted: audience.length, skipped: expired + optout, sent: n,
-      delivered: now ? n : 0, seen: now ? Math.round(n * 0.6) : 0, replies: now ? Math.round(n * 0.2) : 0,
+function genRecipients(c) {
+  const skipLabel = o => (c.type === 'comments' ? (o === 'expired' ? 'Over 7 days' : 'Already replied') : (o === 'expired' ? 'Window closed' : 'Unsubscribed'))
+  const live = c.status === 'Scheduled' ? 'Queued' : c.status === 'Sending' ? 'Sending' : null
+  if (c.contacts) {
+    let i = 0
+    return c.contacts.map(x => {
+      if (x.outcome !== 'sent') return { name: x.name, handle: x.handle, status: 'Skipped', reason: skipLabel(x.outcome), seen: false, replied: false }
+      const k = i++
+      if (live) return { name: x.name, handle: x.handle, status: live, seen: false, replied: false }
+      if (k < c.failed) return { name: x.name, handle: x.handle, status: 'Failed', seen: false, replied: false }
+      const j = k - c.failed
+      return { name: x.name, handle: x.handle, status: 'Delivered', seen: j < c.seen, replied: j < c.replied }
     })
-    setToast(now ? `Sent to ${n} contact${n === 1 ? '' : 's'} · ${expired + optout} skipped` : `Scheduled for ${new Date(sendAt).toLocaleString()}`)
-    setName(''); setText(''); setTemplate(null)
-    setTimeout(() => setToast(''), 4000)
   }
-
-  const post = POSTS.find(p => p.id === postId)
-  const commentRows = post.comments.map(cm => {
-    const age = cm.ageH * HOUR
-    const state = cm.replied ? 'replied' : age >= COMMENT_WINDOW_MS ? 'old' : 'ok'
-    return { cm, state }
+  const n = Math.min(c.targeted, 30)
+  const sc = n / Math.max(1, c.targeted)
+  const skipped = Math.min(n, Math.round((c.skippedExpired + c.skippedOptout) * sc))
+  const failed = Math.min(n - skipped, Math.round(c.failed * sc))
+  const ok = n - skipped - failed
+  const seen = Math.round(c.seen * sc), replied = Math.round(c.replied * sc)
+  const expiredShare = c.skippedExpired / Math.max(1, c.skippedExpired + c.skippedOptout)
+  return Array.from({ length: n }, (_, i) => {
+    const name = POOL[i % POOL.length] + (i >= POOL.length ? ` ${Math.floor(i / POOL.length) + 1}` : '')
+    const base = { name, handle: handleOf(name) }
+    if (i < ok) {
+      if (live) return { ...base, status: live, seen: false, replied: false }
+      return { ...base, status: 'Delivered', seen: i < seen, replied: i < replied }
+    }
+    if (i < ok + failed) return { ...base, status: 'Failed', seen: false, replied: false }
+    const k = i - ok - failed
+    return { ...base, status: 'Skipped', reason: skipLabel(k < Math.round(skipped * expiredShare) ? 'expired' : 'optout'), seen: false, replied: false }
   })
-  const replyable = commentRows.filter(r => r.state === 'ok')
+}
 
-  function sendReplies() {
-    if (!replyText.trim() || replyable.length === 0) return
-    record({
-      id: `h${Date.now()}`, name: `Private replies · ${post.title}`, type: 'comments', kind: 'Private reply', audience: post.title,
-      at: Date.now(), status: 'sent', targeted: post.comments.length, skipped: post.comments.length - replyable.length,
-      sent: replyable.length, delivered: replyable.length, seen: Math.round(replyable.length * 0.6), replies: Math.round(replyable.length * 0.3),
-    })
-    setToast(`Sent ${replyable.length} private repl${replyable.length === 1 ? 'y' : 'ies'}`)
-    setReplyText('')
-    setTimeout(() => setToast(''), 4000)
+/* ── campaign insights ─────────────────────────────────────────────────── */
+function templateButtons(t) {
+  if (!t) return []
+  const list = t.kind === 'generic' ? t.elements.flatMap(e => e.buttons || []) : (t.buttons || [])
+  const seen = new Set()
+  return list.filter(b => (seen.has(b.title) ? false : seen.add(b.title)))
+}
+
+function CampaignInsights({ campaign: c, onBack, onFollowUp }) {
+  const [tab, setTab] = useState('overview')
+  const [rtab, setRtab] = useState('All')
+  const recipients = useMemo(() => genRecipients(c), [c])
+  const skipped = c.skippedExpired + c.skippedOptout
+  const base = c.planned
+  const btns = templateButtons(c.template)
+  const dm = c.type === 'dm'
+
+  const counts = {
+    All: recipients.length,
+    Delivered: recipients.filter(r => r.status === 'Delivered').length,
+    Seen: recipients.filter(r => r.seen).length,
+    Replied: recipients.filter(r => r.replied).length,
+    Skipped: recipients.filter(r => r.status === 'Skipped').length,
+    Failed: recipients.filter(r => r.status === 'Failed').length,
+  }
+  const visible = recipients.filter(r => rtab === 'All' ? true : rtab === 'Delivered' ? r.status === 'Delivered' : rtab === 'Seen' ? r.seen
+    : rtab === 'Replied' ? r.replied : rtab === 'Skipped' ? r.status === 'Skipped' : r.status === 'Failed')
+
+  function exportCsv() {
+    const q = s => `"${String(s).replace(/"/g, '""')}"`
+    const csv = ['Name,Handle,Status,Reason,Seen,Replied', ...recipients.map(r =>
+      [r.name, r.handle, r.status, r.reason || '', r.seen ? 'Yes' : 'No', r.replied ? 'Yes' : 'No'].map(q).join(','))].join('\n')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    a.download = `${c.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-recipients.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
   }
 
   return (
-    <div className="space-y-4 animate-fade-in max-w-5xl">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white flex-shrink-0"
-            style={{ background: 'linear-gradient(135deg,#f9ce34,#ee2a7b,#6228d7)' }}>
-            <Radio size={18}/>
+    <div className="space-y-5">
+      <div className="flex items-center gap-3 flex-wrap">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 transition-colors font-medium">
+          <ChevronLeft size={16}/> Back to Campaigns
+        </button>
+        <span className="text-slate-300">/</span>
+        <span className="text-sm font-semibold text-slate-900 truncate max-w-[400px]">{c.name}</span>
+        <StatusPill status={c.status}/>
+      </div>
+
+      <div className="flex items-center gap-0.5 bg-slate-100 p-1 rounded-xl w-fit">
+        {['overview', 'recipients'].map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className={clsx('px-3.5 py-1.5 text-xs font-semibold capitalize rounded-lg transition-all', tab === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>{t}</button>
+        ))}
+      </div>
+
+      {c.error && (
+        <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-red-50 border border-red-100">
+          <AlertCircle size={15} className="text-red-500 flex-shrink-0 mt-0.5"/>
+          <div><p className="text-xs font-bold text-red-800">This campaign failed</p><p className="text-[11.5px] text-red-700 mt-0.5">{c.error}</p></div>
+        </div>
+      )}
+
+      {tab === 'overview' && (
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {[
+              { label: dm ? 'Targeted' : 'Comments', value: c.targeted, color: 'text-slate-900', bar: 'bg-slate-300', p: 100 },
+              { label: 'Sent',       value: c.sent || (c.status === 'Failed' ? 0 : c.planned), color: 'text-blue-600', bar: 'bg-blue-500', p: pct(c.sent || c.planned, c.targeted) },
+              { label: 'Delivered',  value: c.delivered, color: 'text-emerald-600', bar: 'bg-emerald-500', p: pct(c.delivered, base) },
+              { label: 'Seen',       value: c.seen,      color: 'text-teal-600',    bar: 'bg-teal-500',    p: pct(c.seen, base) },
+              { label: 'Replied',    value: c.replied,   color: 'text-violet-600',  bar: 'bg-violet-500',  p: pct(c.replied, base) },
+              { label: 'Skipped',    value: skipped,     color: 'text-amber-600',   bar: 'bg-amber-400',   p: pct(skipped, c.targeted) },
+            ].map(k => (
+              <div key={k.label} className="card p-4">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">{k.label}</p>
+                <p className={clsx('text-xl font-bold leading-none mb-1', k.color)}>{k.value.toLocaleString()}</p>
+                <div className="h-1 bg-slate-100 rounded-full mb-1.5"><div className={clsx('h-full rounded-full', k.bar)} style={{ width: `${k.p}%` }}/></div>
+                <p className="text-[10px] text-slate-400">{k.p}%</p>
+              </div>
+            ))}
           </div>
-          <div>
-            <h1 className="text-base font-bold text-slate-900">Instagram Broadcasts</h1>
-            <p className="text-xs text-slate-500 mt-0.5">Reach people inside Meta's messaging window — and nobody outside it.</p>
+
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <div className="lg:col-span-3 card p-5">
+              <h3 className="text-xs font-bold text-slate-700 mb-4">Delivery Funnel</h3>
+              <div className="space-y-3">
+                {[
+                  { label: dm ? 'Targeted' : 'Comments', value: c.targeted, p: 100, bar: 'bg-slate-300' },
+                  { label: 'Reachable', value: c.planned, p: pct(c.planned, c.targeted), bar: 'bg-blue-400' },
+                  { label: 'Delivered', value: c.delivered, p: pct(c.delivered, c.targeted), bar: 'bg-emerald-500' },
+                  { label: 'Seen', value: c.seen, p: pct(c.seen, c.targeted), bar: 'bg-teal-500' },
+                  { label: 'Replied', value: c.replied, p: pct(c.replied, c.targeted), bar: 'bg-violet-500' },
+                  ...(dm ? [{ label: 'Tapped', value: c.clicks, p: pct(c.clicks, c.targeted), bar: 'bg-pink-500' }] : []),
+                ].map(f => (
+                  <div key={f.label} className="flex items-center gap-3">
+                    <span className="text-xs text-slate-500 w-20 flex-shrink-0">{f.label}</span>
+                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden"><div className={clsx('h-full rounded-full transition-all', f.bar)} style={{ width: `${f.p}%` }}/></div>
+                    <span className="text-xs font-semibold text-slate-700 w-9 text-right tabular-nums">{f.p}%</span>
+                    <span className="text-xs text-slate-400 w-12 text-right tabular-nums">{f.value.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10.5px] text-slate-400 mt-4 leading-snug">
+                Targeted → Reachable is where Instagram's rules apply: {dm ? 'contacts outside their 24-hour window or unsubscribed' : 'comments older than 7 days or already replied to'} are skipped, not queued.
+              </p>
+            </div>
+
+            <div className="lg:col-span-2 card p-5">
+              <h3 className="text-xs font-bold text-slate-700 mb-4">Button Responses</h3>
+              {btns.length > 0 ? (
+                <div className="space-y-3">
+                  {btns.map((b, i) => {
+                    const taps = Math.round((c.clicks * (btns.length - i)) / ((btns.length * (btns.length + 1)) / 2))
+                    return (
+                      <div key={b.title + i}>
+                        <div className="flex justify-between text-xs mb-1.5">
+                          <span className="font-medium text-slate-700 flex items-center gap-1.5 min-w-0">
+                            {b.type === 'web_url' ? <Link2 size={11} className="text-slate-400 flex-shrink-0"/> : <Reply size={11} className="text-slate-400 flex-shrink-0"/>}
+                            <span className="truncate">{b.title}</span>
+                          </span>
+                          <span className="text-slate-500 flex-shrink-0">{taps.toLocaleString()} {b.type === 'web_url' ? 'clicks' : 'taps'}</span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-pink-400 rounded-full" style={{ width: `${pct(taps, base)}%` }}/></div>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{pct(taps, base)}% of delivered</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-20 text-slate-300"><MousePointerClick size={20}/><p className="text-xs mt-1">No buttons in this template</p></div>
+              )}
+
+              <div className="mt-4 pt-4 border-t border-surface-border">
+                <p className="text-xs font-bold text-slate-700 mb-2">Skipped</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="px-2.5 py-2 rounded-lg border border-amber-200 bg-amber-50"><p className="text-sm font-bold text-amber-700 tabular-nums">{c.skippedExpired}</p><p className="text-[10px] text-amber-700/80">{dm ? 'Window closed' : 'Over 7 days'}</p></div>
+                  <div className="px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50"><p className="text-sm font-bold text-slate-600 tabular-nums">{c.skippedOptout}</p><p className="text-[10px] text-slate-500">{dm ? 'Unsubscribed' : 'Already replied'}</p></div>
+                </div>
+                {dm && c.replied > 0 && (
+                  <button onClick={onFollowUp}
+                    className="mt-3 w-full flex items-center justify-between px-3 py-2 rounded-lg border border-surface-border text-left hover:border-primary/40 hover:bg-primary-50 transition-all group">
+                    <span className="text-[11px] font-medium text-slate-600 group-hover:text-primary">Follow up with people who replied</span>
+                    <span className="text-[10px] font-bold text-slate-400">{c.replied}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-slate-700 mb-1">{c.template.name}</p>
+                <p className="text-xs text-slate-500 leading-relaxed">{summarize(c.template)}</p>
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{dm ? 'Direct message' : 'Private reply'}</span>
+                  <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{c.audienceLabel}</span>
+                  <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{c.status === 'Scheduled' ? 'Sends' : 'Sent'} {fmt(c.sendAt)}</span>
+                </div>
+                {btns.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {btns.map(b => <span key={b.title} className="text-[10px] font-semibold text-primary border border-primary/30 px-2 py-0.5 rounded-full bg-primary/5">{b.title}</span>)}
+                  </div>
+                )}
+              </div>
+              <div className="flex-shrink-0"><IgDmPreview template={c.template} fallbacks={c.fallbacks} scale={0.72}/></div>
+            </div>
           </div>
         </div>
-        {toast && (
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
-            <CheckCircle2 size={13}/> {toast}
-          </span>
+      )}
+
+      {tab === 'recipients' && (
+        <div className="card p-0 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-surface-border min-w-0">
+            <div className="flex-1 overflow-x-auto min-w-0">
+              <div className="flex items-center gap-0.5 bg-slate-100 p-1 rounded-xl w-fit">
+                {Object.keys(counts).map(t => (
+                  <button key={t} onClick={() => setRtab(t)}
+                    className={clsx('flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap', rtab === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                    {t}
+                    <span className={clsx('text-[10px] font-bold px-1.5 py-0.5 rounded-full', rtab === t ? 'bg-primary/10 text-primary' : 'text-slate-400')}>{counts[t]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button onClick={exportCsv} className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 px-2.5 py-1.5 rounded-lg border border-surface-border transition-colors whitespace-nowrap flex-shrink-0">
+              <Download size={12}/> Export CSV
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[520px]">
+              <thead><tr className="border-b border-surface-border bg-slate-50/60">
+                <th className={clsx(th, 'px-5')}>Contact</th><th className={th}>Handle</th><th className={th}>Status</th><th className={th}>Seen</th><th className={th}>Replied</th>
+              </tr></thead>
+              <tbody className="divide-y divide-surface-border">
+                {visible.length === 0 && <tr><td colSpan={5} className="py-12 text-center text-xs text-slate-400">Nobody in this view</td></tr>}
+                {visible.map((r, i) => (
+                  <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] font-bold flex-shrink-0">{r.name.split(' ').map(w => w[0]).join('').slice(0, 2)}</div>
+                        <span className="text-xs font-medium text-slate-800">{r.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-500">{r.handle}</td>
+                    <td className="px-4 py-3">
+                      <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full',
+                        r.status === 'Delivered' ? 'bg-emerald-50 text-emerald-700' : r.status === 'Failed' ? 'bg-red-50 text-red-700'
+                          : r.status === 'Skipped' ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700')}>
+                        {r.status === 'Skipped' ? `Skipped · ${r.reason}` : r.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">{r.seen ? <Check size={14} className="text-teal-500"/> : <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-3">{r.replied ? <Check size={14} className="text-violet-500"/> : <span className="text-slate-300">—</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {c.targeted > recipients.length && (
+            <p className="px-5 py-3 text-[11px] text-slate-400 border-t border-surface-border bg-slate-50/40">Showing a sample of {recipients.length} of {c.targeted.toLocaleString()} contacts.</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── quick send ────────────────────────────────────────────────────────── */
+function QuickSendModal({ templates, contacts, onClose, onSent }) {
+  const [search, setSearch] = useState('')
+  const [contactId, setContactId] = useState(null)
+  const [tplId, setTplId] = useState(null)
+  const [sending, setSending] = useState(false)
+  const now = Date.now()
+
+  const ready = templates.filter(t => t.status === 'ready')
+  const list = contacts.filter(c => {
+    const q = search.trim().toLowerCase()
+    return !q || c.name.toLowerCase().includes(q) || c.handle.toLowerCase().includes(q)
+  }).map(c => ({ c, w: windowState(c, now) }))
+  const contact = contacts.find(c => c.id === contactId)
+  const tpl = templates.find(t => t.id === tplId)
+  const preview = tpl && contact ? personalizeTemplate(tpl, contact) : tpl
+  const ok = contact && tpl && windowState(contact, now).key === 'eligible'
+
+  async function send() {
+    if (!ok) return
+    setSending(true)
+    await new Promise(r => setTimeout(r, 900))
+    onSent(contact, tpl)
+    onClose()
+  }
+
+  return igPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col overflow-hidden" style={{ maxHeight: 'calc(100vh - 48px)' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border flex-shrink-0">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">Quick Send</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">Send one template to one contact — no campaign needed</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-surface-hover"><X size={16}/></button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 md:grid-cols-5">
+          <div className="md:col-span-3 p-5 space-y-5 md:border-r border-surface-border">
+            <div>
+              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">1 · Contact</p>
+              <div className="relative mb-2">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                <input className="w-full pl-9 pr-3 py-2 text-xs border border-surface-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary placeholder-slate-400"
+                  placeholder="Search name or @handle…" value={search} onChange={e => setSearch(e.target.value)}/>
+              </div>
+              <div className="border border-surface-border rounded-xl divide-y divide-surface-border max-h-52 overflow-y-auto">
+                {list.length === 0 && <p className="text-xs text-slate-400 text-center py-5">No contacts found</p>}
+                {list.map(({ c, w }) => {
+                  const off = w.key !== 'eligible'
+                  return (
+                    <button key={c.id} disabled={off} onClick={() => setContactId(c.id)}
+                      className={clsx('w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors', contactId === c.id ? 'bg-primary/5' : off ? 'opacity-55 cursor-not-allowed' : 'hover:bg-slate-50')}>
+                      <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{c.avatar}</div>
+                      <div className="min-w-0 flex-1"><p className="text-xs font-semibold text-slate-800 truncate">{c.name}</p><p className="text-[10px] text-slate-400 truncate">{c.handle}</p></div>
+                      <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0', CHIP[w.key])}>{w.label}</span>
+                      {contactId === c.id && <CheckCircle2 size={14} className="text-primary flex-shrink-0"/>}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[10.5px] text-slate-400 mt-1.5">Only contacts who messaged you in the last 24 hours can be selected. For anyone else, wait for them to write first.</p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">2 · Template</p>
+              <div className="border border-surface-border rounded-xl divide-y divide-surface-border max-h-44 overflow-y-auto">
+                {ready.length === 0 && <p className="text-xs text-slate-400 text-center py-5">No ready templates yet</p>}
+                {ready.map(t => (
+                  <button key={t.id} onClick={() => setTplId(t.id)}
+                    className={clsx('w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors border-l-2', tplId === t.id ? 'bg-primary/5 border-primary' : 'border-transparent hover:bg-slate-50')}>
+                    <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0', KIND_TONE[t.kind])}><FileText size={12}/></div>
+                    <div className="min-w-0 flex-1"><p className="text-xs font-semibold text-slate-800 truncate">{t.name}</p><p className="text-[10.5px] text-slate-400 truncate">{summarize(t)}</p></div>
+                    {tplId === t.id && <CheckCircle2 size={14} className="text-primary flex-shrink-0"/>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="md:col-span-2 bg-slate-50 p-5 flex flex-col items-center">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3 w-full">Preview{contact ? ` · ${contact.name.split(' ')[0]}` : ''}</p>
+            {tpl ? <IgDmPreview template={preview} scale={0.7}/> : (
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-300 text-center py-10"><FileText size={22}/><p className="text-[11px] mt-2">Select a template</p></div>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-between px-6 py-4 border-t border-surface-border flex-shrink-0">
+          <button onClick={onClose} className="btn-secondary text-xs">Cancel</button>
+          <button onClick={send} disabled={!ok || sending} className="btn-primary text-xs px-5 flex items-center gap-1.5 disabled:opacity-40">
+            <Send size={12}/> {sending ? 'Sending…' : 'Send now'}
+          </button>
+        </div>
+      </div>
+    </div>)
+}
+
+/* ── template logs ─────────────────────────────────────────────────────── */
+const LOG_STATUS = {
+  sent:      { label: 'Sent',      color: 'bg-slate-100 text-slate-600',    dot: 'bg-slate-400' },
+  delivered: { label: 'Delivered', color: 'bg-blue-50 text-blue-600',       dot: 'bg-blue-400' },
+  seen:      { label: 'Seen',      color: 'bg-emerald-50 text-emerald-600', dot: 'bg-emerald-400' },
+  failed:    { label: 'Failed',    color: 'bg-red-50 text-red-600',         dot: 'bg-red-400' },
+}
+
+function TemplateLogs({ logs }) {
+  const [search, setSearch] = useState('')
+  const [statusFil, setStatusFil] = useState('all')
+  const [tplFil, setTplFil] = useState('all')
+  const [page, setPage] = useState(1)
+  const [copied, setCopied] = useState(null)
+
+  const tpls = useMemo(() => [...new Set(logs.map(l => l.tpl))], [logs])
+  const filtered = useMemo(() => logs.filter(l => {
+    if (statusFil !== 'all' && l.status !== statusFil) return false
+    if (tplFil !== 'all' && l.tpl !== tplFil) return false
+    const q = search.trim().toLowerCase()
+    return !q || l.handle.toLowerCase().includes(q) || l.name.toLowerCase().includes(q) || l.tpl.toLowerCase().includes(q) || l.mid.toLowerCase().includes(q)
+  }), [logs, search, statusFil, tplFil])
+  useEffect(() => setPage(1), [search, statusFil, tplFil])
+
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const shown = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const count = s => logs.filter(l => l.status === s).length
+
+  function copy(id, text) {
+    navigator.clipboard?.writeText(text)
+    setCopied(id)
+    setTimeout(() => setCopied(null), 1500)
+  }
+
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Sent', value: logs.length, Icon: Send, color: 'text-slate-500', bg: 'bg-slate-50' },
+          { label: 'Delivered', value: count('delivered') + count('seen'), Icon: CheckCircle2, color: 'text-blue-500', bg: 'bg-blue-50' },
+          { label: 'Seen', value: count('seen'), Icon: MailOpen, color: 'text-emerald-500', bg: 'bg-emerald-50' },
+          { label: 'Failed', value: count('failed'), Icon: AlertCircle, color: 'text-red-400', bg: 'bg-red-50' },
+        ].map(({ label, value, Icon, color, bg }) => (
+          <div key={label} className="card p-4 flex items-center gap-3">
+            <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0', bg)}><Icon size={15} className={color}/></div>
+            <div><p className="text-[18px] font-bold text-slate-900 leading-tight">{value}</p><p className="text-[10px] text-slate-400 font-medium">{label}</p></div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card p-0 overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-surface-border flex-wrap">
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search handle, template or message ID…"
+              className="w-full pl-7 pr-3 py-1.5 text-[11px] bg-slate-50 border border-surface-border rounded-lg focus:outline-none focus:border-primary/40 focus:bg-white transition-all placeholder-slate-400"/>
+            {search && <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={10}/></button>}
+          </div>
+          <div className="flex items-center gap-2">
+            <NativeSelect value={tplFil} onChange={e => setTplFil(e.target.value)} sm>
+              <option value="all">All templates</option>
+              {tpls.map(t => <option key={t} value={t}>{t}</option>)}
+            </NativeSelect>
+            <NativeSelect value={statusFil} onChange={e => setStatusFil(e.target.value)} sm>
+              <option value="all">All statuses</option>
+              {Object.entries(LOG_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </NativeSelect>
+          </div>
+          <span className="ml-auto text-[10px] text-slate-400 flex-shrink-0">{filtered.length} log{filtered.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead><tr className="border-b border-surface-border bg-slate-50/60">
+              {['Receiver', 'Template', 'Message ID', 'Status', 'Response', 'Sent At'].map(h => (
+                <th key={h} className="px-5 py-2.5 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
+              ))}
+            </tr></thead>
+            <tbody className="divide-y divide-surface-border">
+              {shown.length === 0 ? (
+                <tr><td colSpan={6} className="py-16 text-center">
+                  <History size={28} className="text-slate-200 mx-auto mb-3"/>
+                  <p className="text-[13px] font-semibold text-slate-400">No logs found</p><p className="text-[11px] text-slate-300 mt-1">Try adjusting your filters</p>
+                </td></tr>
+              ) : shown.map(l => {
+                const st = LOG_STATUS[l.status]
+                return (
+                  <tr key={l.id} className="hover:bg-slate-50/60 transition-colors group">
+                    <td className="px-5 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500 flex-shrink-0">{l.name.split(' ').map(w => w[0]).join('').slice(0, 2)}</div>
+                        <div><p className="text-[12px] font-semibold text-slate-700 leading-tight">{l.name}</p><p className="text-[10px] text-slate-400">{l.handle}</p></div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3"><span className="text-[11px] font-medium text-primary bg-primary/5 px-2 py-0.5 rounded-md whitespace-nowrap">{l.tpl}</span></td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-1.5 max-w-[200px]">
+                        <span className="text-[11px] text-slate-500 font-mono truncate">{l.mid.substring(0, 26)}…</span>
+                        <button onClick={() => copy(l.id, l.mid)} className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 p-0.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600" title="Copy message ID">
+                          {copied === l.id ? <Check size={10} className="text-emerald-500"/> : <Copy size={10}/>}
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 whitespace-nowrap">
+                      <span className={clsx('inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold', st.color)}><span className={clsx('w-1.5 h-1.5 rounded-full', st.dot)}/>{st.label}</span>
+                    </td>
+                    <td className="px-5 py-3"><span className={clsx('text-[11px] font-medium whitespace-nowrap', l.resp === 'Success' ? 'text-emerald-600' : 'text-red-500')}>{l.resp}</span></td>
+                    <td className="px-5 py-3 whitespace-nowrap"><span className="text-[11px] text-slate-500 tabular-nums">{fmt(l.sentAt)}</span></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        {pages > 1 && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-surface-border bg-slate-50/40">
+            <span className="text-[11px] text-slate-400">Page {page} of {pages} · {filtered.length} results</span>
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-1.5 rounded-lg border border-surface-border bg-white text-slate-500 hover:bg-surface-hover disabled:opacity-40"><ChevronLeft size={13}/></button>
+              {Array.from({ length: pages }, (_, i) => i + 1).map(p => (
+                <button key={p} onClick={() => setPage(p)} className={clsx('w-7 h-7 rounded-lg text-[11px] font-semibold transition-colors', p === page ? 'bg-primary text-white' : 'border border-surface-border bg-white text-slate-600 hover:bg-surface-hover')}>{p}</button>
+              ))}
+              <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page === pages} className="p-1.5 rounded-lg border border-surface-border bg-white text-slate-500 hover:bg-surface-hover disabled:opacity-40"><ChevronRight size={13}/></button>
+            </div>
+          </div>
         )}
       </div>
+    </div>
+  )
+}
 
-      <div className="flex items-start gap-2.5 p-3 rounded-xl bg-blue-50 border border-blue-100">
-        <ShieldCheck size={14} className="text-blue-500 flex-shrink-0 mt-0.5"/>
-        <div className="text-[11.5px] text-blue-900 leading-relaxed">
-          <p className="font-semibold mb-0.5">How Instagram broadcasts differ from WhatsApp</p>
-          Instagram only lets you message someone within <b>24 hours of their last message to you</b>. There are no approved
-          templates to reopen a closed window, and One-Time and Recurring Notifications don't exist on Instagram. Contacts whose
-          window has closed are skipped and counted — never queued. To start a conversation with someone who hasn't messaged
-          first, use a <b>private reply to their comment</b> (one per comment, within 7 days).
+/* ── the page ──────────────────────────────────────────────────────────── */
+export default function InstagramBroadcasts() {
+  const [templates, setTemplates] = useState(loadTemplates)
+  const [campaigns, setCampaigns] = useState(() => seedCampaigns(loadTemplates()))
+  const [logs, setLogs] = useState(() => seedLogs())
+  const [mainView, setMainView] = useState('campaigns') // campaigns | templates | logs
+  const [view, setView] = useState('list')              // list | insights
+  const [activeId, setActiveId] = useState(null)
+  const [builder, setBuilder] = useState(null)          // { initial } | null
+  const [wizard, setWizard] = useState(null)            // { template } | null
+  const [showQuickSend, setShowQuickSend] = useState(false)
+  const [search, setSearch] = useState('')
+  const [activeTab, setActiveTab] = useState('All')
+  const [dateRange, setDateRange] = useState('Last 30 days')
+  const [page, setPage] = useState(1)
+  const [toast, setToast] = useState('')
+  const timers = useRef([])
+
+  useEffect(() => saveTemplates(templates), [templates])
+  useEffect(() => () => timers.current.forEach(clearTimeout), [])
+
+  function flash(msg) {
+    setToast(msg)
+    timers.current.push(setTimeout(() => setToast(''), 3500))
+  }
+
+  /* templates */
+  function saveTemplate(t) {
+    const now = new Date().toISOString()
+    setTemplates(list => t.id
+      ? list.map(x => x.id === t.id ? { ...x, ...t, updatedAt: now } : x)
+      : [{ ...t, id: `tpl_${Date.now()}`, createdAt: now, updatedAt: now, sent: 0, seen: 0 }, ...list])
+    setBuilder(null)
+    setMainView('templates')
+    flash(t.status === 'draft' ? 'Draft saved' : 'Template saved')
+  }
+  function duplicateTemplate(t) {
+    const now = new Date().toISOString()
+    setTemplates(list => [{ ...structuredClone(t), id: `tpl_${Date.now()}`, name: `${t.name} (copy)`, status: 'draft', createdAt: now, updatedAt: now, sent: 0, seen: 0 }, ...list])
+    flash('Template duplicated as a draft')
+  }
+  const deleteTemplate = id => { setTemplates(l => l.filter(t => t.id !== id)); flash('Template deleted') }
+  const deleteMany = ids => { setTemplates(l => l.filter(t => !ids.includes(t.id))); flash(`${ids.length} template${ids.length > 1 ? 's' : ''} deleted`) }
+
+  /* campaigns */
+  function makeLogs(c, n = 8) {
+    const sentRows = (c.contacts || []).filter(x => x.outcome === 'sent').slice(0, n)
+    return sentRows.map((x, i) => ({
+      id: `l_${c.id}_${i}`, name: x.name, handle: x.handle, tpl: c.template.name, mid: mid(Date.now() % 9973 + i),
+      status: 'sent', resp: 'Success', sentAt: c.sendAt,
+    }))
+  }
+  function handleCreated(c) {
+    setCampaigns(p => [c, ...p])
+    setPage(1)
+    setActiveTab('All')
+    if (c.status === 'Sending') {
+      setLogs(l => [...makeLogs(c), ...l])
+      timers.current.push(setTimeout(() => finish(c), 2500))
+    }
+    flash(c.status === 'Sending' ? `Sending to ${c.planned} ${c.type === 'dm' ? 'contact' : 'comment'}${c.planned === 1 ? '' : 's'} · ${c.targeted - c.planned} skipped` : `Scheduled for ${fmt(c.sendAt)}`)
+  }
+  function finish(c) {
+    const seen = Math.round(c.planned * 0.62)
+    setCampaigns(p => p.map(x => x.id !== c.id ? x : {
+      ...x, status: 'Completed', sent: c.planned, delivered: c.planned, seen,
+      replied: Math.round(c.planned * 0.2), clicks: c.type === 'dm' ? Math.round(c.planned * 0.35) : 0,
+    }))
+    setTemplates(l => l.map(t => t.id === c.template.id ? { ...t, sent: (t.sent || 0) + c.planned, seen: (t.seen || 0) + seen } : t))
+    setLogs(l => l.map(x => x.id.startsWith(`l_${c.id}_`) ? { ...x, status: 'delivered' } : x))
+  }
+  function handleQuickSent(contact, tpl) {
+    setLogs(l => [{
+      id: `l_q_${Date.now()}`, name: contact.name, handle: contact.handle, tpl: tpl.name, mid: mid(Date.now() % 9973),
+      status: 'delivered', resp: 'Success', sentAt: Date.now(),
+    }, ...l])
+    setTemplates(list => list.map(t => t.id === tpl.id ? { ...t, sent: (t.sent || 0) + 1 } : t))
+    flash(`Sent “${tpl.name}” to ${contact.name}`)
+  }
+
+  /* derived */
+  const rangeMs = { 'Last 7 days': 7 * DAY, 'Last 30 days': 30 * DAY, 'Last 90 days': 90 * DAY, 'All time': Infinity }[dateRange]
+  const inRange = useMemo(() => campaigns.filter(c => c.status === 'Scheduled' || Date.now() - c.sendAt <= rangeMs), [campaigns, rangeMs])
+
+  const totals = inRange.reduce((a, c) => ({
+    sent: a.sent + c.delivered + c.failed, delivered: a.delivered + c.delivered, seen: a.seen + c.seen, replied: a.replied + c.replied,
+    sending: a.sending + (c.status === 'Sending' ? c.planned : 0), failed: a.failed + c.failed,
+    skipped: a.skipped + c.skippedExpired + c.skippedOptout, queued: a.queued + (c.status === 'Scheduled' ? 1 : 0),
+  }), { sent: 0, delivered: 0, seen: 0, replied: 0, sending: 0, failed: 0, skipped: 0, queued: 0 })
+
+  const tabCounts = STATUS_TABS.reduce((acc, t) => { acc[t] = t === 'All' ? inRange.length : inRange.filter(c => c.status === t).length; return acc }, {})
+  const filtered = inRange.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) && (activeTab === 'All' || c.status === activeTab))
+  useEffect(() => setPage(1), [search, activeTab, dateRange])
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const shown = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  /* health cards */
+  const health = useMemo(() => {
+    const now = Date.now()
+    const active = INIT_CONTACTS.filter(c => c.status === 'active')
+    const open = active.filter(c => windowState(c, now).key === 'eligible')
+    const nextLeft = open.length ? Math.min(...open.map(c => windowState(c, now).left)) : 0
+    const done = campaigns.filter(c => c.status === 'Completed' || c.status === 'Failed').slice(0, 7).reverse()
+    const rates = done.map(c => pct(c.delivered, c.delivered + c.failed))
+    const dl = totals.delivered, fl = totals.failed
+    const rate = pct(dl, dl + fl)
+    const all = POSTS.flatMap(p => p.comments)
+    const replyable = all.filter(cm => commentState(cm) === 'ok')
+    const expiring = replyable.filter(cm => cm.ageH >= 144).length
+    const byDay = Array.from({ length: 7 }, (_, d) => replyable.filter(cm => Math.floor(cm.ageH / 24) === d).length)
+    return { active: active.length, open: open.length, nextLeft, rates, rate, replyable: replyable.length, expiring, byDay }
+  }, [campaigns, totals.delivered, totals.failed])
+
+  const activeCampaign = campaigns.find(c => c.id === activeId)
+
+  if (builder) return <IgTemplateBuilder initial={builder.initial} onBack={() => setBuilder(null)} onSave={saveTemplate}/>
+
+  if (view === 'insights' && activeCampaign) {
+    return (
+      <div className="animate-fade-in">
+        <CampaignInsights campaign={activeCampaign} onBack={() => setView('list')} onFollowUp={() => { setView('list'); setWizard({ template: null }) }}/>
+        {wizard && <IgCampaignWizard templates={templates} contacts={INIT_CONTACTS} groups={INIT_GROUPS} initialTemplate={wizard.template} onClose={() => setWizard(null)} onCreated={handleCreated}/>}
+      </div>
+    )
+  }
+
+  const readyCount = templates.filter(t => t.status === 'ready').length
+  const hrs = ms => { const h = Math.floor(ms / HOUR), m = Math.floor((ms % HOUR) / 60000); return h > 0 ? `${h}h ${m}m` : `${m}m` }
+
+  return (
+    <div className="space-y-5 animate-fade-in">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 mb-0.5">
+            <h1 className="text-[15px] font-bold text-slate-900">{mainView === 'templates' ? 'Message Templates' : mainView === 'logs' ? 'Template Logs' : 'Broadcasts'}</h1>
+            <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+              {mainView === 'templates' ? `${templates.length} templates` : mainView === 'logs' ? `${logs.length} logs` : `${campaigns.length} campaigns`}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            {mainView === 'templates' ? 'Create and manage your Instagram message templates'
+              : mainView === 'logs' ? 'Track every template message sent from your Instagram account'
+                : "Send targeted Instagram campaigns to contacts inside Meta's 24-hour window"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-nowrap">
+          {mainView === 'campaigns' ? (
+            <>
+              <NativeSelect value={dateRange} onChange={e => setDateRange(e.target.value)} sm>
+                {['Last 7 days', 'Last 30 days', 'Last 90 days', 'All time'].map(o => <option key={o} value={o}>{o}</option>)}
+              </NativeSelect>
+              <button onClick={() => setShowQuickSend(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary-50 text-primary text-xs font-semibold hover:bg-primary-100 hover:border-primary/50 transition-colors whitespace-nowrap flex-shrink-0">
+                <Send size={12}/> Quick Send
+              </button>
+              <button onClick={() => setWizard({ template: null })}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary-hover transition-colors shadow-sm whitespace-nowrap flex-shrink-0">
+                <Plus size={13}/> New Campaign
+              </button>
+            </>
+          ) : mainView === 'templates' ? (
+            <button onClick={() => setBuilder({ initial: null })}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary-hover transition-colors shadow-sm whitespace-nowrap">
+              <Plus size={13}/> Create Template
+            </button>
+          ) : null}
         </div>
       </div>
 
-      <div className="flex gap-1 border-b border-surface-border">
-        {[['dm', 'DM broadcast', Send], ['comments', 'Comment replies', MessageCircle], ['history', `History (${history.length})`, Clock]].map(([id, label, Icon]) => (
-          <button key={id} onClick={() => setTab(id)}
-            className={clsx('flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold border-b-2 -mb-px transition-colors',
-              tab === id ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-700')}>
-            <Icon size={13}/> {label}
+      {/* Section switcher */}
+      <div className="flex items-center gap-0.5 bg-slate-100 p-1 rounded-xl w-fit">
+        {[['campaigns', 'Campaigns', Send], ['templates', 'Templates', FileText], ['logs', 'Template Logs', History]].map(([key, label, Icon]) => (
+          <button key={key} onClick={() => setMainView(key)}
+            className={clsx('flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all', mainView === key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+            <Icon size={12}/> {label}
           </button>
         ))}
       </div>
 
-      {tab === 'dm' && (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          <div className="lg:col-span-3 bg-white border border-surface-border rounded-xl p-4 space-y-4">
-            <div>
-              <label className="label">Broadcast name</label>
-              <input className="input mt-1" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Weekend restock alert"/>
+      {mainView === 'logs' && <TemplateLogs logs={logs}/>}
+
+      {mainView === 'templates' && (
+        <IgTemplatesView templates={templates}
+          onCreate={() => setBuilder({ initial: null })} onEdit={t => setBuilder({ initial: t })}
+          onDuplicate={duplicateTemplate} onDelete={deleteTemplate} onDeleteMany={deleteMany}
+          onUse={t => { setMainView('campaigns'); setWizard({ template: t }) }}/>
+      )}
+
+      {mainView === 'campaigns' && (
+        <>
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-blue-50 border border-blue-100">
+            <ShieldCheck size={14} className="text-blue-500 flex-shrink-0 mt-0.5"/>
+            <p className="text-[11.5px] text-blue-900 leading-relaxed">
+              <b>How Instagram differs from WhatsApp:</b> you can only message someone within 24 hours of their last message to you, and templates can't reopen a closed window.
+              People outside it are skipped and counted — never queued. To reach someone who hasn't written first, send a <b>private reply to their comment</b> (one per comment, within 7 days).
+            </p>
+          </div>
+
+          {/* Account health */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="card p-4">
+              <div className="flex items-start justify-between mb-3">
+                <div><p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Reach</p><p className="text-[11px] font-semibold text-slate-900">Reachable right now</p></div>
+                <Users size={13} className="text-slate-300 flex-shrink-0"/>
+              </div>
+              <div className="mb-2.5">
+                <div className="flex justify-between text-[10px] mb-1.5">
+                  <span className="text-slate-400">Window open</span>
+                  <span className="font-semibold text-slate-700">{health.open} <span className="text-slate-400 font-normal">/ {health.active}</span></span>
+                </div>
+                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-primary rounded-full" style={{ width: `${pct(health.open, health.active)}%` }}/></div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={clsx('w-1.5 h-1.5 rounded-full flex-shrink-0', health.open ? 'bg-emerald-400' : 'bg-slate-300')}/>
+                <p className="text-[10px] text-slate-500">{health.open ? `Next window closes in ${hrs(health.nextLeft)}` : 'Nobody has messaged you in the last 24h'}</p>
+              </div>
             </div>
 
-            <div>
-              <label className="label">Audience</label>
-              <div className="mt-1"><NativeSelect value={segment} onChange={e => setSegment(e.target.value)}>
-                {segments.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </NativeSelect></div>
-            </div>
-
-            <div>
-              <label className="label">Message</label>
-              <div className="flex gap-1.5 mt-1 mb-2">
-                {[['text', 'Text'], ['template', 'Card / Button template']].map(([k, l]) => (
-                  <button key={k} onClick={() => setMode(k)}
-                    className={clsx('px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
-                      mode === k ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>{l}</button>
+            <div className="card p-4">
+              <div className="flex items-start justify-between mb-3">
+                <div><p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Delivery</p><p className="text-[11px] font-semibold text-slate-900">Delivery health</p></div>
+                <Shield size={13} className={clsx('flex-shrink-0', health.rate >= 90 ? 'text-emerald-500' : 'text-amber-500')}/>
+              </div>
+              <div className="flex items-center gap-3 mb-3">
+                <div className={clsx('w-8 h-8 rounded-full ring-2 ring-offset-1 flex items-center justify-center flex-shrink-0', health.rate >= 90 ? 'bg-emerald-50 ring-emerald-400' : 'bg-amber-50 ring-amber-400')}>
+                  <div className={clsx('w-3 h-3 rounded-full', health.rate >= 90 ? 'bg-emerald-400' : 'bg-amber-400')}/>
+                </div>
+                <div>
+                  <p className={clsx('text-sm font-bold leading-none', health.rate >= 90 ? 'text-emerald-600' : 'text-amber-600')}>{health.rate}%</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{health.rate >= 95 ? 'Excellent delivery' : health.rate >= 90 ? 'Healthy delivery' : 'Check failed campaigns'}</p>
+                </div>
+              </div>
+              <div className="flex items-end gap-0.5 h-6">
+                {(health.rates.length ? health.rates : [0]).map((h, i, a) => (
+                  <div key={i} className={clsx('flex-1 rounded-sm', i >= a.length - 3 ? (h >= 90 ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-slate-200')} style={{ height: `${Math.max(8, h)}%` }}/>
                 ))}
               </div>
-              {mode === 'text' ? (
-                <>
-                  <textarea className="textarea w-full text-xs" rows={4} value={text} maxLength={TEXT_MAX}
-                    onChange={e => setText(e.target.value)} placeholder="Hi! Your order update…"/>
-                  <p className="text-[10px] text-slate-400 text-right mt-0.5">{text.length}/{TEXT_MAX}</p>
-                </>
-              ) : (
-                <div className="flex items-center gap-2 p-3 rounded-lg border border-dashed border-surface-border">
-                  <FileText size={15} className="text-slate-400 flex-shrink-0"/>
-                  <p className="flex-1 min-w-0 text-xs text-slate-600 truncate">{template ? summarize(template) : 'No template built yet'}</p>
-                  <button onClick={() => setShowComposer(true)} className="btn-secondary text-xs flex-shrink-0">
-                    {template ? 'Edit' : 'Build template'}
+            </div>
+
+            <div className="card p-4">
+              <div className="flex items-start justify-between mb-3">
+                <div><p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Comments</p><p className="text-[11px] font-semibold text-slate-900">Replyable comments</p></div>
+                <Zap size={13} className="text-amber-400 flex-shrink-0"/>
+              </div>
+              <div className="flex items-center gap-2 mb-3">
+                <p className="text-xl font-bold text-slate-900">{health.replyable}</p>
+                <p className="text-[11px] text-slate-400">{health.expiring ? `${health.expiring} expire within 24h` : 'within the 7-day limit'}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                {health.byDay.map((n, i) => (
+                  <div key={i} className="flex flex-col items-center gap-1 flex-1" title={`${n} comment${n === 1 ? '' : 's'} · ${i === 0 ? 'today' : `${i}d old`}`}>
+                    <div className={clsx('w-full aspect-square rounded-full flex items-center justify-center', n ? (i >= 6 ? 'bg-red-400' : 'bg-amber-400') : 'bg-slate-100')}>
+                      {n ? <span className="text-[9px] font-bold text-white">{n}</span> : <span className="w-1 h-1 rounded-full bg-slate-300"/>}
+                    </div>
+                    <span className="text-[9px] font-medium text-slate-400">{i === 0 ? 'Now' : `${i}d`}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Primary metrics */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { icon: Send, label: 'Total Sent', value: totals.sent, sub: `${pct(totals.delivered, totals.sent)}% delivery rate`, iconBg: 'bg-blue-50', iconColor: 'text-blue-500' },
+              { icon: CheckCircle2, label: 'Delivered', value: totals.delivered, sub: `of ${totals.sent.toLocaleString()} sent`, iconBg: 'bg-emerald-50', iconColor: 'text-emerald-500' },
+              { icon: Eye, label: 'Seen', value: totals.seen, sub: `${pct(totals.seen, totals.delivered)}% seen rate`, iconBg: 'bg-teal-50', iconColor: 'text-teal-500' },
+              { icon: CornerUpLeft, label: 'Replied', value: totals.replied, sub: `${pct(totals.replied, totals.delivered)}% reply rate`, iconBg: 'bg-violet-50', iconColor: 'text-violet-500' },
+            ].map(({ icon: Icon, label, value, sub, iconBg, iconColor }) => (
+              <div key={label} className="card p-4">
+                <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center mb-3', iconBg)}><Icon size={14} className={iconColor}/></div>
+                <p className="text-xl font-bold text-slate-900 tabular-nums">{value.toLocaleString()}</p>
+                <p className="text-[11px] font-semibold text-slate-500 mt-0.5">{label}</p>
+                <p className="text-[10px] text-slate-400 mt-1">{sub}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="card p-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 divide-surface-border sm:divide-x gap-y-3">
+              {[
+                { label: 'Currently Sending', value: totals.sending, color: 'text-blue-600' },
+                { label: 'Failed', value: totals.failed, color: 'text-red-600' },
+                { label: 'Skipped (outside window)', value: totals.skipped, color: 'text-amber-600' },
+                { label: 'Scheduled', value: totals.queued, color: 'text-slate-600' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="px-6 first:pl-0 last:pr-0 flex items-center gap-3">
+                  <span className={clsx('text-sm font-bold tabular-nums', color)}>{value.toLocaleString()}</span>
+                  <span className="text-[10px] text-slate-400 leading-tight">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Campaigns table */}
+          <div className="card p-0 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-2 border-b border-surface-border gap-3 flex-wrap">
+              <div className="flex items-center gap-0.5 bg-slate-100 p-1 rounded-xl w-fit overflow-x-auto">
+                {STATUS_TABS.map(tab => (
+                  <button key={tab} onClick={() => setActiveTab(tab)}
+                    className={clsx('flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap', activeTab === tab ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                    {tab}
+                    {tabCounts[tab] > 0 && (
+                      <span className={clsx('text-[10px] font-bold px-1.5 py-0.5 rounded-full', activeTab === tab ? 'bg-primary/10 text-primary' : 'bg-slate-200 text-slate-500')}>{tabCounts[tab]}</span>
+                    )}
                   </button>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="label">When</label>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                {[['now', 'Send now'], ['later', 'Schedule']].map(([k, l]) => (
-                  <button key={k} onClick={() => setWhen(k)}
-                    className={clsx('px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors',
-                      when === k ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>{l}</button>
                 ))}
-                {when === 'later' && (
-                  <input type="datetime-local" value={laterAt} onChange={e => setLaterAt(e.target.value)} className="input-sm"/>
-                )}
               </div>
-              {when === 'later' && (
-                <p className="flex items-start gap-1.5 text-[10.5px] text-slate-500 mt-2">
-                  <CalendarClock size={12} className="flex-shrink-0 mt-0.5"/>
-                  Eligibility is checked for that moment — contacts whose window will have closed by then are excluded from the count.
-                </p>
-              )}
-            </div>
-
-            <button onClick={sendDm} disabled={!canSendDm}
-              className={clsx('w-full justify-center', canSendDm ? 'btn-primary' : 'btn-secondary opacity-50 cursor-not-allowed')}>
-              <Send size={14}/> {when === 'now' ? 'Send' : 'Schedule'} to {eligible.length} contact{eligible.length === 1 ? '' : 's'}
-            </button>
-          </div>
-
-          <div className="lg:col-span-2 bg-white border border-surface-border rounded-xl p-4 space-y-3 self-start">
-            <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5"><Users size={13}/> Who will receive it</p>
-            <div className="grid grid-cols-3 gap-2">
-              <Stat label="Will receive" value={eligible.length} tone="bg-emerald-50 border-emerald-200 text-emerald-700"/>
-              <Stat label="Window closed" value={expired} tone="bg-amber-50 border-amber-200 text-amber-700"/>
-              <Stat label="Unsubscribed" value={optout} tone="bg-slate-50 border-slate-200 text-slate-600"/>
-            </div>
-            <div className="divide-y divide-surface-border max-h-72 overflow-y-auto">
-              {audience.length === 0 && <p className="text-xs text-slate-400 py-3 text-center">No contacts in this audience</p>}
-              {audience.map(({ c, w }) => (
-                <div key={c.id} className="flex items-center gap-2 py-2">
-                  <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">{c.avatar}</div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-slate-800 truncate">{c.name}</p>
-                    <p className="text-[10px] text-slate-400 truncate">{c.handle}</p>
-                  </div>
-                  <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0', CHIP[w.key])}>{w.label}</span>
-                </div>
-              ))}
-            </div>
-            {expired > 0 && (
-              <p className="flex items-start gap-1.5 text-[10.5px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2">
-                <AlertCircle size={12} className="flex-shrink-0 mt-0.5"/>
-                {expired} contact{expired === 1 ? ' last messaged' : 's last messaged'} you over 24 hours ago, so Instagram won't deliver to them.
-                They'll be reachable again as soon as they message you.
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {tab === 'comments' && (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          <div className="lg:col-span-3 bg-white border border-surface-border rounded-xl p-4 space-y-4">
-            <div>
-              <label className="label">Post</label>
-              <div className="mt-1"><NativeSelect value={postId} onChange={e => setPostId(e.target.value)}>
-                {POSTS.map(p => <option key={p.id} value={p.id}>{p.title} · {p.comments.length} comments</option>)}
-              </NativeSelect></div>
-            </div>
-            <div>
-              <label className="label">Private reply</label>
-              <textarea className="textarea w-full text-xs mt-1" rows={4} value={replyText} maxLength={TEXT_MAX}
-                onChange={e => setReplyText(e.target.value)} placeholder="Thanks for the comment! Here's the link you asked about…"/>
-              <p className="text-[10px] text-slate-400 mt-0.5">Text only — Instagram doesn't allow cards or buttons in a private reply. {replyText.length}/{TEXT_MAX}</p>
-            </div>
-            <button onClick={sendReplies} disabled={!replyText.trim() || replyable.length === 0}
-              className={clsx('w-full justify-center', replyText.trim() && replyable.length ? 'btn-primary' : 'btn-secondary opacity-50 cursor-not-allowed')}>
-              <Reply size={14}/> Send {replyable.length} private repl{replyable.length === 1 ? 'y' : 'ies'}
-            </button>
-          </div>
-          <div className="lg:col-span-2 bg-white border border-surface-border rounded-xl p-4 space-y-2 self-start">
-            <p className="text-xs font-bold text-slate-800">Comments on this post</p>
-            <p className="text-[10.5px] text-slate-500">One private reply per comment, within 7 days of it being posted.</p>
-            <div className="divide-y divide-surface-border">
-              {commentRows.map(({ cm, state }) => (
-                <div key={cm.id} className="py-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold text-slate-800 flex-1 truncate">{cm.user}</p>
-                    <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0',
-                      state === 'ok' ? CHIP.eligible : state === 'old' ? CHIP.expired : CHIP.optout)}>
-                      {state === 'ok' ? 'Can reply' : state === 'old' ? 'Over 7 days' : 'Already replied'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5 truncate">{cm.text}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'history' && (
-        <div className="bg-white border border-surface-border rounded-xl overflow-hidden">
-          <div className="hidden md:grid grid-cols-12 gap-2 px-4 py-2.5 bg-slate-50 border-b border-surface-border text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-            <span className="col-span-4">Broadcast</span><span className="col-span-2">Status</span>
-            <span className="col-span-1 text-right">Targeted</span><span className="col-span-1 text-right">Skipped</span>
-            <span className="col-span-1 text-right">Sent</span><span className="col-span-1 text-right">Seen</span>
-            <span className="col-span-2 text-right">Replies</span>
-          </div>
-          {history.map(h => (
-            <div key={h.id} className="grid grid-cols-2 md:grid-cols-12 gap-2 px-4 py-3 border-b border-surface-border last:border-0 items-center">
-              <div className="col-span-2 md:col-span-4 min-w-0">
-                <p className="text-xs font-semibold text-slate-800 truncate">{h.name}</p>
-                <p className="text-[10.5px] text-slate-400 truncate">{h.kind} · {h.audience} · {new Date(h.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
+              <div className="relative py-2">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                <input className="pl-8 pr-3 py-1.5 text-xs border border-surface-border rounded-lg w-52 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder-slate-400"
+                  placeholder="Search campaigns…" value={search} onChange={e => setSearch(e.target.value)}/>
               </div>
-              <div className="md:col-span-2">
-                <span className={clsx('text-[10px] font-bold px-2 py-0.5 rounded-full border',
-                  h.status === 'sent' ? CHIP.eligible : CHIP.expired)}>
-                  {h.status === 'sent' ? 'Sent' : 'Scheduled'}
-                </span>
-              </div>
-              <span className="md:col-span-1 md:text-right text-xs text-slate-600">{h.targeted}<span className="md:hidden text-slate-400"> targeted</span></span>
-              <span className="md:col-span-1 md:text-right text-xs text-amber-600">{h.skipped}<span className="md:hidden text-slate-400"> skipped</span></span>
-              <span className="md:col-span-1 md:text-right text-xs text-slate-800 font-semibold">{h.sent}<span className="md:hidden text-slate-400 font-normal"> sent</span></span>
-              <span className="md:col-span-1 md:text-right text-xs text-slate-600 flex items-center md:justify-end gap-1"><Eye size={11} className="text-slate-300"/>{h.seen}</span>
-              <span className="md:col-span-2 md:text-right text-xs text-slate-600">{h.replies}<span className="md:hidden text-slate-400"> replies</span></span>
             </div>
-          ))}
-        </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-surface-border bg-slate-50/60">
+                  <th className={clsx(th, 'px-5')}>Campaign</th><th className={th}>Audience</th>
+                  <th className={clsx(th, 'min-w-[180px]')}>Performance</th><th className={th}>Status</th><th className={th}>Date</th>
+                  <th className={clsx(th, 'px-5 text-right')}>Actions</th>
+                </tr></thead>
+                <tbody className="divide-y divide-surface-border">
+                  {shown.map(c => (
+                    <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-5 py-4">
+                        <div className="flex items-start gap-3">
+                          <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5', KIND_TONE[c.template.kind])}>
+                            {c.type === 'dm' ? <FileText size={13}/> : <MessageCircle size={13}/>}
+                          </div>
+                          <div className="min-w-0">
+                            <button onClick={() => { setActiveId(c.id); setView('insights') }} className="text-left group/name block">
+                              <p className="text-xs font-semibold text-slate-900 group-hover/name:text-primary transition-colors max-w-[220px] truncate">{c.name}</p>
+                            </button>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={clsx('text-[9px] font-bold px-1.5 py-0.5 rounded', c.type === 'dm' ? 'bg-pink-50 text-pink-600' : 'bg-sky-50 text-sky-600')}>
+                                {c.type === 'dm' ? 'DM' : 'COMMENTS'}
+                              </span>
+                              <span className="text-[10px] text-slate-400 truncate max-w-[130px]">{c.template.name}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <p className="text-xs font-semibold text-slate-800">{c.planned.toLocaleString()} <span className="font-normal text-slate-400">reachable</span></p>
+                        <p className="text-[10px] text-slate-400">{(c.skippedExpired + c.skippedOptout).toLocaleString()} skipped · {c.targeted.toLocaleString()} targeted</p>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="space-y-1.5">
+                          {[['Delivered', pct(c.delivered, c.planned), 'bg-emerald-400'], ['Seen', pct(c.seen, c.planned), 'bg-teal-400'], ['Replied', pct(c.replied, c.planned), 'bg-violet-400']].map(([label, v, bar]) => (
+                            <div key={label} className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-400 w-14 flex-shrink-0">{label}</span>
+                              <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className={clsx('h-full rounded-full', bar)} style={{ width: `${v}%` }}/></div>
+                              <span className="text-[10px] font-semibold text-slate-600 w-7 text-right tabular-nums">{v}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4"><StatusPill status={c.status}/></td>
+                      <td className="px-4 py-4"><p className="text-xs text-slate-500 whitespace-nowrap">{fmt(c.sendAt)}</p></td>
+                      <td className="px-5 py-4 text-right">
+                        <button onClick={() => { setActiveId(c.id); setView('insights') }}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:bg-primary/5 px-3 py-1.5 rounded-lg transition-colors">
+                          <BarChart2 size={12}/> Analytics
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {filtered.length === 0 && (
+                    <tr><td colSpan={6} className="py-16 text-center">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-3"><Inbox size={20} className="text-slate-300"/></div>
+                      <p className="text-xs font-semibold text-slate-500">No campaigns found</p>
+                      <p className="text-xs text-slate-400 mt-1">{search ? 'Try adjusting your search' : 'Create your first campaign to get started'}</p>
+                      {!search && readyCount > 0 && (
+                        <button onClick={() => setWizard({ template: null })} className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary-hover shadow-sm">
+                          <Plus size={12}/> New Campaign
+                        </button>
+                      )}
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between px-5 py-3 border-t border-surface-border bg-slate-50/40">
+              <p className="text-xs text-slate-400">Showing <span className="font-semibold text-slate-600">{shown.length}</span> of <span className="font-semibold text-slate-600">{filtered.length}</span> campaigns</p>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-1.5 rounded-lg hover:bg-surface-hover text-slate-400 disabled:opacity-30"><ChevronLeft size={14}/></button>
+                <button className="px-3 py-1 rounded-lg bg-primary text-white text-xs font-semibold">{page}</button>
+                <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page === pages} className="p-1.5 rounded-lg hover:bg-surface-hover text-slate-400 disabled:opacity-30"><ChevronRight size={14}/></button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
-      {showComposer && (
-        <InstagramTemplateComposer
-          onClose={() => setShowComposer(false)}
-          onSend={payload => { setTemplate(payload); setShowComposer(false) }}
-          title="Build broadcast template" submitLabel="Use this template"
-        />
-      )}
+      {wizard && <IgCampaignWizard templates={templates} contacts={INIT_CONTACTS} groups={INIT_GROUPS} initialTemplate={wizard.template} onClose={() => setWizard(null)} onCreated={handleCreated}/>}
+      {showQuickSend && <QuickSendModal templates={templates} contacts={INIT_CONTACTS} onClose={() => setShowQuickSend(false)} onSent={handleQuickSent}/>}
+
+      {toast && igPortal(
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[80] flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-semibold shadow-xl animate-fade-in">
+          <CheckCircle2 size={14} className="text-emerald-400"/> {toast}
+        </div>)}
     </div>
   )
 }

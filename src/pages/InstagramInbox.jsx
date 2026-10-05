@@ -107,7 +107,7 @@ function IgButtonsEditor({ buttons, onChange }) {
   )
 }
 
-export function InstagramTemplateComposer({ onSend, onClose, title = "Send a template message", submitLabel = "Send template" }) {
+function InstagramTemplateComposer({ onSend, onClose, title = "Send a template message", submitLabel = "Send template" }) {
   const [kind, setKind] = useState('generic') // 'generic' | 'button'
   const [elements, setElements] = useState([{ title: '', subtitle: '', imageUrl: '', buttons: [] }])
   const [text, setText] = useState('')
