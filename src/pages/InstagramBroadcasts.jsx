@@ -21,7 +21,7 @@ import clsx from 'clsx'
 import {
   Plus, Search, ChevronLeft, ChevronRight, X, Send, FileText, History, BarChart2, Inbox, Eye, Shield,
   CornerUpLeft, CheckCircle2, AlertCircle, Zap, Copy, Check, Download, MailOpen,
-  MousePointerClick, Users, MessageCircle, Reply, ShieldCheck, Link2,
+  MousePointerClick, Users, MessageCircle, Reply, ShieldCheck, Link2, Pencil, Wand2,
 } from 'lucide-react'
 import { NativeSelect } from '../components/Select'
 import { INIT_CONTACTS, INIT_GROUPS } from './InstagramContacts'
@@ -30,7 +30,7 @@ import IgTemplateBuilder from '../components/instagram/IgTemplateBuilder'
 import IgTemplatesView, { IgStatusPill } from '../components/instagram/IgTemplatesView'
 import IgCampaignWizard, { CHIP } from '../components/instagram/IgCampaignWizard'
 import {
-  HOUR, POSTS, commentState, windowState, summarize, personalizeTemplate,
+  HOUR, LIMITS, TOKENS, POSTS, commentState, windowState, summarize, personalizeTemplate,
   loadTemplates, saveTemplates,
 } from '../components/instagram/igTemplateKit'
 
@@ -383,6 +383,9 @@ function QuickSendModal({ templates, contacts, onClose, onSent }) {
   const [search, setSearch] = useState('')
   const [contactId, setContactId] = useState(null)
   const [tplId, setTplId] = useState(null)
+  const [mode, setMode] = useState('template') // 'template' | 'custom'
+  const [customText, setCustomText] = useState('')
+  const customRef = useRef(null)
   const [sending, setSending] = useState(false)
   const now = Date.now()
 
@@ -392,9 +395,24 @@ function QuickSendModal({ templates, contacts, onClose, onSent }) {
     return !q || c.name.toLowerCase().includes(q) || c.handle.toLowerCase().includes(q)
   }).map(c => ({ c, w: windowState(c, now) }))
   const contact = contacts.find(c => c.id === contactId)
-  const tpl = templates.find(t => t.id === tplId)
+  const tpl = mode === 'custom'
+    ? (customText.trim() ? { id: null, name: 'Custom message', kind: 'text', status: 'ready', note: '', elements: [], text: customText, buttons: [] } : null)
+    : templates.find(t => t.id === tplId)
+  const unknownTok = mode === 'custom'
+    ? [...customText.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)].map(m => m[1]).filter(k => !TOKENS.some(t => t.key === k))
+    : []
+  function insertToken(key) {
+    const el = customRef.current
+    const tok = '{{' + key + '}}'
+    const a = el?.selectionStart ?? customText.length
+    const b = el?.selectionEnd ?? a
+    const next = customText.slice(0, a) + tok + customText.slice(b)
+    if (next.length > LIMITS.text) return
+    setCustomText(next)
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(a + tok.length, a + tok.length) })
+  }
   const preview = tpl && contact ? personalizeTemplate(tpl, contact) : tpl
-  const ok = contact && tpl && windowState(contact, now).key === 'eligible'
+  const ok = contact && tpl && unknownTok.length === 0 && windowState(contact, now).key === 'eligible'
 
   async function send() {
     if (!ok) return
@@ -441,7 +459,38 @@ function QuickSendModal({ templates, contacts, onClose, onSent }) {
               <p className="text-[10.5px] text-slate-400 mt-1.5">Only contacts who messaged you in the last 24 hours can be selected. For anyone else, wait for them to write first.</p>
             </div>
             <div>
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">2 · Template</p>
+              <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">2 · Message</p>
+                <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg">
+                  {[['template', 'Template', FileText], ['custom', 'Custom message', Pencil]].map(([k, l, Icon]) => (
+                    <button key={k} onClick={() => setMode(k)}
+                      className={clsx('flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all whitespace-nowrap',
+                        mode === k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                      <Icon size={11}/> {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {mode === 'custom' ? (
+                <div className="space-y-2">
+                  <textarea ref={customRef} rows={5} maxLength={LIMITS.text} value={customText} onChange={e => setCustomText(e.target.value)}
+                    className="textarea w-full text-xs" placeholder="Hi {{first_name}}, thanks for getting in touch…"/>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Wand2 size={11} className="text-slate-400"/>
+                      {TOKENS.map(tk => (
+                        <button key={tk.key} type="button" onMouseDown={e => e.preventDefault()} onClick={() => insertToken(tk.key)}
+                          className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-white border border-surface-border text-slate-600 hover:border-primary hover:text-primary transition-colors">
+                          {'{{' + tk.key + '}}'}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="text-[10px] tabular-nums text-slate-400">{customText.length}/{LIMITS.text}</span>
+                  </div>
+                  {unknownTok.length > 0 && <p className="text-[11px] text-red-600">Unknown placeholder {'{{' + unknownTok[0] + '}}'} — use one of the buttons above.</p>}
+                  <p className="text-[10.5px] text-slate-400">Plain text, sent as you type it — no template needed.</p>
+                </div>
+              ) : (
               <div className="border border-surface-border rounded-xl divide-y divide-surface-border max-h-44 overflow-y-auto">
                 {ready.length === 0 && <p className="text-xs text-slate-400 text-center py-5">No ready templates yet</p>}
                 {ready.map(t => (
@@ -453,12 +502,13 @@ function QuickSendModal({ templates, contacts, onClose, onSent }) {
                   </button>
                 ))}
               </div>
+              )}
             </div>
           </div>
           <div className="md:col-span-2 bg-slate-50 p-5 flex flex-col items-center">
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3 w-full">Preview{contact ? ` · ${contact.name.split(' ')[0]}` : ''}</p>
             {tpl ? <IgDmPreview template={preview} scale={0.7}/> : (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-300 text-center py-10"><FileText size={22}/><p className="text-[11px] mt-2">Select a template</p></div>
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-300 text-center py-10"><FileText size={22}/><p className="text-[11px] mt-2">{mode === 'custom' ? 'Start typing to preview' : 'Select a template'}</p></div>
             )}
           </div>
         </div>
@@ -643,6 +693,10 @@ export default function InstagramBroadcasts() {
     setTemplates(list => [{ ...structuredClone(t), id: `tpl_${Date.now()}`, name: `${t.name} (copy)`, status: 'draft', createdAt: now, updatedAt: now, sent: 0, seen: 0 }, ...list])
     flash('Template duplicated as a draft')
   }
+  function saveFromWizard(t) {
+    const now = new Date().toISOString()
+    setTemplates(list => [{ ...t, id: `tpl_${Date.now()}`, status: 'ready', createdAt: now, updatedAt: now, sent: 0, seen: 0 }, ...list])
+  }
   const deleteTemplate = id => { setTemplates(l => l.filter(t => t.id !== id)); flash('Template deleted') }
   const deleteMany = ids => { setTemplates(l => l.filter(t => !ids.includes(t.id))); flash(`${ids.length} template${ids.length > 1 ? 's' : ''} deleted`) }
 
@@ -679,7 +733,7 @@ export default function InstagramBroadcasts() {
       status: 'delivered', resp: 'Success', sentAt: Date.now(),
     }, ...l])
     setTemplates(list => list.map(t => t.id === tpl.id ? { ...t, sent: (t.sent || 0) + 1 } : t))
-    flash(`Sent “${tpl.name}” to ${contact.name}`)
+    flash(tpl.id ? `Sent “${tpl.name}” to ${contact.name}` : `Message sent to ${contact.name}`)
   }
 
   /* derived */
@@ -723,7 +777,7 @@ export default function InstagramBroadcasts() {
     return (
       <div className="animate-fade-in">
         <CampaignInsights campaign={activeCampaign} onBack={() => setView('list')} onFollowUp={() => { setView('list'); setWizard({ template: null }) }}/>
-        {wizard && <IgCampaignWizard templates={templates} contacts={INIT_CONTACTS} groups={INIT_GROUPS} initialTemplate={wizard.template} onClose={() => setWizard(null)} onCreated={handleCreated}/>}
+        {wizard && <IgCampaignWizard templates={templates} contacts={INIT_CONTACTS} groups={INIT_GROUPS} initialTemplate={wizard.template} onClose={() => setWizard(null)} onCreated={handleCreated} onSaveTemplate={saveFromWizard}/>}
       </div>
     )
   }
@@ -999,7 +1053,7 @@ export default function InstagramBroadcasts() {
         </>
       )}
 
-      {wizard && <IgCampaignWizard templates={templates} contacts={INIT_CONTACTS} groups={INIT_GROUPS} initialTemplate={wizard.template} onClose={() => setWizard(null)} onCreated={handleCreated}/>}
+      {wizard && <IgCampaignWizard templates={templates} contacts={INIT_CONTACTS} groups={INIT_GROUPS} initialTemplate={wizard.template} onClose={() => setWizard(null)} onCreated={handleCreated} onSaveTemplate={saveFromWizard}/>}
       {showQuickSend && <QuickSendModal templates={templates} contacts={INIT_CONTACTS} onClose={() => setShowQuickSend(false)} onSent={handleQuickSent}/>}
 
       {toast && igPortal(

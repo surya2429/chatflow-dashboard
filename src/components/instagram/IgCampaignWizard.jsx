@@ -3,17 +3,17 @@
 // Instagram rules baked in: a DM only reaches contacts inside their 24-hour
 // window at the moment of sending, and a comment campaign is private replies
 // (one text per comment, within 7 days).
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import igPortal from './igPortal'
 import clsx from 'clsx'
 import {
   X, Check, Search, FileText, Users, Wand2, Calendar, CheckCircle2, Send,
-  AlertCircle, CalendarClock, Loader2, Info, Reply,
+  AlertCircle, CalendarClock, Loader2, Info, Reply, Pencil,
 } from 'lucide-react'
 import { NativeSelect } from '../Select'
 import IgDmPreview from './IgDmPreview'
 import {
-  HOUR, TOKENS, KINDS, POSTS, tokensIn, personalizeTemplate, summarize, windowState, commentState,
+  HOUR, LIMITS, TOKENS, KINDS, POSTS, tokensIn, personalizeTemplate, summarize, windowState, commentState,
 } from './igTemplateKit'
 
 export const CHIP = {
@@ -42,10 +42,14 @@ function Stat({ label, value, tone }) {
   )
 }
 
-export default function IgCampaignWizard({ templates, contacts, groups, initialTemplate = null, onClose, onCreated }) {
+export default function IgCampaignWizard({ templates, contacts, groups, initialTemplate = null, onClose, onCreated, onSaveTemplate }) {
   const [step, setStep] = useState(initialTemplate ? 1 : 0)
   const [type, setType] = useState('dm') // 'dm' | 'comments'
-  const [tpl, setTpl] = useState(initialTemplate)
+  const [tplPicked, setTplPicked] = useState(initialTemplate)
+  const [source, setSource] = useState('template') // 'template' | 'custom'
+  const [customText, setCustomText] = useState('')
+  const [saveAsTpl, setSaveAsTpl] = useState(false)
+  const customRef = useRef(null)
   const [tplSearch, setTplSearch] = useState('')
   const [segment, setSegment] = useState('all')
   const [postId, setPostId] = useState(POSTS[0].id)
@@ -57,6 +61,14 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
   const [launched, setLaunched] = useState(false)
 
   const dm = type === 'dm'
+  // A custom message is an unsaved text template, so everything downstream
+  // (personalise, preview, send) treats both sources the same way.
+  const tpl = source === 'custom'
+    ? (customText.trim() ? { id: null, name: 'Custom message', kind: 'text', status: 'ready', note: '', elements: [], text: customText, buttons: [] } : null)
+    : tplPicked
+  const unknownTokens = source === 'custom'
+    ? [...customText.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)].map(m => m[1]).filter(k => !TOKENS.some(t => t.key === k))
+    : []
   const sendAt = when === 'later' ? new Date(laterAt).getTime() : Date.now()
 
   const tplList = useMemo(() => {
@@ -99,15 +111,26 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
     ? eligible.slice(0, 3).map(r => r.c)
     : replyable.slice(0, 3).map(r => ({ name: r.cm.user.replace('@', '').replace(/[._]/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()), handle: r.cm.user, city: '' }))
 
+  function insertToken(key) {
+    const el = customRef.current
+    const tok = '{{' + key + '}}'
+    const a = el?.selectionStart ?? customText.length
+    const b = el?.selectionEnd ?? a
+    const next = customText.slice(0, a) + tok + customText.slice(b)
+    if (next.length > LIMITS.text) return
+    setCustomText(next)
+    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(a + tok.length, a + tok.length) })
+  }
+
   function pickType(t) {
     if (t === type) return
     setType(t)
-    if (tpl && t === 'comments' && tpl.kind !== 'text') setTpl(null)
+    if (tplPicked && t === 'comments' && tplPicked.kind !== 'text') setTplPicked(null)
     if (t === 'comments') setWhen('now')
   }
 
   const scheduleOk = !!name.trim() && (when === 'now' || sendAt > Date.now())
-  const canNext = [!!tpl, reach > 0, true, scheduleOk, true][step]
+  const canNext = [!!tpl && unknownTokens.length === 0, reach > 0, true, scheduleOk, true][step]
 
   function next() {
     if (step === 2 && !name.trim() && tpl) {
@@ -120,6 +143,7 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
     setLaunching(true)
     await new Promise(r => setTimeout(r, 1200))
     const now = when === 'now'
+    if (source === 'custom' && saveAsTpl && onSaveTemplate) onSaveTemplate({ ...tpl, name: name.trim() })
     const contactsOut = dm
       ? rows.map(r => ({ name: r.c.name, handle: r.c.handle, outcome: r.w.key === 'eligible' ? 'sent' : r.w.key }))
       : commentRows.map(r => ({ name: r.cm.user.replace('@', ''), handle: r.cm.user, outcome: r.state === 'ok' ? 'sent' : r.state === 'old' ? 'expired' : 'optout' }))
@@ -193,7 +217,52 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
                   ))}
                 </div>
               </div>
+              <div className="px-4 py-2.5 border-b border-surface-border flex items-center gap-3 flex-shrink-0 flex-wrap">
+                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Message</p>
+                <div className="flex items-center gap-0.5 bg-slate-100 p-1 rounded-xl">
+                  {[['template', 'Use a template', FileText], ['custom', 'Write a custom message', Pencil]].map(([k, l, Icon]) => (
+                    <button key={k} onClick={() => setSource(k)}
+                      className={clsx('flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap',
+                        source === k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                      <Icon size={12}/> {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="flex flex-1 min-h-0">
+                {source === 'custom' ? (
+                  <div className="flex-1 min-w-0 border-r border-surface-border p-4 space-y-3 overflow-y-auto">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="label !mb-0">Your message</label>
+                        <span className={clsx('text-[10px] tabular-nums', customText.length > LIMITS.text * 0.9 ? 'text-amber-600 font-semibold' : 'text-slate-400')}>{customText.length}/{LIMITS.text}</span>
+                      </div>
+                      <textarea ref={customRef} className="textarea w-full text-xs" rows={7} maxLength={LIMITS.text} autoFocus
+                        value={customText} onChange={e => setCustomText(e.target.value)}
+                        placeholder={dm ? 'Hi {{first_name}}! Just a quick update on your order…' : 'Thanks for commenting, {{first_name}}! Here is the link you asked about…'}/>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10.5px] font-semibold text-slate-400 mr-0.5 flex items-center gap-1"><Wand2 size={11}/> Personalise</span>
+                      {TOKENS.map(tk => (
+                        <button key={tk.key} type="button" onMouseDown={e => e.preventDefault()} onClick={() => insertToken(tk.key)}
+                          className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-white border border-surface-border text-slate-600 hover:border-primary hover:text-primary transition-colors">
+                          {'{{' + tk.key + '}}'}
+                        </button>
+                      ))}
+                    </div>
+                    {unknownTokens.length > 0 && (
+                      <p className="flex items-start gap-1.5 text-[11px] text-red-600"><AlertCircle size={12} className="flex-shrink-0 mt-0.5"/> Unknown placeholder {'{{' + unknownTokens[0] + '}}'} — use one of the buttons above.</p>
+                    )}
+                    <p className="flex items-start gap-1.5 text-[10.5px] text-slate-500 leading-snug">
+                      <Info size={12} className="flex-shrink-0 mt-0.5"/>
+                      Plain text, no cards or buttons. {dm ? 'It is still only delivered inside each contact\'s 24-hour window.' : 'This is the format Instagram allows for a private reply.'}
+                    </p>
+                    <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+                      <input type="checkbox" className="accent-primary" checked={saveAsTpl} onChange={e => setSaveAsTpl(e.target.checked)}/>
+                      Also save this message as a template
+                    </label>
+                  </div>
+                ) : (
                 <div className="flex-1 flex flex-col border-r border-surface-border min-w-0">
                   <div className="p-4 border-b border-surface-border flex-shrink-0">
                     <div className="relative">
@@ -213,7 +282,7 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
                     ) : tplList.map(t => {
                       const n = tokensIn(t).length
                       return (
-                        <div key={t.id} onClick={() => setTpl(t)}
+                        <div key={t.id} onClick={() => setTplPicked(t)}
                           className={clsx('flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors border-l-2',
                             tpl?.id === t.id ? 'bg-primary/5 border-primary' : 'hover:bg-slate-50 border-transparent')}>
                           <div className={clsx('w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5', KIND_DOT[t.kind])}><FileText size={13}/></div>
@@ -231,11 +300,12 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
                     })}
                   </div>
                 </div>
+                )}
                 <div className="w-52 flex-shrink-0 p-4 bg-slate-50 flex flex-col items-center overflow-y-auto">
                   <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-3 w-full">Preview</p>
                   {tpl
                     ? <IgDmPreview template={tpl} scale={0.6}/>
-                    : <div className="w-full flex-1 flex flex-col items-center justify-center text-slate-300 text-center py-10"><FileText size={22}/><p className="text-[11px] mt-2">Select a template</p></div>}
+                    : <div className="w-full flex-1 flex flex-col items-center justify-center text-slate-300 text-center py-10"><FileText size={22}/><p className="text-[11px] mt-2">{source === 'custom' ? 'Start typing to preview' : 'Select a template'}</p></div>}
                 </div>
               </div>
             </div>
@@ -435,7 +505,7 @@ export default function IgCampaignWizard({ templates, contacts, groups, initialT
                   {[
                     ['Campaign', name],
                     ['Type', dm ? 'Direct messages' : 'Private replies to comments'],
-                    ['Template', tpl.name],
+                    [source === 'custom' ? 'Message' : 'Template', source === 'custom' ? 'Custom message' + (saveAsTpl ? ' (saved as template)' : '') : tpl.name],
                     ['Audience', audienceLabel],
                     ['Sends', when === 'now' ? 'Immediately' : new Date(sendAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })],
                   ].map(([k, v]) => (
