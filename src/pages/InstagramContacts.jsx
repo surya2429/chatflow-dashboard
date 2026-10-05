@@ -79,13 +79,13 @@ const SEGS = [
 
 const LANGS = ['Hindi', 'English', 'Tamil', 'Telugu', 'Kannada', 'Gujarati', 'Bengali', 'Malayalam']
 
-const INIT_GROUPS = [
+export const INIT_GROUPS = [
   { id: 'grp1', name: 'Warm Leads',       color: '#8B5CF6', desc: 'DM inquiries with buying intent' },
   { id: 'grp2', name: 'Influencers',      color: '#EC4899', desc: 'Creators & brand ambassadors' },
   { id: 'grp3', name: 'VIP Customers',    color: '#10b981', desc: 'Repeat buyers, high engagement' },
 ]
 
-const INIT_CONTACTS = [
+export const INIT_CONTACTS = [
   { id: '1', name: 'Ananya Rao', handle: '@ananya.rao', avatar: 'AR', email: 'ananya.rao@gmail.com', company: '',
     phone: '+91 98450 12233', city: 'Bangalore', language: 'English',
     source: 'dm', status: 'active', starred: true, tags: ['lead', 'warm lead'], agent: 'Riya Patel',
@@ -136,6 +136,34 @@ const INIT_CONTACTS = [
     score: 22, aiSummary: 'Cold lead — sent one DM inquiry, no follow-up since. Low engagement so far.',
     log: [
       { t: 'created', text: 'Created via Instagram DM', date: '2026-08-11' },
+    ] },
+  { id: '6', name: 'Sneha Kapoor', handle: '@sneha.kapoor', avatar: 'SK', email: 'sneha.k@gmail.com', company: '',
+    phone: '+91 99001 44120', city: 'Delhi', language: 'English',
+    source: 'dm', status: 'active', starred: false, tags: ['customer'], agent: 'Neha Shah',
+    created: '2026-07-02', last: new Date(Date.now() - 6 * 3600000).toISOString(), convos: 2,
+    groupIds: ['grp3'], customAttrs: {}, notes: '',
+    score: 72, aiSummary: 'Returning customer who asked about delivery timelines this morning.',
+    log: [
+      { t: 'message', text: 'Asked about delivery timelines', date: '2026-10-05' },
+      { t: 'created', text: 'Created via Instagram DM', date: '2026-07-02' },
+    ] },
+  { id: '7', name: 'Vikram Singh', handle: '@vikram.singh', avatar: 'VS', email: '', company: '',
+    phone: '', city: 'Pune', language: 'Hindi',
+    source: 'dm', status: 'active', starred: false, tags: ['lead', 'warm lead'], agent: null,
+    created: '2026-09-18', last: new Date(Date.now() - 23 * 3600000).toISOString(), convos: 1,
+    groupIds: ['grp1'], customAttrs: {}, notes: '',
+    score: 55, aiSummary: 'Warm lead whose 24-hour window is about to close.',
+    log: [
+      { t: 'created', text: 'Created via Instagram DM', date: '2026-09-18' },
+    ] },
+  { id: '8', name: 'Pooja Reddy', handle: '@pooja.reddy', avatar: 'PR', email: 'pooja.r@outlook.com', company: '',
+    phone: '', city: 'Hyderabad', language: 'Telugu',
+    source: 'comment', status: 'active', starred: false, tags: ['influencer'], agent: null,
+    created: '2026-09-02', last: new Date(Date.now() - 26 * 3600000).toISOString(), convos: 1,
+    groupIds: ['grp2'], customAttrs: {}, notes: '',
+    score: 48, aiSummary: 'Active follower, but her last message was just over 24 hours ago, so DMs are closed.',
+    log: [
+      { t: 'created', text: 'Created via comment automation', date: '2026-09-02' },
     ] },
 ]
 

@@ -107,7 +107,7 @@ function IgButtonsEditor({ buttons, onChange }) {
   )
 }
 
-function InstagramTemplateComposer({ onSend, onClose }) {
+export function InstagramTemplateComposer({ onSend, onClose, title = "Send a template message", submitLabel = "Send template" }) {
   const [kind, setKind] = useState('generic') // 'generic' | 'button'
   const [elements, setElements] = useState([{ title: '', subtitle: '', imageUrl: '', buttons: [] }])
   const [text, setText] = useState('')
@@ -135,7 +135,7 @@ function InstagramTemplateComposer({ onSend, onClose }) {
       <div className="bg-white rounded-2xl w-full max-w-lg shadow-modal animate-fade-in overflow-hidden flex flex-col max-h-[85vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border flex-shrink-0">
           <div>
-            <h3 className="font-bold text-slate-900">Send a template message</h3>
+            <h3 className="font-bold text-slate-900">{title}</h3>
             <p className="text-xs text-slate-500 mt-0.5">Instagram's structured Generic &amp; Button templates</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-surface-hover text-slate-400 hover:text-slate-600 transition-colors"><X size={16} /></button>
@@ -212,7 +212,7 @@ function InstagramTemplateComposer({ onSend, onClose }) {
         <div className="flex gap-2 px-5 pb-4 pt-1 flex-shrink-0">
           <button onClick={onClose} className="btn-secondary flex-1 justify-center text-sm">Cancel</button>
           <button onClick={handleSend} disabled={!canSend} className={clsx('flex-1 justify-center text-sm', canSend ? 'btn-primary' : 'btn-secondary opacity-50 cursor-not-allowed')}>
-            <Send size={14}/> Send template
+            <Send size={14}/> {submitLabel}
           </button>
         </div>
       </div>

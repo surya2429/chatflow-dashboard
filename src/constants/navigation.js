@@ -18,6 +18,7 @@ export const PRODUCT_NAV_ITEMS = {
   instagram: [
     { id: 'ig-inbox',       label: 'Inbox',        icon: 'MessageSquare', path: '/instagram/inbox' },
     { id: 'ig-contacts',    label: 'Contacts',     icon: 'Users',         path: '/instagram/contacts' },
+    { id: 'ig-broadcasts',  label: 'Broadcasts',   icon: 'Radio',         path: '/instagram/broadcasts' },
     { id: 'ig-automations', label: 'Automations',  icon: 'Workflow',      path: '/instagram/automations' },
     { id: 'ig-analytics',   label: 'Analytics',    icon: 'BarChart2',     path: '/instagram' },
   ],

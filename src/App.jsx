@@ -19,6 +19,7 @@ import Templates from './pages/Templates'
 import FlowSetup from './pages/FlowSetup'
 import Catalog from './pages/Catalog'
 import Broadcasting from './pages/Broadcasting'
+import InstagramBroadcasts from './pages/InstagramBroadcasts'
 import Analytics from './pages/Analytics'
 import Integrations from './pages/Integrations'
 import Voice from './pages/Voice'
@@ -122,6 +123,7 @@ function AppRoutes() {
                       <Route path="instagram" element={<InstagramAnalytics />} />
                       <Route path="instagram/inbox" element={<InstagramInbox />} />
                       <Route path="instagram/contacts" element={<InstagramContacts />} />
+                      <Route path="instagram/broadcasts" element={<InstagramBroadcasts />} />
                       <Route path="instagram/automations" element={<InstagramAutomations />} />
                       <Route path="installation" element={<Installation />} />
                       <Route path="channels" element={<ConnectWhatsApp />} />

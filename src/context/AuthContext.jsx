@@ -8,7 +8,7 @@ const ROLE_NAV = {
   admin:      null, // null = all items
   supervisor: [
     'home', 'conversations', 'contacts', 'broadcasting', 'analytics', 'settings',
-    'ig-inbox', 'ig-contacts', 'ig-automations', 'ig-analytics',
+    'ig-inbox', 'ig-contacts', 'ig-broadcasts', 'ig-automations', 'ig-analytics',
     'wc-inbox', 'wc-contacts', 'wc-automation', 'wc-analytics',
     'integrations',
   ],
