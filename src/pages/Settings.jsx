@@ -37,6 +37,12 @@ const SECTIONS = [
 ]
 const GROUPS = ['Account','Team','Productivity','Developer','Billing','Security','Bot']
 
+/* Sections that only make sense for one channel. The workspace-level settings
+   (team, roles, billing, security…) are shared by every product. */
+const WHATSAPP_ONLY_SECTIONS = ['whatsapp', 'wa_conversations', 'wa_automation']
+const sectionsFor = productId =>
+  productId === 'webchat' ? SECTIONS.filter(s => !WHATSAPP_ONLY_SECTIONS.includes(s.id)) : SECTIONS
+
 /* ─── Bot shared context ──────────────────────────────────────────────────── */
 const BotCtx = createContext(null)
 
@@ -583,6 +589,7 @@ const ROLE_BADGE = {
 }
 
 function TeamSection() {
+  const { activeProductId } = useApp()
   const { departments, assignMemberToDept } = useContext(DeptCtx)
   const [members, setMembers] = useState(MOCK_MEMBERS)
   const [showInvite, setShowInvite] = useState(false)
@@ -811,7 +818,7 @@ function TeamSection() {
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Notifications</p>
                 {[
                   { key:'emailNotif', label:'Email notification', desc:'Notify this user by email.' },
-                  { key:'waNotif',    label:'WhatsApp notification', desc:'Notify this user on WhatsApp.' },
+                  ...(activeProductId === 'webchat' ? [] : [{ key:'waNotif', label:'WhatsApp notification', desc:'Notify this user on WhatsApp.' }]),
                 ].map(n=>(
                   <div key={n.key} className="flex items-center justify-between gap-3">
                     <div>
@@ -940,6 +947,7 @@ const DEFAULT_PERMS = {
 }
 
 function RolesSection() {
+  const { activeProductId } = useApp()
   const { departments } = useContext(DeptCtx)
   const [activeRole, setActiveRole] = useState('Agent')
   const [perms, setPerms] = useState(DEFAULT_PERMS)
@@ -988,7 +996,7 @@ function RolesSection() {
         </div>
       ) : (
         <div style={{ border:'1px solid #e2e8f0', borderRadius:12, overflow:'hidden' }}>
-          {PERMISSIONS.map((g, gi)=>(
+          {PERMISSIONS.filter(g => !(activeProductId === 'webchat' && ['Broadcasts','Templates'].includes(g.group))).map((g, gi)=>(
             <div key={g.group}>
               <div style={{ background:'#f8fafc', padding:'8px 16px', borderTop: gi>0?'1px solid #e2e8f0':'none' }}>
                 <span style={{ fontSize:11, fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'0.05em' }}>{g.group}</span>
@@ -1511,6 +1519,7 @@ const WEBHOOK_EVENTS = ['message.received','message.sent','message.delivered','m
   'broadcast.sent','broadcast.delivered','template.approved','template.rejected']
 
 function APISection() {
+  const { activeProductId } = useApp()
   const [keys, setKeys] = useState(MOCK_KEYS)
   const [showKey, setShowKey] = useState({})
   const [copied, setCopied] = useState('')
@@ -1603,7 +1612,7 @@ function APISection() {
         <div style={{ marginBottom:10 }}>
           <label style={{ display:'block', fontSize:11, fontWeight:600, color:'#374151', marginBottom:8 }}>Subscribed Events</label>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-            {WEBHOOK_EVENTS.map(ev=>(
+            {WEBHOOK_EVENTS.filter(ev => !(activeProductId === 'webchat' && /^(broadcast|template)\./.test(ev))).map(ev=>(
               <label key={ev} style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer',
                 padding:'7px 10px', borderRadius:7, border:`1px solid ${selectedEvents.includes(ev)?'#b9d0ff':'#e2e8f0'}`,
                 background: selectedEvents.includes(ev)?'#eff4ff':'#fff' }}>
@@ -1636,6 +1645,10 @@ const INVOICES = [
 ]
 
 function BillingSection() {
+  const { activeProductId } = useApp()
+  const planFeature = feat => activeProductId === 'webchat'
+    ? feat.replace(/^(\d+) WhatsApp Numbers?$/, (_, n) => `${n} website${n === '1' ? '' : 's'}`).replace('Unlimited Numbers', 'Unlimited websites')
+    : feat
   return (
     <div>
       <SectionHeader title="Billing & Plan" desc="Manage your subscription, usage, and payment history"/>
@@ -1691,7 +1704,7 @@ function BillingSection() {
               {plan.price}<span style={{ fontSize:12, color:'#94a3b8', fontWeight:400 }}>{plan.period}</span>
             </p>
             <div style={{ display:'flex', flexDirection:'column', gap:5, marginBottom:16 }}>
-              {plan.features.map(feat=>(
+              {plan.features.map(planFeature).map(feat=>(
                 <div key={feat} style={{ display:'flex', gap:7, alignItems:'flex-start' }}>
                   <CheckCircle2 size={13} color={plan.color} style={{ flexShrink:0, marginTop:1 }}/>
                   <span style={{ fontSize:12, color:'#374151' }}>{feat}</span>
@@ -2787,6 +2800,7 @@ const SECTION_COMPONENTS = {
 
 /* ─── Main Settings Page ──────────────────────────────────────────────────── */
 export default function Settings() {
+  const { activeProductId } = useApp()
   const [active, setActive] = useState('general')
   const [botLangs,       setBotLangs]       = useState(['English','Nepali','Sanskrit'])
   const [botDefaultLang, setBotDefaultLang] = useState('English')
@@ -2805,12 +2819,16 @@ export default function Settings() {
     }))
   }
 
+  const visibleSections = sectionsFor(activeProductId)
   const grouped = GROUPS.reduce((acc, g) => {
-    acc[g] = SECTIONS.filter(s => s.group === g)
+    acc[g] = visibleSections.filter(s => s.group === g)
     return acc
   }, {})
+  const shownGroups = GROUPS.filter(g => grouped[g].length > 0)
+  // If the product changes while a now-hidden section is open, fall back to General.
+  const current = visibleSections.some(s => s.id === active) ? active : 'general'
 
-  const ActiveComponent = SECTION_COMPONENTS[active] || GeneralSection
+  const ActiveComponent = SECTION_COMPONENTS[current] || GeneralSection
 
   const botCtxValue = { botLangs, setBotLangs, botDefaultLang, setBotDefaultLang, botMultiLingual, setBotMultiLingual }
   const deptCtxValue = { departments, setDepartments, assignMemberToDept }
@@ -2825,7 +2843,7 @@ export default function Settings() {
         {/* Nav groups */}
         <div className="overflow-x-auto md:overflow-x-hidden md:overflow-y-auto md:flex-1 py-2">
           <div className="flex md:block">
-          {GROUPS.map(group => (
+          {shownGroups.map(group => (
             <div key={group} className="flex-shrink-0 px-2 md:px-3 md:mb-1">
               {/* Group label — hidden on mobile horizontal layout */}
               <div className="hidden md:block py-1 mt-1.5 mb-0.5">
@@ -2833,7 +2851,7 @@ export default function Settings() {
               </div>
               {grouped[group].map(sec => {
                 const Icon = sec.icon
-                const isActive = active === sec.id
+                const isActive = current === sec.id
                 return (
                   <button
                     key={sec.id}
@@ -2858,7 +2876,7 @@ export default function Settings() {
 
       {/* ── Right content ── */}
       <div className="flex-1 overflow-y-auto bg-white p-4 md:p-5">
-        <ActiveComponent key={active}/>
+        <ActiveComponent key={current}/>
       </div>
 
     </div>
