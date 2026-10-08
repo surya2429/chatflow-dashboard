@@ -206,6 +206,7 @@ function devBillingApi(env) {
     keyId,
     webhookSecret: env.RAZORPAY_WEBHOOK_SECRET || undefined,
     gstPercent: Number(env.BILLING_GST_PERCENT) || 18,
+    supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE || '27',
   })
   return {
     name: 'dev-billing-api',
@@ -227,6 +228,8 @@ function devBillingApi(env) {
               rawBody,
               headers: { 'x-razorpay-signature': req.headers['x-razorpay-signature'] },
               workspaceId: String(req.headers['x-workspace-id'] || 'default'),
+              ip: req.socket.remoteAddress,
+              userAgent: req.headers['user-agent'],
             })
             res.statusCode = result.status
             res.setHeader('Content-Type', 'application/json')

@@ -1,4 +1,5 @@
 import type { Period, PlanId } from './catalog.js'
+import type { BillingProfile } from './india.js'
 
 export type SubStatus =
   | 'none' | 'created' | 'authenticated' | 'active' | 'pending' | 'halted'
@@ -31,9 +32,23 @@ export interface PendingCheckout {
   period: Period
   orderId?: string
   subscriptionId?: string
+  /** the customer's consent to recurring charges, recorded when they authorise */
+  consent?: ConsentEntry
   /** unix seconds the new subscription begins billing (turning autopay back on at renewal) */
   startAt?: number
   createdAt: number
+}
+
+/** Proof that the customer agreed to recurring charges: what, how much, when, from where. */
+export interface ConsentEntry {
+  version: string
+  at: number
+  ip?: string
+  userAgent?: string
+  plan: PlanId
+  period: Period
+  amountPaise: number
+  subscriptionId?: string
 }
 
 /** An autopay subscription that has been authorised but starts billing later. */
@@ -62,6 +77,10 @@ export interface BillingRecord {
   upcoming?: UpcomingSubscription | null
   paymentMethod?: PaymentMethod | null
   payments: PaymentLogEntry[]
+  /** who is being billed — name, address, GSTIN (see india.ts for why) */
+  profile?: BillingProfile | null
+  /** every recurring-charge authorisation, newest first */
+  consents?: ConsentEntry[]
   pending?: PendingCheckout | null
   updatedAt: number
 }
@@ -81,6 +100,9 @@ export interface BillingRequest {
   rawBody?: Buffer | string
   headers: Record<string, string | undefined>
   workspaceId: string
+  /** caller's address and browser, kept with consent records */
+  ip?: string
+  userAgent?: string
 }
 
 export interface BillingResponse {

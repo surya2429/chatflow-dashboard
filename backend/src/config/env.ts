@@ -50,6 +50,9 @@ const EnvSchema = z.object({
   RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
   // GST added on top of plan prices (the price list is excl. GST).
   BILLING_GST_PERCENT: z.coerce.number().min(0).max(100).default(18),
+  // GST state code of the state we are registered in (27 = Maharashtra). Customers in the
+  // same state are charged CGST + SGST; everyone else IGST. Same total either way.
+  BILLING_SUPPLIER_STATE_CODE: z.string().regex(/^\d{2}$/).default('27'),
 })
 
 export type Env = z.infer<typeof EnvSchema>

@@ -19,6 +19,7 @@ const billing = createBillingService({
   keyId: env.RAZORPAY_KEY_ID,
   webhookSecret: env.RAZORPAY_WEBHOOK_SECRET,
   gstPercent: env.BILLING_GST_PERCENT,
+  supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE,
 })
 
 /* Until requests carry an authenticated client, one workspace stands in for it —
@@ -34,6 +35,8 @@ billingRouter.all('/billing/*', async (req, res) => {
       rawBody: req.rawBody,        // exact bytes, captured in app.ts — webhook signatures need them
       headers: { 'x-razorpay-signature': req.header('x-razorpay-signature') },
       workspaceId: req.header('x-workspace-id') || DEFAULT_WORKSPACE,
+      ip: req.ip,
+      userAgent: req.header('user-agent'),
     })
     res.status(result.status).json(result.body)
   } catch (err) {

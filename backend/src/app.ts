@@ -29,7 +29,7 @@ export function createApp(): Express {
   // typically proxied same-origin, making this a no-op.
   app.use('/api', (req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin ?? '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-Workspace-Id')
     if (req.method === 'OPTIONS') { res.sendStatus(204); return }
     next()

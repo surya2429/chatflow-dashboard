@@ -27,19 +27,42 @@ export function isPeriod(v: unknown): v is Period {
   return v === 'monthly' || v === 'yearly'
 }
 
+export interface TaxSplit {
+  /** intra = same state as us (CGST + SGST); inter = another state (IGST); unknown = no state given yet */
+  kind: 'intra' | 'inter' | 'unknown'
+  cgst: number
+  sgst: number
+  igst: number
+}
+
 export interface Charge {
   base: number          // ₹, excl. GST
   gst: number           // ₹
   total: number         // ₹, what the customer pays
   totalPaise: number    // integer paise — what Razorpay is told
   gstPercent: number
+  tax: TaxSplit
 }
 
-export function chargeFor(plan: PlanId, period: Period, gstPercent: number): Charge {
+/** supplier = the state we are registered in; customer = place of supply. */
+export interface PlaceOfSupply { supplier: string; customer?: string }
+
+export function chargeFor(plan: PlanId, period: Period, gstPercent: number, place?: PlaceOfSupply): Charge {
   const base = PLAN_CATALOG[plan][period]
   const totalPaise = Math.round(base * (1 + gstPercent / 100) * 100)
   const total = totalPaise / 100
-  return { base, gst: Math.round((total - base) * 100) / 100, total, totalPaise, gstPercent }
+  const gst = Math.round((total - base) * 100) / 100
+  // The total never changes — only how it is labelled on the invoice.
+  let tax: TaxSplit = { kind: 'unknown', cgst: 0, sgst: 0, igst: 0 }
+  if (place?.customer) {
+    if (place.customer === place.supplier) {
+      const half = Math.round(gst * 100 / 2) / 100
+      tax = { kind: 'intra', cgst: half, sgst: Math.round((gst - half) * 100) / 100, igst: 0 }
+    } else {
+      tax = { kind: 'inter', cgst: 0, sgst: 0, igst: gst }
+    }
+  }
+  return { base, gst, total, totalPaise, gstPercent, tax }
 }
 
 /** Stable key used to find the matching Razorpay Plan again later. */

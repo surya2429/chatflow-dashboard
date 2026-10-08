@@ -7,10 +7,11 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 export class BillingError extends Error {
-  constructor(code, message, status) {
+  constructor(code, message, status, fields) {
     super(message || code)
     this.code = code
     this.status = status
+    this.fields = fields   // field-level problems from a 422, e.g. { email: '…' }
   }
 }
 
@@ -26,7 +27,7 @@ async function call(method, path, body) {
     throw new BillingError('unreachable', "Couldn't reach the billing service. Check that the server is running.")
   }
   const data = await res.json().catch(() => null)
-  if (!res.ok) throw new BillingError(data?.error || 'request_failed', data?.message || `Request failed (${res.status})`, res.status)
+  if (!res.ok) throw new BillingError(data?.error || 'request_failed', data?.message || `Request failed (${res.status})`, res.status, data?.fields)
   return data
 }
 
@@ -34,6 +35,9 @@ export const billing = {
   config:       ()     => call('GET', '/config'),
   subscription: ()     => call('GET', '/subscription'),
   invoices:     ()     => call('GET', '/invoices'),
+  profile:      ()     => call('GET', '/profile'),
+  saveProfile:  (body) => call('PUT', '/profile', body),
+  quote:        (body) => call('POST', '/quote', body),
   checkout:     (body) => call('POST', '/checkout', body),
   verify:       (body) => call('POST', '/verify', body),
   changePlan:   (body) => call('POST', '/change-plan', body),

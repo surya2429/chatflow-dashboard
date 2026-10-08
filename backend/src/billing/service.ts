@@ -19,6 +19,7 @@ import {
   needsApprovalEachCycle, planKey, totalCount, type Period, type PlanId,
 } from './catalog.js'
 import { RazorpayError, verifyWebhookSignature, type Razorpay, type RzEntity } from './razorpay.js'
+import { STATES, stateName, validateProfile } from './india.js'
 import type {
   BillingRecord, BillingRequest, BillingResponse, BillingStore, PaymentLogEntry, PaymentMethod,
 } from './types.js'
@@ -29,6 +30,8 @@ export interface BillingServiceOptions {
   keyId?: string
   webhookSecret?: string
   gstPercent: number
+  /** GST code of the state we are registered in — decides CGST+SGST vs IGST. */
+  supplierStateCode?: string
   /** unix seconds; injectable for tests */
   now?: () => number
 }
@@ -40,6 +43,23 @@ const err = (status: number, error: string, message?: string): BillingResponse =
 export function createBillingService(opts: BillingServiceOptions) {
   const { store, razorpay: rz, keyId, webhookSecret, gstPercent } = opts
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+  const supplier = opts.supplierStateCode ?? '27'
+  const CONSENT_VERSION = 'recurring-v1'
+
+  /* The charge for a plan, with GST labelled for the customer's state when known.
+     The TOTAL is the same either way; only CGST/SGST vs IGST changes. */
+  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null) =>
+    chargeFor(plan, period, gstPercent, { supplier, customer: rec?.profile?.address.stateCode })
+
+  /* What goes on the Razorpay order / subscription as notes (visible in their dashboard). */
+  const notesFor = (rec: BillingRecord, plan: PlanId, period: Period) => ({
+    workspaceId: rec.workspaceId, plan, period,
+    ...(rec.profile ? {
+      billedTo: rec.profile.legalName.slice(0, 100),
+      gstin: rec.profile.gstin ?? 'unregistered',
+      placeOfSupply: `${rec.profile.address.stateCode} ${stateName(rec.profile.address.stateCode)}`,
+    } : {}),
+  })
 
   /* Razorpay Plan ids, looked up (or created once) by the key stored in notes. */
   const planIdCache = new Map<string, string>()
@@ -155,7 +175,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     }
     if (dirty) await store.put(rec)
 
-    const c = chargeFor(rec.plan, rec.period, gstPercent)
+    const c = chargeOf(rec.plan, rec.period, rec)
     const ending = rec.mode === 'once' || rec.cancelAtCycleEnd
     const live = rec.status === 'active' || rec.status === 'authenticated' || rec.status === 'pending'
     return {
@@ -166,7 +186,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       planName: PLAN_CATALOG[rec.plan].name,
       period: rec.period,
       mode: rec.mode,
-      charge: { base: c.base, gst: c.gst, total: c.total, gstPercent },
+      charge: { base: c.base, gst: c.gst, total: c.total, gstPercent, tax: c.tax },
       currentStart: rec.currentStart ?? null,
       currentEnd: rec.currentEnd ?? null,
       nextChargeAt: ending ? null : (rec.nextChargeAt ?? rec.currentEnd ?? null),
@@ -178,9 +198,10 @@ export function createBillingService(opts: BillingServiceOptions) {
       },
       scheduledChange: rec.scheduledChange ?? null,
       upcoming: rec.upcoming
-        ? { ...rec.upcoming, planName: PLAN_CATALOG[rec.upcoming.plan].name, charge: chargeFor(rec.upcoming.plan, rec.upcoming.period, gstPercent) }
+        ? { ...rec.upcoming, planName: PLAN_CATALOG[rec.upcoming.plan].name, charge: chargeOf(rec.upcoming.plan, rec.upcoming.period, rec) }
         : null,
       paymentMethod: rec.paymentMethod ?? null,
+      authorisedAt: rec.consents?.[0]?.at ?? null,
       paidCount: rec.paidCount ?? rec.payments.length,
       remainingCount: rec.remainingCount ?? null,
       subscriptionId: rec.subscriptionId ?? null,
@@ -189,12 +210,16 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* ── handlers ──────────────────────────────────────────────────────────── */
   async function checkout(req: BillingRequest): Promise<BillingResponse> {
-    const { plan, period, mode, startAtCycleEnd } = (req.body ?? {}) as Record<string, unknown>
+    const { plan, period, mode, startAtCycleEnd, consent } = (req.body ?? {}) as Record<string, unknown>
     if (!isPlanId(plan) || !isPeriod(period) || (mode !== 'once' && mode !== 'autopay')) {
       return err(400, 'invalid_request', 'plan, period and mode are required.')
     }
     const rec = (await store.get(req.workspaceId)) ?? blank(req.workspaceId)
-    const c = chargeFor(plan, period, gstPercent)
+    // No payment starts without knowing who is being billed (GST invoice, bank notices).
+    if (!rec.profile) return err(409, 'billing_details_required', 'Add your billing details before paying.')
+    // A recurring mandate needs the customer's explicit, recorded agreement.
+    if (mode === 'autopay' && consent !== true) return err(409, 'consent_required', 'Please confirm that you authorise the recurring charges.')
+    const c = chargeOf(plan, period, rec)
     const description = `SmatBot ${PLAN_CATALOG[plan].name} · ${period} (incl. ${gstPercent}% GST)`
     const base = { keyId, amount: c.totalPaise, currency: 'INR', description, plan, period }
 
@@ -203,7 +228,7 @@ export function createBillingService(opts: BillingServiceOptions) {
         amount: c.totalPaise,
         currency: 'INR',
         receipt: `${req.workspaceId}-${now()}`.slice(0, 40),
-        notes: { workspaceId: req.workspaceId, plan, period },
+        notes: notesFor(rec, plan, period),
       })
       rec.pending = { mode: 'once', plan, period, orderId: order.id, createdAt: now() }
       rec.updatedAt = now()
@@ -217,7 +242,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       plan_id: planId,
       total_count: totalCount(period),
       customer_notify: 1,
-      notes: { workspaceId: req.workspaceId, plan, period },
+      notes: notesFor(rec, plan, period),
     }
     let startAt: number | undefined
     if (startAtCycleEnd === true) {
@@ -226,7 +251,10 @@ export function createBillingService(opts: BillingServiceOptions) {
       body.start_at = startAt
     }
     const sub = await rz!.request<RzEntity>('POST', '/subscriptions', body)
-    rec.pending = { mode: 'autopay', plan, period, subscriptionId: sub.id, startAt, createdAt: now() }
+    rec.pending = {
+      mode: 'autopay', plan, period, subscriptionId: sub.id, startAt, createdAt: now(),
+      consent: { version: CONSENT_VERSION, at: now(), ip: req.ip, userAgent: req.userAgent, plan, period, amountPaise: c.totalPaise, subscriptionId: sub.id },
+    }
     rec.updatedAt = now()
     await store.put(rec)
     return reply(200, { ...base, mode, subscriptionId: sub.id, startsAt: startAt ?? null })
@@ -249,7 +277,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     }
 
     const payment = await rz!.request<RzEntity>('GET', `/payments/${paymentId}`).catch(() => null)
-    const c = chargeFor(pend.plan, pend.period, gstPercent)
+    const c = chargeOf(pend.plan, pend.period, rec)
 
     if (pend.mode === 'once') {
       // A valid signature proves Razorpay issued it; the payment itself must still
@@ -288,6 +316,8 @@ export function createBillingService(opts: BillingServiceOptions) {
         rec.payments.unshift(ledger(paymentId, pend, c.totalPaise, payment?.method))
       }
     }
+    // Keep the proof that the customer agreed to the recurring charge.
+    if (pend.consent) rec.consents = [pend.consent, ...(rec.consents ?? [])]
     rec.pending = null
     rec.updatedAt = now()
     await store.put(rec)
@@ -408,6 +438,32 @@ export function createBillingService(opts: BillingServiceOptions) {
     return reply(200, { ok: true })
   }
 
+  async function getProfile(req: BillingRequest): Promise<BillingResponse> {
+    const rec = await store.get(req.workspaceId)
+    return reply(200, { profile: rec?.profile ?? null, complete: Boolean(rec?.profile) })
+  }
+
+  async function putProfile(req: BillingRequest): Promise<BillingResponse> {
+    const v = validateProfile((req.body ?? {}) as Parameters<typeof validateProfile>[0], now())
+    if (!v.ok) return reply(422, { error: 'invalid_profile', message: 'Some details need fixing.', fields: v.fields })
+    const rec = (await store.get(req.workspaceId)) ?? blank(req.workspaceId)
+    // A change of address after a checkout began could change the tax split; start over.
+    if (rec.pending && rec.profile?.address.stateCode !== v.profile.address.stateCode) rec.pending = null
+    rec.profile = v.profile
+    rec.updatedAt = now()
+    await store.put(rec)
+    return reply(200, { profile: rec.profile, complete: true })
+  }
+
+  /* What a plan will cost THIS customer, with GST labelled for their state. */
+  async function quote(req: BillingRequest): Promise<BillingResponse> {
+    const { plan, period } = (req.body ?? {}) as Record<string, unknown>
+    if (!isPlanId(plan) || !isPeriod(period)) return err(400, 'invalid_request', 'plan and period are required.')
+    const rec = await store.get(req.workspaceId)
+    const c = chargeOf(plan, period, rec)
+    return reply(200, { plan, planName: PLAN_CATALOG[plan].name, period, charge: c, requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES })
+  }
+
   /* ── router ────────────────────────────────────────────────────────────── */
   async function handle(req: BillingRequest): Promise<BillingResponse> {
     const route = `${req.method.toUpperCase()} ${req.path.replace(/\/+$/, '') || '/'}`
@@ -416,13 +472,16 @@ export function createBillingService(opts: BillingServiceOptions) {
       const prices = Object.fromEntries(PLAN_ORDER.map((p) => [p, {
         monthly: chargeFor(p, 'monthly', gstPercent), yearly: chargeFor(p, 'yearly', gstPercent),
       }]))
-      return reply(200, { configured: Boolean(rz && keyId), keyId: keyId ?? null, gstPercent, approvalLimit: AFA_LIMIT_RUPEES, prices })
+      return reply(200, { configured: Boolean(rz && keyId), keyId: keyId ?? null, gstPercent, approvalLimit: AFA_LIMIT_RUPEES, prices, states: STATES, supplierStateCode: supplier })
     }
     if (!rz || !keyId) return err(503, 'payments_not_configured', 'Razorpay keys are not configured on the server.')
 
     try {
       switch (route) {
         case 'GET /subscription':   return reply(200, await summarize(await store.get(req.workspaceId)))
+        case 'GET /profile':        return await getProfile(req)
+        case 'PUT /profile':        return await putProfile(req)
+        case 'POST /quote':         return await quote(req)
         case 'POST /checkout':      return await checkout(req)
         case 'POST /verify':        return await verify(req)
         case 'POST /change-plan':   return await changePlan(req)

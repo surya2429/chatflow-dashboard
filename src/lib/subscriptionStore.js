@@ -6,7 +6,7 @@
 import { useSyncExternalStore } from 'react'
 import { billing } from './billingApi'
 
-let state = { loading: true, error: null, sub: null, config: null }
+let state = { loading: true, error: null, sub: null, config: null, profile: null }
 const listeners = new Set()
 
 function set(patch) {
@@ -16,8 +16,8 @@ function set(patch) {
 
 export async function refreshSubscription() {
   try {
-    const [config, sub] = await Promise.all([billing.config(), billing.subscription()])
-    set({ config, sub, loading: false, error: null })
+    const [config, sub, prof] = await Promise.all([billing.config(), billing.subscription(), billing.profile().catch(() => null)])
+    set({ config, sub, profile: prof?.profile ?? null, loading: false, error: null })
   } catch (error) {
     // Keep whatever we already knew; just report that it may be out of date.
     set({ loading: false, error })
@@ -25,6 +25,7 @@ export async function refreshSubscription() {
 }
 
 export const setSubscription = (sub) => set({ sub, error: null })
+export const setProfile = (profile) => set({ profile })
 
 export function useSubscription() {
   return useSyncExternalStore(

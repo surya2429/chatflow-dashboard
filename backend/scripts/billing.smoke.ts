@@ -5,6 +5,7 @@
 //   cd backend && npx tsx scripts/billing.smoke.ts
 import { createBillingService } from '../src/billing/service.js'
 import { hmacHex, type Razorpay, type RzEntity } from '../src/billing/razorpay.js'
+import { gstinCheckChar, gstinError, normalizeMobile } from '../src/billing/india.js'
 import type { BillingRecord, BillingStore } from '../src/billing/types.js'
 
 const SECRET = 'test_secret'
@@ -72,9 +73,10 @@ function memoryStore(): BillingStore {
 async function main() {
   let t = 1_800_000_000
   const fake = fakeRazorpay()
-  const svc = createBillingService({ store: memoryStore(), razorpay: fake.rz, keyId: 'rzp_test_x', webhookSecret: WEBHOOK, gstPercent: 18, now: () => t })
+  const store = memoryStore()
+  const svc = createBillingService({ store, razorpay: fake.rz, keyId: 'rzp_test_x', webhookSecret: WEBHOOK, gstPercent: 18, now: () => t })
   const call = (method: string, path: string, body?: Record<string, unknown>, ws = 'ws1', extra: Partial<Parameters<typeof svc.handle>[0]> = {}) =>
-    svc.handle({ method, path, body, headers: {}, workspaceId: ws, ...extra })
+    svc.handle({ method, path, body, headers: {}, workspaceId: ws, ip: '203.0.113.9', userAgent: 'smoke-test', ...extra })
   const sign = (a: string, b: string) => hmacHex(SECRET, `${a}|${b}`)
 
   console.log('\nconfig + empty state')
@@ -82,6 +84,31 @@ async function main() {
   check('config exposes key id but no secret', (r.body as RzEntity).keyId === 'rzp_test_x' && !JSON.stringify(r.body).includes(SECRET))
   r = await call('GET', '/subscription')
   check('no subscription yet', (r.body as RzEntity).status === 'none')
+
+  console.log('\nindia validators')
+  check('known-good GSTIN passes', gstinError('27AAPFU0939F1ZV') === null, gstinError('27AAPFU0939F1ZV'))
+  check('GSTIN with a wrong check character fails', gstinError('27AAPFU0939F1ZX') !== null)
+  check('GSTIN check char is computed', gstinCheckChar('27AAPFU0939F1Z') === 'V')
+  check('mobile numbers normalise', normalizeMobile('+91 98765 43210') === '9876543210' && normalizeMobile('12345') === null)
+
+  console.log('\nbilling details gate')
+  r = await call('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'once' })
+  check('checkout refused until billing details exist', r.status === 409 && (r.body as RzEntity).error === 'billing_details_required', r.body)
+  const good = { legalName: 'Acme Retail Pvt Ltd', contactName: 'Asha Rao', email: 'Asha@Acme.in', phone: '98765 43210', gstin: '27AAPFU0939F1ZV',
+    address: { line1: '12 MG Road', line2: '', city: 'Mumbai', stateCode: '27', pincode: '400001' } }
+  r = await call('PUT', '/profile', { ...good, email: 'nope', address: { ...good.address, pincode: '12' } })
+  check('bad email and PIN rejected with field messages', r.status === 422 && !!(r.body as RzEntity).fields.email && !!(r.body as RzEntity).fields['address.pincode'], r.body)
+  r = await call('PUT', '/profile', { ...good, address: { ...good.address, stateCode: '29' } })
+  check('GSTIN state must match the billing state', r.status === 422 && !!(r.body as RzEntity).fields['address.stateCode'], r.body)
+  r = await call('PUT', '/profile', good)
+  check('valid profile saved and normalised', r.status === 200 && (r.body as RzEntity).profile.phone === '9876543210' && (r.body as RzEntity).profile.email === 'asha@acme.in', r.body)
+  r = await call('POST', '/quote', { plan: 'pro', period: 'yearly' })
+  let q = (r.body as RzEntity).charge
+  check('same-state customer is split CGST + SGST', q.tax.kind === 'intra' && q.tax.cgst === 6480 && q.tax.sgst === 6480 && q.total === 84960, q.tax)
+  await call('PUT', '/profile', { ...good, gstin: '', address: { ...good.address, stateCode: '29' } })
+  q = ((await call('POST', '/quote', { plan: 'pro', period: 'yearly' })).body as RzEntity).charge
+  check('other-state customer is charged IGST, same total', q.tax.kind === 'inter' && q.tax.igst === 12960 && q.total === 84960, q.tax)
+  await call('PUT', '/profile', good)
 
   console.log('\nvalidation')
   r = await call('POST', '/checkout', { plan: 'gold', period: 'monthly', mode: 'once' })
@@ -109,9 +136,11 @@ async function main() {
 
   console.log('\nautopay subscription')
   r = await call('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'autopay' })
+  check('autopay refused without explicit consent', r.status === 409 && (r.body as RzEntity).error === 'consent_required', r.body)
+  r = await call('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'autopay', consent: true })
   const sc = r.body as RzEntity
   check('subscription created with its own Razorpay plan', Boolean(sc.subscriptionId) && fake.calls.includes('POST /plans'))
-  r = await call('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'autopay' })
+  r = await call('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'autopay', consent: true })
   check('second checkout reuses the Razorpay plan', fake.calls.filter((c) => c === 'POST /plans').length === 1)
   const sc2 = r.body as RzEntity
   const payAuto = fake.pay(undefined, sc2.amount)
@@ -122,6 +151,8 @@ async function main() {
   check('autopay verified and active', s.status === 'active' && s.mode === 'autopay' && s.autopay.on === true, s)
   check('monthly Pro (₹7,670) renews without approval', s.autopay.requiresApproval === false)
   check('next charge date known', s.nextChargeAt === t + 30 * 86400)
+  const consent = (await store.get('ws1'))?.consents?.[0]
+  check('consent recorded with amount, time and origin', consent?.amountPaise === 767000 && consent?.ip === '203.0.113.9' && consent?.userAgent === 'smoke-test' && consent?.version === 'recurring-v1', consent)
 
   console.log('\nplan changes')
   r = await call('POST', '/change-plan', { plan: 'ai', period: 'monthly' })
@@ -140,7 +171,7 @@ async function main() {
   check('Razorpay told to cancel at cycle end', fake.calls.some((c) => c.endsWith('/cancel')))
 
   console.log('\nturn autopay back on at renewal')
-  r = await call('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'autopay', startAtCycleEnd: true })
+  r = await call('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'autopay', consent: true, startAtCycleEnd: true })
   const up = r.body as RzEntity
   check('new subscription starts at the current period end', up.startsAt === t + 30 * 86400, up)
   const payUp = fake.pay(undefined, up.amount)

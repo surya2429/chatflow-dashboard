@@ -15,7 +15,7 @@ import clsx from 'clsx'
 import {
   LayoutDashboard, Layers, BarChart2, Puzzle, Receipt, Check, Download, ArrowUpRight, CreditCard,
   CalendarDays, Info, ShieldCheck, Building2, Users, Languages, MessageSquare, Globe, Zap, Lock,
-  Repeat, AlertCircle, Loader2, RefreshCw, ExternalLink, CheckCircle2,
+  Repeat, AlertCircle, Loader2, RefreshCw, ExternalLink, CheckCircle2, X,
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { useAuth } from '../../context/AuthContext'
@@ -23,8 +23,10 @@ import {
   PLANS, PLAN_HIGHLIGHTS, FEATURE_GROUPS, FEATURE_ADDONS, USAGE_ADDONS, getPlan, planTier, planMath, inr, money, num,
 } from '../../constants/pricing'
 import { billing, payWithRazorpay } from '../../lib/billingApi'
-import { useSubscription, setSubscription, refreshSubscription, isLive } from '../../lib/subscriptionStore'
+import { useSubscription, setSubscription, setProfile, refreshSubscription, isLive } from '../../lib/subscriptionStore'
 import PaymentDialog from './PaymentDialog'
+import BillingDetailsForm from './BillingDetailsForm'
+import { addressLine, stateNameOf } from './billingFormat'
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -132,7 +134,7 @@ export default function BillingSection() {
   const { activeProductId } = useApp()
   const { currentUser } = useAuth()
   const web = activeProductId === 'webchat'          // Website Chat has no WhatsApp rows
-  const { loading, error: loadError, sub, config } = useSubscription()
+  const { loading, error: loadError, sub, config, profile } = useSubscription()
 
   const [tab, setTab] = useState('overview')
   const [view, setView] = useState('yearly')          // which price list the Plans tab shows
@@ -143,6 +145,8 @@ export default function BillingSection() {
   const [toast, setToast] = useState(null)
   const [invoices, setInvoices] = useState(null)
   const [requested, setRequested] = useState({})
+  const [editingDetails, setEditingDetails] = useState(false)
+  const [quote, setQuote] = useState(null)
   const mounted = useRef(true)
   // Re-arm on every mount: React's dev double-mount runs the cleanup once before the real mount.
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
@@ -158,6 +162,21 @@ export default function BillingSection() {
   const flash = (text, tone = 'ok') => {
     setToast({ text, tone })
     setTimeout(() => mounted.current && setToast(null), 4500)
+  }
+
+  /* While a dialog is open, ask the server what THIS customer pays — the GST split
+     (CGST+SGST vs IGST) depends on their state. */
+  useEffect(() => {
+    if (!dialog?.plan) { setQuote(null); return }
+    let off = false
+    billing.quote({ plan: dialog.plan, period: dialog.period }).then(q => !off && setQuote(q)).catch(() => !off && setQuote(null))
+    return () => { off = true }
+  }, [dialog?.plan, dialog?.period, profile?.address?.stateCode])
+
+  async function saveProfile(values) {
+    const saved = await billing.saveProfile(values)
+    setProfile(saved.profile)
+    return saved.profile
   }
 
   /* Invoices load when their tab opens and after any payment. */
@@ -183,8 +202,11 @@ export default function BillingSection() {
   async function runCheckout(d) {
     setBusy(true); setDlgError(null)
     try {
-      const session = await billing.checkout({ plan: d.plan, period: d.period, mode: d.mode, startAtCycleEnd: !!d.startAtCycleEnd })
-      const response = await payWithRazorpay(session, { name: currentUser?.name, email: currentUser?.email })
+      const session = await billing.checkout({ plan: d.plan, period: d.period, mode: d.mode, startAtCycleEnd: !!d.startAtCycleEnd, consent: !!d.consent })
+      // Prefill from the billing details so Checkout never has to guess (or reuse someone else's saved info).
+      const response = await payWithRazorpay(session, profile
+        ? { name: profile.contactName, email: profile.email, contact: `+91${profile.phone}` }
+        : { name: currentUser?.name, email: currentUser?.email })
       const result = await billing.verify(response)
       setSubscription(result)
       setDialog(null)
@@ -220,7 +242,7 @@ export default function BillingSection() {
     finally { if (mounted.current) setBusy(false) }
   }
 
-  const confirm = () => (dialog.kind === 'autopay-off' ? runAutopayOff() : dialog.kind === 'change' ? runChange(dialog) : runCheckout(dialog))
+  const confirm = (extras) => (dialog.kind === 'autopay-off' ? runAutopayOff() : dialog.kind === 'change' ? runChange(dialog) : runCheckout({ ...dialog, consent: !!extras?.consent }))
 
   /* What a plan card's button does, given where the customer is today. */
   function actionFor(plan, i, period) {
@@ -416,6 +438,11 @@ export default function BillingSection() {
                     <p className="text-[10.5px] text-slate-400">Next charge</p>
                     <p className="text-sm font-bold text-slate-900 mt-0.5">{money(sub.charge.total)} <span className="text-xs font-medium text-slate-500">on {fmtSec(sub.nextChargeAt)}</span></p>
                   </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="rounded-lg border border-slate-100 px-3 py-2"><p className="text-slate-400">Mandate</p><p className="font-semibold text-slate-700 mt-0.5">Up to {money(sub.charge.total)} every {sub.period === 'yearly' ? 'year' : 'month'}</p></div>
+                    <div className="rounded-lg border border-slate-100 px-3 py-2"><p className="text-slate-400">Authorised</p><p className="font-semibold text-slate-700 mt-0.5">{sub.authorisedAt ? fmtSec(sub.authorisedAt) : '—'}</p></div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">We notify you at <b>{profile?.email || 'your email'}</b> before every debit. You can turn autopay off any time.</p>
                   {sub.autopay.requiresApproval && (
                     <p className="flex items-start gap-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 leading-relaxed">
                       <AlertCircle size={12} className="flex-shrink-0 mt-0.5"/>
@@ -741,15 +768,22 @@ export default function BillingSection() {
                 </div>
               ) : <p className="text-xs text-slate-500">No payment method yet.</p>}
             </Card>
-            <Card title="Billing details" action={<button className="text-[11px] font-semibold text-primary hover:underline">Edit</button>}>
-              <div className="flex items-start gap-3">
-                <span className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0"><Building2 size={16} className="text-slate-500"/></span>
-                <div>
-                  <p className="text-xs font-semibold text-slate-800">ChatFlow Inc.</p>
-                  <p className="text-[10.5px] text-slate-400">Mumbai, India · admin@chatflow.io</p>
-                  <p className="text-[10.5px] text-slate-400 flex items-center gap-1 mt-0.5"><ShieldCheck size={11}/> GST invoice details on file</p>
+            <Card title="Billing details" action={<button onClick={() => setEditingDetails(true)} className="text-[11px] font-semibold text-primary hover:underline">{profile ? 'Edit' : 'Add details'}</button>}>
+              {profile ? (
+                <div className="flex items-start gap-3">
+                  <span className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0"><Building2 size={16} className="text-slate-500"/></span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-800">{profile.legalName}</p>
+                    <p className="text-[10.5px] text-slate-500 leading-snug">{addressLine(profile, config?.states)}</p>
+                    <p className="text-[10.5px] text-slate-400 mt-1">{profile.contactName} · {profile.email} · +91 {profile.phone}</p>
+                    <p className="text-[10.5px] text-slate-400 flex items-center gap-1 mt-0.5">
+                      <ShieldCheck size={11}/> {profile.gstin ? <>GSTIN <span className="font-mono">{profile.gstin}</span></> : 'No GSTIN'} · Place of supply: {stateNameOf(config?.states, profile.address.stateCode)}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <p className="text-xs text-slate-500 leading-relaxed">Add who's paying — name, address and GSTIN — so your GST invoices are right. It's also asked at your first payment.</p>
+              )}
             </Card>
           </div>
 
@@ -788,8 +822,23 @@ export default function BillingSection() {
         </div>
       )}
 
-      <PaymentDialog dialog={dialog} config={config} sub={sub} busy={busy} error={dlgError}
-        onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
+      {editingDetails && (
+        <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4 overflow-y-auto" onClick={(e) => e.target === e.currentTarget && setEditingDetails(false)}>
+          <div className="bg-white rounded-2xl shadow-modal w-full max-w-md animate-fade-in my-auto">
+            <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
+              <div><h3 className="text-[15px] font-bold text-slate-900">Billing details</h3><p className="text-xs text-slate-400 mt-0.5">Used on future invoices and payment notices</p></div>
+              <button onClick={() => setEditingDetails(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={15}/></button>
+            </div>
+            <div className="px-5 pb-5">
+              <BillingDetailsForm initial={profile} states={config?.states} onCancel={() => setEditingDetails(false)}
+                onSubmit={async (values) => { await saveProfile(values); setEditingDetails(false); flash('Billing details saved.') }}/>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <PaymentDialog dialog={dialog} config={config} sub={sub} profile={profile} quote={quote} busy={busy} error={dlgError}
+        onSaveProfile={saveProfile} onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
         onPayOnceInstead={() => { setPayMode('once'); setDlgError(null); setDialog(d => ({ ...d, mode: 'once', startAtCycleEnd: false })) }}
         onStartAtRenewal={() => { setDlgError(null); setDialog(d => ({ kind: 'new', plan: d.plan, period: d.period, mode: 'autopay', startAtCycleEnd: true })) }}/>
 
