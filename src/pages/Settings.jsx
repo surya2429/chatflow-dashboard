@@ -8,7 +8,7 @@ import {
   Upload, Download, Search,
   Calendar, CheckCircle2, Activity, Send,
   UserPlus, Zap, Globe, GripVertical, Languages, Repeat2, ChevronDown,
-  Building2, Phone, Mail, AlertCircle,
+  Building2, Phone, Mail, AlertCircle, Search as SearchIcon,
 } from 'lucide-react'
 import clsx from 'clsx'
 import Select, { NativeSelect } from '../components/Select'
@@ -2799,6 +2799,92 @@ const SECTION_COMPONENTS = {
 }
 
 /* ─── Main Settings Page ──────────────────────────────────────────────────── */
+/* Compact-layout navigation: a searchable dropdown instead of a wrapped grid of
+   section links. The desktop sidebar is unchanged. */
+function SectionPicker({ sections, groups, current, onSelect }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [hi, setHi] = useState(0)
+  const ref = useRef(null)
+  const inputRef = useRef(null)
+
+  const q = query.trim().toLowerCase()
+  const matches = sections.filter(s => !q || s.label.toLowerCase().includes(q) || s.group.toLowerCase().includes(q))
+  const flat = groups.flatMap(g => matches.filter(s => s.group === g))
+  const cur = sections.find(s => s.id === current) || sections[0]
+  const CurIcon = cur.icon
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    inputRef.current?.focus()
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+  useEffect(() => setHi(0), [query])
+
+  function pick(id) { onSelect(id); setOpen(false); setQuery('') }
+  function onKey(e) {
+    if (e.key === 'Escape') { setOpen(false); setQuery('') }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setHi(h => Math.min(flat.length - 1, h + 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(h => Math.max(0, h - 1)) }
+    else if (e.key === 'Enter' && flat[hi]) { e.preventDefault(); pick(flat[hi].id) }
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
+        className={clsx('w-full flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-colors',
+          open ? 'border-primary ring-2 ring-primary/15 bg-white' : 'border-surface-border bg-white hover:border-slate-300')}>
+        <CurIcon size={14} className="text-primary flex-shrink-0"/>
+        <span className="flex-1 min-w-0">
+          <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider leading-none">{cur.group}</span>
+          <span className="block text-[13px] font-semibold text-slate-900 truncate mt-0.5">{cur.label}</span>
+        </span>
+        <ChevronDown size={15} className={clsx('text-slate-400 transition-transform flex-shrink-0', open && 'rotate-180')}/>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white rounded-xl border border-surface-border shadow-modal animate-fade-in overflow-hidden">
+          <div className="relative p-2 border-b border-surface-border">
+            <SearchIcon size={13} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+            <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onKey}
+              placeholder="Search settings…"
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-surface-border rounded-lg focus:outline-none focus:border-primary/40 focus:bg-white placeholder-slate-400"/>
+          </div>
+          <div role="listbox" className="max-h-72 overflow-y-auto py-1">
+            {flat.length === 0 && <p className="text-xs text-slate-400 text-center py-6">No settings match “{query}”</p>}
+            {groups.map(g => {
+              const items = matches.filter(m => m.group === g)
+              if (!items.length) return null
+              return (
+                <div key={g}>
+                  <p className="px-3 pt-2 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">{g}</p>
+                  {items.map(sec => {
+                    const Icon = sec.icon
+                    const idx = flat.indexOf(sec)
+                    return (
+                      <button key={sec.id} type="button" role="option" aria-selected={sec.id === current}
+                        onClick={() => pick(sec.id)} onMouseEnter={() => setHi(idx)}
+                        className={clsx('w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors',
+                          idx === hi ? 'bg-surface-hover' : '',
+                          sec.id === current ? 'text-primary font-semibold' : 'text-slate-700 font-medium')}>
+                        <Icon size={13} className="flex-shrink-0"/>
+                        <span className="flex-1 truncate">{sec.label}</span>
+                        {sec.id === current && <Check size={13} className="flex-shrink-0"/>}
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Settings() {
   const { activeProductId } = useApp()
   const [active, setActive] = useState('general')
@@ -2835,14 +2921,19 @@ export default function Settings() {
   return (
     <DeptCtx.Provider value={deptCtxValue}>
     <BotCtx.Provider value={botCtxValue}>
-      <div className="flex flex-col md:flex-row md:h-screen md:-m-5 overflow-hidden">
+      <div className="flex flex-col md:flex-row md:h-screen md:-m-5 md:overflow-hidden">
 
       {/* ── Left sidebar ── */}
-      <div className="md:w-48 flex-shrink-0 border-b md:border-b-0 md:border-r border-surface-border bg-white flex flex-col overflow-hidden">
+      <div className="md:w-48 flex-shrink-0 border-b md:border-b-0 md:border-r border-surface-border bg-white flex flex-col md:overflow-hidden relative z-20">
+
+        {/* Compact layout: searchable dropdown */}
+        <div className="md:hidden p-3">
+          <SectionPicker sections={visibleSections} groups={shownGroups} current={current} onSelect={setActive}/>
+        </div>
 
         {/* Nav groups */}
-        <div className="overflow-x-auto md:overflow-x-hidden md:overflow-y-auto md:flex-1 py-2">
-          <div className="flex md:block">
+        <div className="hidden md:block md:overflow-x-hidden md:overflow-y-auto md:flex-1 py-2">
+          <div className="block">
           {shownGroups.map(group => (
             <div key={group} className="flex-shrink-0 px-2 md:px-3 md:mb-1">
               {/* Group label — hidden on mobile horizontal layout */}
