@@ -65,7 +65,7 @@ export default function Sidebar({ onNavClick }) {
   const [profileView,   setProfileView]   = useState('menu') // 'menu' | 'notifications'
   const profileRef  = useRef(null)
   const popupRef    = useRef(null)
-  const [popPos, setPopPos] = useState({ left: 8, bottom: 8 })
+  const [popPos, setPopPos] = useState({ left: 8, bottom: 8, maxHeight: 480 })
   const navigate   = useNavigate()
 
   const hiddenCommonIds = PRODUCT_HIDDEN_COMMON_IDS[activeProductId] || []
@@ -108,9 +108,12 @@ export default function Sidebar({ onNavClick }) {
       const r = profileRef.current.getBoundingClientRect()
       const width = Math.min(300, window.innerWidth - 16)
       const left = sidebarCollapsed ? r.right + 8 : r.left + 8
+      const bottom = Math.max(8, sidebarCollapsed ? window.innerHeight - r.bottom : window.innerHeight - r.top + 8)
       setPopPos({
         left: Math.min(Math.max(8, left), window.innerWidth - width - 8),   // never off-screen
-        bottom: Math.max(8, sidebarCollapsed ? window.innerHeight - r.bottom : window.innerHeight - r.top + 8),
+        bottom,
+        // Only the room above the button is usable; taller content scrolls inside the menu.
+        maxHeight: Math.max(200, window.innerHeight - bottom - 8),
       })
     }
     setProfileView('menu')
@@ -359,11 +362,12 @@ export default function Sidebar({ onNavClick }) {
         {showProfile && createPortal(
           <div ref={popupRef}
             className={clsx('fixed z-[60] bg-white border border-surface-border rounded-xl shadow-modal animate-fade-in overflow-hidden flex flex-col', activeProductId === 'instagram' && 'theme-instagram')}
-            style={{ left: popPos.left, bottom: popPos.bottom, width: 300, maxWidth: 'calc(100vw - 16px)', maxHeight: 'calc(100vh - 16px)' }}>
+            style={{ left: popPos.left, bottom: popPos.bottom, width: 300, maxWidth: 'calc(100vw - 16px)', maxHeight: popPos.maxHeight }}>
 
             {/* ── VIEW: Main menu ── */}
             {profileView === 'menu' && (
-              <div className="overflow-y-auto">
+              <>
+              <div className="overflow-y-auto min-h-0">
                 {/* User + availability */}
                 <div className="px-4 pt-3.5 pb-3 border-b border-surface-border bg-slate-50">
                   <div className="flex items-center gap-2.5">
@@ -453,14 +457,16 @@ export default function Sidebar({ onNavClick }) {
                       {item.label}
                     </button>
                   ))}
-                  <div className="border-t border-surface-border mt-1 pt-1">
-                    <button onClick={() => { setShowProfile(false); logout(); navigate('/signin') }}
-                      className="w-full text-left flex items-center gap-2.5 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                      <LogOut size={12} className="flex-shrink-0" /> Sign Out
-                    </button>
-                  </div>
                 </div>
               </div>
+              {/* Pinned, so it stays reachable when the menu scrolls on a short window */}
+              <div className="flex-shrink-0 border-t border-surface-border p-1.5 bg-white">
+                <button onClick={() => { setShowProfile(false); logout(); navigate('/signin') }}
+                  className="w-full text-left flex items-center gap-2.5 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                  <LogOut size={12} className="flex-shrink-0" /> Sign Out
+                </button>
+              </div>
+              </>
             )}
 
             {/* ── VIEW: Notifications ── */}
