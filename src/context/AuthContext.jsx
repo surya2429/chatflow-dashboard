@@ -29,7 +29,7 @@ export const DEMO_USERS = [
     initials: 'DK',
     color:    '#0066ff',
     desc:     'Full platform access — manage bots, analytics, billing & team',
-    workspace:{ name: 'Acme Corp', plan: 'Growth' },
+    workspace:{ name: 'Acme Corp', plan: 'Pro' },
     creditBalance: 4250,
   },
   {
@@ -41,7 +41,7 @@ export const DEMO_USERS = [
     initials: 'PD',
     color:    '#8B5CF6',
     desc:     'Team oversight — analytics, broadcasts & conversation management',
-    workspace:{ name: 'Acme Corp', plan: 'Growth' },
+    workspace:{ name: 'Acme Corp', plan: 'Pro' },
     creditBalance: 0,
   },
   {
@@ -53,7 +53,7 @@ export const DEMO_USERS = [
     initials: 'RM',
     color:    '#22C55E',
     desc:     'Handle conversations & manage contacts',
-    workspace:{ name: 'Acme Corp', plan: 'Growth' },
+    workspace:{ name: 'Acme Corp', plan: 'Pro' },
     creditBalance: 0,
   },
 ]

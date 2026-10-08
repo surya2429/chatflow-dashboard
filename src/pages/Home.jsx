@@ -297,24 +297,24 @@ export default function Home() {
         <div className="card p-4 flex items-center justify-between">
           <div>
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">Current Plan</p>
-            <p className="text-sm font-bold text-slate-900">Growth</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Renews Jun 12, 2025</p>
+            <p className="text-sm font-bold text-slate-900">Pro</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Yearly · renews Jan 1, 2027</p>
           </div>
           <button className="btn-primary text-[10px] px-2.5 py-1">Upgrade</button>
         </div>
 
         {/* Conversation Credits */}
         <div className="card p-4">
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">Message Credits</p>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">WhatsApp Message Credits</p>
           <div className="flex items-end justify-between">
             <div>
-              <p className="text-sm font-bold text-slate-900">6,240 <span className="text-[10px] font-normal text-slate-400">/ 10,000</span></p>
+              <p className="text-sm font-bold text-slate-900">6,240 <span className="text-[10px] font-normal text-slate-400">/ 100,000</span></p>
               <p className="text-[10px] text-slate-400 mt-0.5">Messages used this month</p>
             </div>
-            <span className="text-[10px] font-semibold text-amber-600">62%</span>
+            <span className="text-[10px] font-semibold text-emerald-600">6%</span>
           </div>
           <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full bg-amber-400 rounded-full" style={{ width: '62%' }}/>
+            <div className="h-full bg-primary rounded-full" style={{ width: '6%' }}/>
           </div>
         </div>
 

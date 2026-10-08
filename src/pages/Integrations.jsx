@@ -1,3 +1,4 @@
+import { planTier } from '../constants/pricing'
 import { useState, useRef, useEffect } from 'react'
 import {
   Search, CheckCircle2, Plus, X, Zap, Settings,
@@ -1385,8 +1386,8 @@ function AddWebhookModal({ onClose, onCreate }) {
 function IntegrationConnectModal({ integration, onClose, onConnected }) {
   const { currentUser } = useAuth()
   const connectFields = integration.connectFields ?? CATEGORY_CONNECT_FIELDS[integration.category] ?? []
-  const planTier = { starter: 0, growth: 1, scale: 2 }[(currentUser?.workspace?.plan || '').toLowerCase()] ?? 0
-  const isGated  = integration.tier === 'enterprise' && planTier < 2
+  const tier    = Math.max(0, planTier(currentUser?.workspace?.plan))   // Broadcast 0 · Standard 1 · Pro 2 · AI 3
+  const isGated = integration.tier === 'enterprise' && tier < 2          // enterprise CRM/ERP tools need Pro or higher
 
   const [fields,     setFields]     = useState({})
   const [errors,     setErrors]     = useState({})
@@ -1432,9 +1433,9 @@ function IntegrationConnectModal({ integration, onClose, onConnected }) {
               </div>
               <p className="text-sm font-bold text-slate-900 mb-1.5">Enterprise integration</p>
               <p className="text-[12px] text-slate-500 leading-relaxed mb-4">
-                {integration.name} is available on the <strong>Scale</strong> plan. Upgrade to connect enterprise tools and push chatbot data straight into them.
+                {integration.name} is available on the <strong>Pro</strong> plan and above. Upgrade to connect enterprise tools and push chatbot data straight into them.
               </p>
-              <span className="badge badge-purple">Requires Scale plan</span>
+              <span className="badge badge-purple">Requires Pro plan</span>
             </div>
           ) : done ? (
             <div className="p-6 text-center">
