@@ -308,13 +308,13 @@ export default function Home() {
           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">WhatsApp Message Credits</p>
           <div className="flex items-end justify-between">
             <div>
-              <p className="text-sm font-bold text-slate-900">6,240 <span className="text-[10px] font-normal text-slate-400">/ 100,000</span></p>
-              <p className="text-[10px] text-slate-400 mt-0.5">Messages used this month</p>
+              <p className="text-sm font-bold text-slate-900">6,240 <span className="text-[10px] font-normal text-slate-400">/ 1,200,000</span></p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Used from your yearly pool · no monthly cap</p>
             </div>
-            <span className="text-[10px] font-semibold text-emerald-600">6%</span>
+            <span className="text-[10px] font-semibold text-emerald-600">&lt;1%</span>
           </div>
           <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full bg-primary rounded-full" style={{ width: '6%' }}/>
+            <div className="h-full bg-primary rounded-full" style={{ width: '1%' }}/>
           </div>
         </div>
 

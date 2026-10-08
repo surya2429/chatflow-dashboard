@@ -1646,7 +1646,7 @@ function FeatureCell({ v, yearly }) {
   return (
     <span>
       <span className="font-semibold text-slate-800">{yearly ? `${num(v.perMonth * 12)} / yr` : `${num(v.perMonth)} / mo`}</span>
-      <span className="block text-[10px] text-slate-400">{yearly ? 'credited upfront' : 'credited each month'}</span>
+      <span className="block text-[10px] text-slate-400">{yearly ? 'one pool · use any time' : 'credited each month'}</span>
     </span>
   )
 }
@@ -1662,6 +1662,14 @@ function BillingSection() {
   const cm = planMath(current)
   const currentPrice = CURRENT_BILLING === 'yearly' ? `${inr(current.yearly)}/year` : `${inr(current.monthly)}/month`
 
+  // A yearly plan is credited upfront as ONE pool for the year — there is no monthly cap,
+  // so usage is measured against the whole year's allowance.
+  const pooled = CURRENT_BILLING === 'yearly'
+  const span = pooled ? 12 : 1
+  const per = pooled ? 'yr' : 'mo'
+  const svcAllowance = current.serviceMsgs * span
+  const biAllowance = current.biMsgs * span
+
   const tiles = web
     ? [
         { l:'Website Messages', v:'8,412', t:'Unlimited' },
@@ -1669,13 +1677,13 @@ function BillingSection() {
         { l:'Languages', v:'2', t:'2 included' },
       ]
     : [
-        { l:'WhatsApp Service Msgs', v:'23,481', t:`${num(current.serviceMsgs)} / mo` },
-        { l:'WhatsApp BI Msgs', v:'1,204', t:`${num(current.biMsgs)} / mo` },
+        { l:'WhatsApp Service Msgs', v:'23,481', t:`${num(svcAllowance)} / ${per}` },
+        { l:'WhatsApp BI Msgs', v:'1,204', t:`${num(biAllowance)} / ${per}` },
         { l:'Live Agents', v:'3', t:'3 included' },
         { l:'Languages', v:'2', t:'2 included' },
       ]
   const used = 23481
-  const usedPct = Math.round((used / current.serviceMsgs) * 100)
+  const usedPct = Math.max(1, Math.round((used / svcAllowance) * 100))
 
   const groups = FEATURE_GROUPS
     .filter(g => !(web && g.wa))
@@ -1713,15 +1721,17 @@ function BillingSection() {
 
       {!web && (
         <div style={{ border:'1px solid #e2e8f0', borderRadius:12, padding:12, marginBottom:12 }}>
-          <p style={{ fontSize:12, fontWeight:600, color:'#0f172a', marginBottom:8 }}>WhatsApp Service Messages This Month</p>
+          <p style={{ fontSize:12, fontWeight:600, color:'#0f172a', marginBottom:8 }}>WhatsApp Service Messages {pooled ? 'This Year' : 'This Month'}</p>
           <div style={{ marginBottom:6, display:'flex', justifyContent:'space-between', fontSize:12, color:'#64748b' }}>
-            <span>{num(used)} used</span><span>{num(current.serviceMsgs)} / month</span>
+            <span>{num(used)} used</span><span>{num(svcAllowance)} {pooled ? 'for the year' : '/ month'}</span>
           </div>
           <div style={{ height:8, background:'#e2e8f0', borderRadius:4, overflow:'hidden' }}>
             <div style={{ width:`${usedPct}%`, height:'100%', background:'linear-gradient(90deg,#0066ff,#0052cc)', borderRadius:4 }}/>
           </div>
           <p style={{ fontSize:11, color:'#94a3b8', marginTop:6 }}>
-            {usedPct}% used · {num(current.serviceMsgs - used)} messages remaining this month. Meta's per-message charges apply on top of your plan.
+            {pooled
+              ? <>{usedPct}% used · {num(svcAllowance - used)} messages left in your yearly pool. There's no monthly limit — use them at any pace until the year ends. Meta's per-message charges apply on top of your plan.</>
+              : <>{usedPct}% used · {num(svcAllowance - used)} messages remaining this month. Meta's per-message charges apply on top of your plan.</>}
           </p>
         </div>
       )}
@@ -1782,7 +1792,7 @@ function BillingSection() {
       <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 mb-3">
         <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5"/>
         <div className="text-[11.5px] text-amber-900 leading-relaxed space-y-1">
-          <p><b>How limits are credited:</b> monthly plans get the monthly allowance every month. Yearly plans get all 12 months' allowance credited once, upfront.</p>
+          <p><b>How limits are credited:</b> monthly plans get the monthly allowance every month. Yearly plans get all 12 months' allowance credited once, upfront, as a single pool — there is <b>no monthly cap</b>, so you can use it as fast or slow as you like within the year.</p>
           {!web && <p><b>Meta charges:</b> on WhatsApp service (UI) and BI messages the customer must add a payment card in Meta Business Manager. Meta's per-message charges apply on top of the plan price.</p>}
           <p>All prices are <b>exclusive of GST</b>, which is charged extra at checkout. Custom development is quoted and charged separately on every plan.</p>
         </div>
