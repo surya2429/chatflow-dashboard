@@ -41,6 +41,15 @@ const EnvSchema = z.object({
   // (src/services/agentDeskClient.ts). Unset = not forwarded.
   AGENT_API_URL: z.string().url().optional(),
   AGENT_API_INTERNAL_KEY: z.string().min(24).optional(),
+
+  // ── Razorpay billing (src/billing) ───────────────────────────────────────
+  // Optional so the API still boots without them; /api/billing then reports
+  // "not configured". The SECRET never leaves the server.
+  RAZORPAY_KEY_ID: z.string().min(1).optional(),
+  RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
+  // GST added on top of plan prices (the price list is excl. GST).
+  BILLING_GST_PERCENT: z.coerce.number().min(0).max(100).default(18),
 })
 
 export type Env = z.infer<typeof EnvSchema>

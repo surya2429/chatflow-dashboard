@@ -5,6 +5,7 @@ import { webhookRouter } from './routes/webhook.routes.js'
 import { healthRouter } from './routes/health.routes.js'
 import { instagramRouter } from './routes/instagram.routes.js'
 import { botsRouter } from './routes/bots.routes.js'
+import { billingRouter } from './routes/billing.routes.js'
 
 export function createApp(): Express {
   const app = express()
@@ -29,7 +30,7 @@ export function createApp(): Express {
   app.use('/api', (req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin ?? '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,X-Workspace-Id')
     if (req.method === 'OPTIONS') { res.sendStatus(204); return }
     next()
   })
@@ -38,6 +39,7 @@ export function createApp(): Express {
   app.use(webhookRouter)
   app.use('/api', instagramRouter)
   app.use('/api', botsRouter)
+  app.use('/api', billingRouter)
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path })

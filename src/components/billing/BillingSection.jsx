@@ -1,26 +1,30 @@
-// BillingSection.jsx — "Billing & Plan" in Settings.
+// BillingSection.jsx — "Billing & Plan" in Settings, wired to Razorpay.
 //
-// Five focused tabs instead of one long scroll:
-//   Overview  – the current plan, how much is used, what's next
-//   Plans     – monthly/yearly switch, the four plans, full comparison
-//   Usage     – allowances and how the year is going
-//   Add-ons   – feature add-ons and usage add-ons
-//   Invoices  – payment method, billing details and history
+// Tabs: Overview · Plans · Usage · Add-ons · Invoices
 //
-// Prices, allowances and features come from constants/pricing.js. The demo
-// workspace is on Pro, billed yearly. A yearly plan's allowance is ONE pool for
-// the year — there is no monthly cap.
-import { useState, Fragment } from 'react'
+// What is real here: the subscription (plan, period, renewal, autopay, payment
+// method) and invoices come from /api/billing, and every payment goes through
+// Razorpay Checkout. What is still demo data: message-usage figures, add-on
+// requests and the billing-details card.
+//
+// Two ways to pay: AUTOPAY (a Razorpay subscription, charged each cycle) or PAY
+// ONCE (one payment buys one period, no renewal). The server decides every
+// amount; this file only names a plan and a billing period.
+import { useState, useEffect, useRef, Fragment } from 'react'
 import clsx from 'clsx'
 import {
   LayoutDashboard, Layers, BarChart2, Puzzle, Receipt, Check, Download, ArrowUpRight, CreditCard,
-  CalendarDays, Info, Sparkles, ShieldCheck, Building2, Users, Languages, MessageSquare, Globe, Zap, Lock,
+  CalendarDays, Info, ShieldCheck, Building2, Users, Languages, MessageSquare, Globe, Zap, Lock,
+  Repeat, AlertCircle, Loader2, RefreshCw, ExternalLink, CheckCircle2,
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
+import { useAuth } from '../../context/AuthContext'
 import {
-  PLANS, PLAN_HIGHLIGHTS, FEATURE_GROUPS, FEATURE_ADDONS, USAGE_ADDONS, CURRENT_PLAN, CURRENT_BILLING,
-  SUBSCRIPTION, getPlan, planTier, planMath, inr, num,
+  PLANS, PLAN_HIGHLIGHTS, FEATURE_GROUPS, FEATURE_ADDONS, USAGE_ADDONS, getPlan, planTier, planMath, inr, money, num,
 } from '../../constants/pricing'
+import { billing, payWithRazorpay } from '../../lib/billingApi'
+import { useSubscription, setSubscription, refreshSubscription, isLive } from '../../lib/subscriptionStore'
+import PaymentDialog from './PaymentDialog'
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -30,12 +34,16 @@ const TABS = [
   { id: 'invoices', label: 'Invoices', icon: Receipt },
 ]
 
-const INVOICES = [
-  { id: 'INV-2026-01', date: 'Jan 1, 2026', desc: 'Pro plan · yearly', amount: 72000, status: 'Paid' },
-]
+const fmtSec = (sec) => (sec ? new Date(sec * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—')
+const daysUntil = (sec) => Math.max(0, Math.ceil((sec * 1000 - Date.now()) / 86400000))
 
-const DAY = 86400000
-const fmtDate = d => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+function describeMethod(m) {
+  if (!m) return null
+  if (m.type === 'card') return `${m.network || 'Card'} •••• ${m.last4 || '••••'}`
+  if (m.type === 'upi') return `UPI · ${m.vpa || 'linked account'}`
+  if (m.type === 'emandate') return `eMandate${m.bank ? ' · ' + m.bank : ''}`
+  return m.type ? m.type[0].toUpperCase() + m.type.slice(1) : null
+}
 
 /* ── small pieces ──────────────────────────────────────────────────────── */
 function Ring({ pct, color, size = 68, stroke = 7, children }) {
@@ -74,19 +82,21 @@ function Tick({ color = '#16a34a' }) {
   return <span className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: color + '1a' }}><Check size={10} style={{ color }} strokeWidth={3}/></span>
 }
 
-function BillingSwitch({ value, onChange }) {
+function Segmented({ value, onChange, options }) {
   return (
     <div className="inline-flex gap-1 p-1 bg-slate-100 rounded-full">
-      {[['monthly', 'Monthly'], ['yearly', 'Yearly']].map(([k, l]) => (
+      {options.map(([k, l, hint]) => (
         <button key={k} onClick={() => onChange(k)}
           className={clsx('px-4 py-1.5 rounded-full text-xs font-semibold transition-all',
             value === k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
-          {l}{k === 'yearly' && <span className="ml-1.5 text-[10px] font-bold text-emerald-600">Save up to 19%</span>}
+          {l}{hint && <span className="ml-1.5 text-[10px] font-bold text-emerald-600">{hint}</span>}
         </button>
       ))}
     </div>
   )
 }
+
+const BillingSwitch = ({ value, onChange }) => <Segmented value={value} onChange={onChange} options={[['monthly', 'Monthly'], ['yearly', 'Yearly', 'Save up to 19%']]}/>
 
 function FeatureCell({ v, yearly }) {
   if (v === true)    return <span className="text-emerald-600 font-extrabold">✓</span>
@@ -101,35 +111,150 @@ function FeatureCell({ v, yearly }) {
   )
 }
 
+function Notice({ tone = 'info', icon: Icon = Info, children, action }) {
+  const tones = {
+    info:  'bg-sky-50 border-sky-200 text-sky-900',
+    warn:  'bg-amber-50 border-amber-200 text-amber-900',
+    error: 'bg-red-50 border-red-200 text-red-800',
+    ok:    'bg-emerald-50 border-emerald-200 text-emerald-900',
+  }
+  return (
+    <div className={clsx('flex items-start gap-2.5 p-3 rounded-xl border text-xs leading-relaxed', tones[tone])}>
+      <Icon size={14} className="flex-shrink-0 mt-0.5"/>
+      <div className="flex-1 min-w-0">{children}</div>
+      {action}
+    </div>
+  )
+}
+
 /* ── the page ──────────────────────────────────────────────────────────── */
 export default function BillingSection() {
   const { activeProductId } = useApp()
+  const { currentUser } = useAuth()
   const web = activeProductId === 'webchat'          // Website Chat has no WhatsApp rows
+  const { loading, error: loadError, sub, config } = useSubscription()
+
   const [tab, setTab] = useState('overview')
-  const [view, setView] = useState(CURRENT_BILLING)  // which price list the Plans tab shows
+  const [view, setView] = useState('yearly')          // which price list the Plans tab shows
+  const [payMode, setPayMode] = useState('autopay')   // autopay | once
+  const [dialog, setDialog] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [dlgError, setDlgError] = useState(null)
+  const [toast, setToast] = useState(null)
+  const [invoices, setInvoices] = useState(null)
   const [requested, setRequested] = useState({})
+  const mounted = useRef(true)
+  // Re-arm on every mount: React's dev double-mount runs the cleanup once before the real mount.
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  useEffect(() => { refreshSubscription() }, [])
 
-  const current = getPlan(CURRENT_PLAN)
-  const curIdx = planTier(CURRENT_PLAN)
-  const pooled = CURRENT_BILLING === 'yearly'
-  const span = pooled ? 12 : 1
-  const per = pooled ? 'yr' : 'mo'
-  const svcAllowance = current.serviceMsgs * span
-  const biAllowance = current.biMsgs * span
-  const svcUsed = 23481, biUsed = 1204
+  const hasSub = !!sub && sub.status !== 'none'
+  const live = isLive(sub)
+  const current = hasSub ? getPlan(sub.planName) : null
+  const curIdx = hasSub ? planTier(sub.planName) : -1
+  const pooled = hasSub && sub.period === 'yearly'
+  const configured = config?.configured !== false
 
-  const now = Date.now()
-  const start = new Date(SUBSCRIPTION.start).getTime(), end = new Date(SUBSCRIPTION.renews).getTime()
-  const daysLeft = Math.max(0, Math.ceil((end - now) / DAY))
-  const termPct = Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100))
-  const price = pooled ? current.yearly : current.monthly
+  const flash = (text, tone = 'ok') => {
+    setToast({ text, tone })
+    setTimeout(() => mounted.current && setToast(null), 4500)
+  }
+
+  /* Invoices load when their tab opens and after any payment. */
+  useEffect(() => {
+    if (tab !== 'invoices' || !configured) return
+    let off = false
+    billing.invoices().then(r => !off && setInvoices(r.items)).catch(() => !off && setInvoices([]))
+    return () => { off = true }
+  }, [tab, sub?.status, sub?.paidCount, configured])
+
+  /* After authorising autopay, Razorpay takes a few seconds to mark it active. */
+  async function waitUntilActive() {
+    for (let i = 0; i < 6; i++) {
+      await new Promise(r => setTimeout(r, 3000))
+      const s = await billing.subscription().catch(() => null)
+      if (!mounted.current) return
+      if (s) setSubscription(s)
+      if (s && !['authenticated', 'created'].includes(s.status)) return
+    }
+  }
+
+  /* ── payment flows ─────────────────────────────────────────────────── */
+  async function runCheckout(d) {
+    setBusy(true); setDlgError(null)
+    try {
+      const session = await billing.checkout({ plan: d.plan, period: d.period, mode: d.mode, startAtCycleEnd: !!d.startAtCycleEnd })
+      const response = await payWithRazorpay(session, { name: currentUser?.name, email: currentUser?.email })
+      const result = await billing.verify(response)
+      setSubscription(result)
+      setDialog(null)
+      flash(d.startAtCycleEnd ? 'Autopay authorised — it starts when your current plan ends.' : d.mode === 'autopay' ? 'Autopay is set up. Welcome aboard!' : 'Payment received — your plan is active.')
+      if (['authenticated', 'created'].includes(result.status)) waitUntilActive()
+    } catch (e) {
+      if (e.code === 'dismissed') flash('Checkout closed — nothing was charged.', 'info')
+      else if (e.code === 'payment_failed') flash(e.message, 'error')
+      else setDlgError(e)
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }
+
+  async function runChange(d) {
+    setBusy(true); setDlgError(null)
+    try {
+      const result = await billing.changePlan({ plan: d.plan, period: d.period })
+      setSubscription(result)
+      setDialog(null)
+      flash(result.appliedNow ? `You're now on ${result.planName}.` : `Switching to ${PLANS.find(p => p.id === d.plan).name} at renewal.`)
+    } catch (e) { setDlgError(e) }
+    finally { if (mounted.current) setBusy(false) }
+  }
+
+  async function runAutopayOff() {
+    setBusy(true); setDlgError(null)
+    try {
+      setSubscription(await billing.setAutopay(false))
+      setDialog(null)
+      flash('Autopay is off. Your plan runs until the end of this period.', 'info')
+    } catch (e) { setDlgError(e) }
+    finally { if (mounted.current) setBusy(false) }
+  }
+
+  const confirm = () => (dialog.kind === 'autopay-off' ? runAutopayOff() : dialog.kind === 'change' ? runChange(dialog) : runCheckout(dialog))
+
+  /* What a plan card's button does, given where the customer is today. */
+  function actionFor(plan, i, period) {
+    const price = config?.prices?.[plan.id]?.[period]
+    const same = hasSub && sub.plan === plan.id && sub.period === period
+    if (!configured) return { label: 'Payments unavailable', disabled: true }
+    if (!live) {
+      return { label: payMode === 'autopay' ? 'Subscribe with autopay' : `Pay ${price ? money(price.total) : ''} once`, open: { kind: 'new', plan: plan.id, period, mode: payMode } }
+    }
+    if (sub.mode === 'autopay' && sub.autopay.on) {
+      if (same) return { label: 'Your current plan', disabled: true }
+      const upgrade = price && price.total > sub.charge.total
+      return { label: `${upgrade ? 'Upgrade' : 'Switch'} to ${plan.name}`, open: { kind: 'change', plan: plan.id, period, upgrade } }
+    }
+    // Live, but one-time or autopay switched off: the plan will simply end.
+    if (payMode === 'autopay') {
+      return { label: same ? 'Turn on autopay' : `Start ${plan.name} at renewal`, open: { kind: 'new', plan: plan.id, period, mode: 'autopay', startAtCycleEnd: true } }
+    }
+    return { label: same ? 'Renew now' : `Switch now`, open: { kind: 'new', plan: plan.id, period, mode: 'once' } }
+  }
+  const openAction = (a) => { setDlgError(null); setDialog(a.open) }
 
   const groups = FEATURE_GROUPS.filter(g => !(web && g.wa)).map(g => ({ ...g, rows: g.rows.filter(r => !(web && r.wa)) })).filter(g => g.rows.length)
   const featureAddons = FEATURE_ADDONS.filter(a => !(web && a.wa))
   const usageAddons = USAGE_ADDONS.filter(a => !(web && a.wa))
-  const usageEligible = curIdx >= 2
+  const usageEligible = live && curIdx >= 2
 
-  const meters = web
+  const span = pooled ? 12 : 1
+  const per = pooled ? 'yr' : 'mo'
+  const svcAllowance = current ? current.serviceMsgs * span : 0
+  const biAllowance = current ? current.biMsgs * span : 0
+  const svcUsed = 23481, biUsed = 1204
+
+  const meters = !hasSub ? [] : web
     ? [
         { key: 'web', icon: Globe, label: 'Website messages', used: '8,412', of: 'Unlimited', pct: 0, color: '#0066ff', unlimited: true },
         { key: 'agents', icon: Users, label: 'Live agents', used: '3', of: '3 included', pct: 100, color: '#8b5cf6' },
@@ -143,8 +268,28 @@ export default function BillingSection() {
       ]
 
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  const monthly = [1420, 1880, 2310, 2540, 2760, 2980, 3120, 2870, 2401, 1200]   // sums to svcUsed
+  const monthly = [1420, 1880, 2310, 2540, 2760, 2980, 3120, 2870, 2401, 1200]
   const maxBar = Math.max(...monthly)
+
+  const methodLabel = describeMethod(sub?.paymentMethod)
+  const termPct = hasSub && sub.currentStart && sub.currentEnd
+    ? Math.min(100, Math.max(0, ((Date.now() / 1000 - sub.currentStart) / (sub.currentEnd - sub.currentStart)) * 100)) : 0
+
+  /* Things the customer should know or act on. */
+  const notices = []
+  if (loadError) notices.push(<Notice key="err" tone="warn" icon={AlertCircle} action={<button onClick={refreshSubscription} className="inline-flex items-center gap-1 font-semibold underline"><RefreshCw size={11}/> Retry</button>}>{loadError.message}</Notice>)
+  else if (!loading && config && config.configured === false) notices.push(<Notice key="cfg" tone="warn" icon={AlertCircle}>Payments aren't switched on yet — the Razorpay keys are missing on the server. Plans are shown for reference.</Notice>)
+  if (sub?.stale) notices.push(<Notice key="stale" tone="warn" icon={AlertCircle}>Couldn't reach Razorpay just now, so this may be slightly out of date.</Notice>)
+  if (sub?.status === 'halted') notices.push(<Notice key="halt" tone="error" icon={AlertCircle}>Your last autopay charge failed and Razorpay has stopped retrying. Subscribe again from the Plans tab to restore your plan.</Notice>)
+  if (sub?.status === 'pending') notices.push(<Notice key="pend" tone="warn" icon={AlertCircle}>A renewal charge is waiting for your approval. Approve it in the link your bank sent, or retry from your banking app.</Notice>)
+  if (sub?.status === 'authenticated') notices.push(<Notice key="auth" tone="info" icon={Loader2}>Autopay is authorised. Your plan will show as active in a moment…</Notice>)
+  if (live && sub.endsAt && !sub.upcoming) notices.push(
+    <Notice key="ends" tone="warn" icon={CalendarDays}
+      action={configured && <button onClick={() => { setTab('plans'); }} className="font-bold underline whitespace-nowrap">Keep my plan</button>}>
+      Your <b>{sub.planName}</b> plan ends on <b>{fmtSec(sub.endsAt)}</b>{sub.mode === 'once' ? ' (you paid once)' : ' (autopay is off)'}. After that you'll be on the free tier.
+    </Notice>)
+  if (sub?.upcoming) notices.push(<Notice key="up" tone="ok" icon={Repeat}>Autopay for <b>{sub.upcoming.planName}</b> ({sub.upcoming.period}) is set up and starts on <b>{fmtSec(sub.upcoming.startsAt)}</b>.</Notice>)
+  if (sub?.scheduledChange) notices.push(<Notice key="sched" tone="info" icon={Repeat}>Switching to <b>{PLANS.find(p => p.id === sub.scheduledChange.plan)?.name}</b> ({sub.scheduledChange.period}) on <b>{fmtSec(sub.scheduledChange.at)}</b>.</Notice>)
 
   return (
     <div>
@@ -154,9 +299,15 @@ export default function BillingSection() {
           <h2 className="text-[15px] font-bold text-slate-900">Billing &amp; Plan</h2>
           <p className="text-[11px] text-slate-400 mt-0.5">Your subscription, usage and payment history</p>
         </div>
-        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"/> {current.name} · {pooled ? 'Yearly' : 'Monthly'} · Active
-        </span>
+        {loading ? (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 bg-slate-100 rounded-full px-2.5 py-1"><Loader2 size={11} className="animate-spin"/> Loading…</span>
+        ) : live ? (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"/> {sub.planName} · {sub.period === 'yearly' ? 'Yearly' : 'Monthly'} · {sub.autopay.on ? 'Autopay on' : 'Active'}
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-full px-2.5 py-1">{hasSub ? 'Plan ended' : 'No active plan'}</span>
+        )}
       </div>
 
       {/* Tabs */}
@@ -175,96 +326,137 @@ export default function BillingSection() {
         </div>
       </div>
 
+      {notices.length > 0 && tab !== 'invoices' && <div className="space-y-2 mb-4">{notices}</div>}
+
       {/* ───────────────────────── Overview ───────────────────────── */}
       {tab === 'overview' && (
         <div className="space-y-4">
-          {/* hero */}
-          <div className="relative overflow-hidden rounded-2xl p-5 sm:p-6 text-white" style={{ background: 'linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)' }}>
-            <div className="absolute -right-16 -top-16 w-64 h-64 rounded-full opacity-30 blur-3xl" style={{ background: current.color }}/>
-            <div className="relative flex flex-col sm:flex-row sm:items-end justify-between gap-5">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Current plan</p>
-                <div className="flex items-center gap-2.5 mt-1">
-                  <h3 className="text-2xl font-extrabold tracking-tight">{current.name}</h3>
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/15">{pooled ? 'Yearly' : 'Monthly'}</span>
-                </div>
-                <p className="mt-2 text-sm text-white/80">
-                  <span className="text-lg font-bold text-white">{inr(price)}</span> / {pooled ? 'year' : 'month'} <span className="text-white/50">+ GST</span>
-                  {pooled && <span className="text-white/50"> · ≈ {inr(planMath(current).yearlyPerMonth)} / mo</span>}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setTab('plans')} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white text-slate-900 text-xs font-bold hover:bg-slate-100 transition-colors">
-                  Change plan <ArrowUpRight size={13}/>
-                </button>
-                <button onClick={() => setTab('invoices')} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/10 text-white text-xs font-semibold hover:bg-white/20 transition-colors">
-                  Invoices
+          {!live ? (
+            <div className="relative overflow-hidden rounded-2xl p-6 text-white" style={{ background: 'linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)' }}>
+              <div className="absolute -right-16 -top-16 w-64 h-64 rounded-full opacity-30 blur-3xl bg-violet-500"/>
+              <div className="relative">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">{hasSub ? 'Your plan has ended' : 'Current plan'}</p>
+                <h3 className="text-2xl font-extrabold tracking-tight mt-1">{hasSub ? `${sub.planName} ended` : 'Free'}</h3>
+                <p className="text-sm text-white/70 mt-1.5 max-w-md">Choose a plan to unlock bots, broadcasts, live agents and more. Pay with autopay or just once — your call.</p>
+                <button onClick={() => setTab('plans')} className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white text-slate-900 text-xs font-bold hover:bg-slate-100 transition-colors">
+                  Choose a plan <ArrowUpRight size={13}/>
                 </button>
               </div>
             </div>
-            <div className="relative mt-5">
-              <div className="flex items-center justify-between text-[11px] text-white/70 mb-1.5">
-                <span className="flex items-center gap-1.5"><CalendarDays size={12}/> {fmtDate(SUBSCRIPTION.start)} → {fmtDate(SUBSCRIPTION.renews)}</span>
-                <span className="font-semibold text-white">{daysLeft} days until renewal</span>
-              </div>
-              <div className="h-1.5 rounded-full bg-white/15 overflow-hidden"><div className="h-full rounded-full bg-white/80" style={{ width: `${termPct}%` }}/></div>
-            </div>
-          </div>
-
-          {/* usage snapshot */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-[13px] font-bold text-slate-900">Usage snapshot</h3>
-              <button onClick={() => setTab('usage')} className="text-[11px] font-semibold text-primary hover:underline">View details</button>
-            </div>
-            <div className={clsx('grid grid-cols-1 sm:grid-cols-2 gap-3', web ? 'xl:grid-cols-3' : 'xl:grid-cols-4')}>
-              {meters.map(m => {
-                const Icon = m.icon
-                return (
-                  <div key={m.key} className="rounded-2xl border border-surface-border bg-white p-4 flex items-center gap-3.5">
-                    <Ring pct={m.unlimited ? 0 : m.pct} color={m.color}>{m.unlimited ? '∞' : `${m.pct}%`}</Ring>
-                    <div className="min-w-0">
-                      <p className="text-[11px] text-slate-500 flex items-center gap-1.5"><Icon size={12} style={{ color: m.color }}/> <span className="truncate">{m.label}</span></p>
-                      <p className="text-base font-bold text-slate-900 tabular-nums mt-0.5">{m.used}</p>
-                      <p className="text-[10.5px] text-slate-400">of {m.of}</p>
-                    </div>
+          ) : (
+            <div className="relative overflow-hidden rounded-2xl p-5 sm:p-6 text-white" style={{ background: 'linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)' }}>
+              <div className="absolute -right-16 -top-16 w-64 h-64 rounded-full opacity-30 blur-3xl" style={{ background: current.color }}/>
+              <div className="relative flex flex-col sm:flex-row sm:items-end justify-between gap-5">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Current plan</p>
+                  <div className="flex items-center gap-2.5 mt-1 flex-wrap">
+                    <h3 className="text-2xl font-extrabold tracking-tight">{current.name}</h3>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/15">{pooled ? 'Yearly' : 'Monthly'}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/15">{sub.mode === 'autopay' ? (sub.autopay.on ? 'Autopay' : 'Autopay off') : 'Paid once'}</span>
                   </div>
-                )
-              })}
-            </div>
-            {pooled && !web && (
-              <p className="flex items-start gap-1.5 text-[11px] text-slate-500 mt-2.5">
-                <Info size={12} className="flex-shrink-0 mt-0.5 text-slate-400"/>
-                Your yearly allowance is one pool — there's no monthly limit. Use it at any pace until {fmtDate(SUBSCRIPTION.renews)}.
-              </p>
-            )}
-          </div>
-
-          {/* upgrade nudge + details */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
-            {curIdx < PLANS.length - 1 && (
-              <div className="lg:col-span-3 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-5 flex items-start gap-3.5">
-                <span className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0"><Sparkles size={16} className="text-violet-600"/></span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-bold text-slate-900">Add ChatGPT to your bot</p>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                    {PLANS[curIdx + 1].name} includes everything in {current.name}, plus {curIdx + 1 === 3 ? 'built-in ChatGPT, and the highest message allowances.' : 'more platforms and allowances.'}
+                  <p className="mt-2 text-sm text-white/80">
+                    <span className="text-lg font-bold text-white">{inr(pooled ? current.yearly : current.monthly)}</span> / {pooled ? 'year' : 'month'} <span className="text-white/50">+ GST</span>
+                    <span className="text-white/50"> · {money(sub.charge.total)} incl. {sub.charge.gstPercent}% GST</span>
                   </p>
-                  <button onClick={() => { setView(CURRENT_BILLING); setTab('plans') }} className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-violet-700 hover:underline">
-                    Compare plans <ArrowUpRight size={12}/>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setTab('plans')} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white text-slate-900 text-xs font-bold hover:bg-slate-100 transition-colors">
+                    Change plan <ArrowUpRight size={13}/>
                   </button>
+                  <button onClick={() => setTab('invoices')} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/10 text-white text-xs font-semibold hover:bg-white/20 transition-colors">Invoices</button>
                 </div>
               </div>
-            )}
-            <Card title="Payment method" className={curIdx < PLANS.length - 1 ? 'lg:col-span-2' : 'lg:col-span-5'}>
-              <div className="flex items-center gap-3">
-                <span className="w-11 h-8 rounded-md bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center flex-shrink-0"><CreditCard size={15} className="text-white"/></span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-slate-800">Visa •••• 4242</p>
-                  <p className="text-[10.5px] text-slate-400">Expires 08 / 28</p>
+              <div className="relative mt-5">
+                <div className="flex items-center justify-between text-[11px] text-white/70 mb-1.5">
+                  <span className="flex items-center gap-1.5"><CalendarDays size={12}/> {fmtSec(sub.currentStart)} → {fmtSec(sub.currentEnd)}</span>
+                  <span className="font-semibold text-white">{sub.currentEnd ? `${daysUntil(sub.currentEnd)} days ${sub.endsAt ? 'left' : 'until renewal'}` : '—'}</span>
                 </div>
-                <button className="text-[11px] font-semibold text-primary hover:underline">Update</button>
+                <div className="h-1.5 rounded-full bg-white/15 overflow-hidden"><div className="h-full rounded-full bg-white/80" style={{ width: `${termPct}%` }}/></div>
               </div>
+            </div>
+          )}
+
+          {live && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-[13px] font-bold text-slate-900">Usage snapshot</h3>
+                <button onClick={() => setTab('usage')} className="text-[11px] font-semibold text-primary hover:underline">View details</button>
+              </div>
+              <div className={clsx('grid grid-cols-1 sm:grid-cols-2 gap-3', web ? 'xl:grid-cols-3' : 'xl:grid-cols-4')}>
+                {meters.map(m => {
+                  const Icon = m.icon
+                  return (
+                    <div key={m.key} className="rounded-2xl border border-surface-border bg-white p-4 flex items-center gap-3.5">
+                      <Ring pct={m.unlimited ? 0 : m.pct} color={m.color}>{m.unlimited ? '∞' : `${m.pct}%`}</Ring>
+                      <div className="min-w-0">
+                        <p className="text-[11px] text-slate-500 flex items-center gap-1.5"><Icon size={12} style={{ color: m.color }}/> <span className="truncate">{m.label}</span></p>
+                        <p className="text-base font-bold text-slate-900 tabular-nums mt-0.5">{m.used}</p>
+                        <p className="text-[10.5px] text-slate-400">of {m.of}</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              {pooled && !web && (
+                <p className="flex items-start gap-1.5 text-[11px] text-slate-500 mt-2.5">
+                  <Info size={12} className="flex-shrink-0 mt-0.5 text-slate-400"/>
+                  Your yearly allowance is one pool — there's no monthly limit. Use it at any pace until {fmtSec(sub.currentEnd)}.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {/* Autopay */}
+            <Card title="Autopay"
+              action={hasSub && <span className={clsx('text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full', live && sub.autopay.on ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500')}>{live && sub.autopay.on ? 'On' : 'Off'}</span>}>
+              {live && sub.autopay.on ? (
+                <div className="space-y-3">
+                  <div className="rounded-xl bg-slate-50 border border-slate-100 px-4 py-3">
+                    <p className="text-[10.5px] text-slate-400">Next charge</p>
+                    <p className="text-sm font-bold text-slate-900 mt-0.5">{money(sub.charge.total)} <span className="text-xs font-medium text-slate-500">on {fmtSec(sub.nextChargeAt)}</span></p>
+                  </div>
+                  {sub.autopay.requiresApproval && (
+                    <p className="flex items-start gap-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 leading-relaxed">
+                      <AlertCircle size={12} className="flex-shrink-0 mt-0.5"/>
+                      Renewals above {money(sub.autopay.approvalLimit)} need your approval each time. Your bank sends a link about a day before — approve it and the plan renews.
+                    </p>
+                  )}
+                  <button onClick={() => { setDlgError(null); setDialog({ kind: 'autopay-off' }) }} className="text-xs font-semibold text-red-600 hover:underline">Turn off autopay</button>
+                </div>
+              ) : live ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    {sub.upcoming ? `Autopay for ${sub.upcoming.planName} starts on ${fmtSec(sub.upcoming.startsAt)}.`
+                      : sub.mode === 'once' ? 'You paid once for this period, so nothing renews automatically.'
+                      : 'Autopay is off, so nothing renews automatically.'}
+                  </p>
+                  {!sub.upcoming && configured && (
+                    <button onClick={() => { setPayMode('autopay'); openAction({ open: { kind: 'new', plan: sub.plan, period: sub.period, mode: 'autopay', startAtCycleEnd: true } }) }}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary-hover transition-colors">
+                      <Repeat size={12}/> Turn on autopay
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">Autopay starts when you subscribe. You can turn it off any time.</p>
+              )}
+            </Card>
+
+            {/* Payment method */}
+            <Card title="Payment method">
+              {methodLabel ? (
+                <div className="flex items-center gap-3">
+                  <span className="w-11 h-8 rounded-md bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center flex-shrink-0"><CreditCard size={15} className="text-white"/></span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-slate-800">{methodLabel}</p>
+                    <p className="text-[10.5px] text-slate-400">{sub.mode === 'autopay' ? 'Used for renewals' : 'Used for your last payment'}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">No payment method yet — it's saved securely by Razorpay when you pay.</p>
+              )}
+              <p className="text-[10.5px] text-slate-400 mt-3 leading-relaxed">Card details never touch our servers. To use a different card, turn off autopay and set it up again.</p>
             </Card>
           </div>
         </div>
@@ -273,17 +465,23 @@ export default function BillingSection() {
       {/* ───────────────────────── Plans ───────────────────────── */}
       {tab === 'plans' && (
         <div className="space-y-5">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <BillingSwitch value={view} onChange={setView}/>
-            <p className="text-[11px] text-slate-400">All prices are in ₹ and exclusive of GST.</p>
+          <div className="flex flex-col items-center gap-3 text-center">
+            <div className="flex items-center justify-center gap-3 flex-wrap">
+              <BillingSwitch value={view} onChange={setView}/>
+              <Segmented value={payMode} onChange={setPayMode} options={[['autopay', 'Autopay'], ['once', 'Pay once']]}/>
+            </div>
+            <p className="text-[11px] text-slate-400 max-w-md">
+              {payMode === 'autopay' ? 'Authorise once and your plan renews automatically. Cancel any time.' : 'One payment for one period. It won’t renew on its own.'} Prices exclude GST — it's added at checkout.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 pt-2">
             {PLANS.map((plan, i) => {
               const m = planMath(plan)
               const y = view === 'yearly'
-              const isCurrent = i === curIdx && view === CURRENT_BILLING
-              const sameTier = i === curIdx
+              const price = config?.prices?.[plan.id]?.[view]
+              const sameTier = live && sub.plan === plan.id
+              const act = actionFor(plan, i, view)
               return (
                 <div key={plan.id} className={clsx('relative rounded-2xl bg-white flex flex-col border-2 transition-shadow', sameTier ? 'shadow-md' : 'hover:shadow-md')}
                   style={{ borderColor: sameTier ? plan.color : '#e2e8f0' }}>
@@ -304,11 +502,12 @@ export default function BillingSection() {
                         ? <span className="inline-block text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-1.5 py-0.5">Save {inr(m.saves)} ({m.savesPct}%)</span>
                         : <span className="text-[11px] font-semibold text-emerald-600">Save {m.savesPct}% with yearly</span>}
                     </div>
-                    <button disabled={isCurrent}
+                    {price && <p className="text-[10.5px] text-slate-400 mt-1">{money(price.total)} incl. {price.gstPercent}% GST</p>}
+                    <button disabled={act.disabled} onClick={() => openAction(act)}
                       className={clsx('w-full mt-3 py-2 rounded-lg text-xs font-bold transition-colors',
-                        isCurrent ? 'bg-slate-100 text-slate-400 cursor-default' : 'text-white hover:opacity-90')}
-                      style={isCurrent ? undefined : { background: plan.color }}>
-                      {isCurrent ? 'Your current plan' : sameTier ? `Switch to ${view}` : i > curIdx ? `Upgrade to ${plan.name}` : `Switch to ${plan.name}`}
+                        act.disabled ? 'bg-slate-100 text-slate-400 cursor-default' : 'text-white hover:opacity-90')}
+                      style={act.disabled ? undefined : { background: plan.color }}>
+                      {act.label}
                     </button>
                   </div>
                   <div className="border-t border-slate-100 p-5 pt-4 flex-1 space-y-2">
@@ -331,6 +530,8 @@ export default function BillingSection() {
             <ul className="space-y-2.5">
               <li className="flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed"><Info size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
                 <span><b>How limits are credited:</b> monthly plans get the monthly allowance every month. Yearly plans get all 12 months' allowance credited once, upfront, as one pool — there is no monthly cap.</span></li>
+              <li className="flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed"><Info size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
+                <span><b>Autopay and bigger renewals:</b> card and UPI rules require your approval for any automatic debit above ₹15,000. That includes every yearly plan — your bank sends an approval link before each renewal.</span></li>
               {!web && <li className="flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed"><Info size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
                 <span><b>Meta charges:</b> on WhatsApp service (UI) and BI messages the customer must add a payment card in Meta Business Manager. Meta's per-message charges apply on top of the plan price.</span></li>}
               <li className="flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed"><Info size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
@@ -346,8 +547,8 @@ export default function BillingSection() {
                   <tr className="border-b border-slate-200">
                     <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider w-[28%]">Feature</th>
                     {PLANS.map((p, i) => (
-                      <th key={p.id} className={clsx('px-3 py-3 text-center text-[11px] font-bold uppercase tracking-wider', i === curIdx && 'bg-slate-50')} style={{ color: p.color }}>
-                        {p.name}{i === curIdx && <span className="block text-[9px] font-semibold text-slate-400 normal-case tracking-normal">Current</span>}
+                      <th key={p.id} className={clsx('px-3 py-3 text-center text-[11px] font-bold uppercase tracking-wider', live && i === curIdx && 'bg-slate-50')} style={{ color: p.color }}>
+                        {p.name}{live && i === curIdx && <span className="block text-[9px] font-semibold text-slate-400 normal-case tracking-normal">Current</span>}
                       </th>
                     ))}
                   </tr>
@@ -361,7 +562,7 @@ export default function BillingSection() {
                           <td className="px-4 py-2.5 text-xs font-medium text-slate-700">
                             {r.label}{r.note && <span className="block text-[10px] font-normal text-slate-400">{r.note}</span>}
                           </td>
-                          {r.v.map((v, i) => <td key={i} className={clsx('px-3 py-2.5 text-center text-xs', i === curIdx && 'bg-slate-50/70')}><FeatureCell v={v} yearly={view === 'yearly'}/></td>)}
+                          {r.v.map((v, i) => <td key={i} className={clsx('px-3 py-2.5 text-center text-xs', live && i === curIdx && 'bg-slate-50/70')}><FeatureCell v={v} yearly={view === 'yearly'}/></td>)}
                         </tr>
                       ))}
                     </Fragment>
@@ -374,7 +575,9 @@ export default function BillingSection() {
       )}
 
       {/* ───────────────────────── Usage ───────────────────────── */}
-      {tab === 'usage' && (
+      {tab === 'usage' && (!hasSub ? (
+        <Card><p className="text-xs text-slate-500">Usage shows up once you're on a plan. <button onClick={() => setTab('plans')} className="font-semibold text-primary hover:underline">Choose a plan</button></p></Card>
+      ) : (
         <div className="space-y-4">
           {!web ? (
             <>
@@ -418,7 +621,7 @@ export default function BillingSection() {
                   </div>
                   <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 flex-wrap gap-1">
                     <span>{num(svcUsed)} used so far</span>
-                    <span>{num(svcAllowance - svcUsed)} remaining until {fmtDate(SUBSCRIPTION.renews)}</span>
+                    <span>{num(svcAllowance - svcUsed)} remaining until {fmtSec(sub.currentEnd)}</span>
                   </div>
                 </Card>
               )}
@@ -447,7 +650,7 @@ export default function BillingSection() {
             })}
           </div>
         </div>
-      )}
+      ))}
 
       {/* ───────────────────────── Add-ons ───────────────────────── */}
       {tab === 'addons' && (
@@ -460,7 +663,7 @@ export default function BillingSection() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               {featureAddons.map(a => {
                 const onPlans = a.on.split(', ')
-                const needed = onPlans.includes(current.name)
+                const needed = !current || onPlans.includes(current.name)
                 const key = 'f:' + a.name
                 return (
                   <div key={a.name} className="rounded-2xl border border-surface-border bg-white p-4 flex flex-col">
@@ -497,7 +700,7 @@ export default function BillingSection() {
             {!usageEligible && (
               <div className="flex items-start gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200 mb-2">
                 <Lock size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
-                <p className="text-xs text-slate-500">Usage add-ons are available on Pro and AI plans. <button onClick={() => setTab('plans')} className="font-semibold text-primary hover:underline">Upgrade</button> to buy extra capacity.</p>
+                <p className="text-xs text-slate-500">Usage add-ons are available on Pro and AI plans. <button onClick={() => setTab('plans')} className="font-semibold text-primary hover:underline">{live ? 'Upgrade' : 'Choose a plan'}</button> to buy extra capacity.</p>
               </div>
             )}
             <div className="rounded-2xl border border-surface-border bg-white overflow-hidden">
@@ -527,14 +730,16 @@ export default function BillingSection() {
       {tab === 'invoices' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Card title="Payment method" action={<button className="text-[11px] font-semibold text-primary hover:underline">Update</button>}>
-              <div className="flex items-center gap-3">
-                <span className="w-11 h-8 rounded-md bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center flex-shrink-0"><CreditCard size={15} className="text-white"/></span>
-                <div>
-                  <p className="text-xs font-semibold text-slate-800">Visa •••• 4242</p>
-                  <p className="text-[10.5px] text-slate-400">Expires 08 / 28 · used for renewals</p>
+            <Card title="Payment method">
+              {methodLabel ? (
+                <div className="flex items-center gap-3">
+                  <span className="w-11 h-8 rounded-md bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center flex-shrink-0"><CreditCard size={15} className="text-white"/></span>
+                  <div>
+                    <p className="text-xs font-semibold text-slate-800">{methodLabel}</p>
+                    <p className="text-[10.5px] text-slate-400">{sub.mode === 'autopay' ? 'Used for renewals' : 'Used for your last payment'}</p>
+                  </div>
                 </div>
-              </div>
+              ) : <p className="text-xs text-slate-500">No payment method yet.</p>}
             </Card>
             <Card title="Billing details" action={<button className="text-[11px] font-semibold text-primary hover:underline">Edit</button>}>
               <div className="flex items-start gap-3">
@@ -548,7 +753,7 @@ export default function BillingSection() {
             </Card>
           </div>
 
-          <Card title="Invoice history" desc="Amounts exclude GST, which is shown on each invoice">
+          <Card title="Payment history" desc="Amounts include GST">
             <div className="-mx-5 -mb-5 overflow-x-auto">
               <table className="w-full min-w-[560px]">
                 <thead>
@@ -557,15 +762,22 @@ export default function BillingSection() {
                   </tr>
                 </thead>
                 <tbody>
-                  {INVOICES.map(inv => (
+                  {invoices === null && <tr><td colSpan={6} className="px-5 py-8 text-center text-xs text-slate-400"><Loader2 size={14} className="animate-spin inline mr-1.5"/>Loading…</td></tr>}
+                  {invoices?.length === 0 && <tr><td colSpan={6} className="px-5 py-10 text-center text-xs text-slate-400">No payments yet. They'll appear here after your first charge.</td></tr>}
+                  {invoices?.map(inv => (
                     <tr key={inv.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-5 py-3 text-xs font-mono font-semibold text-slate-800">{inv.id}</td>
-                      <td className="px-5 py-3 text-xs text-slate-500">{inv.date}</td>
-                      <td className="px-5 py-3 text-xs text-slate-600">{inv.desc}</td>
-                      <td className="px-5 py-3 text-xs font-bold text-slate-900 tabular-nums">{inr(inv.amount)}</td>
-                      <td className="px-5 py-3"><span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">{inv.status}</span></td>
+                      <td className="px-5 py-3 text-xs font-mono font-semibold text-slate-800 max-w-[160px] truncate">{inv.number}</td>
+                      <td className="px-5 py-3 text-xs text-slate-500 whitespace-nowrap">{fmtSec(inv.date)}</td>
+                      <td className="px-5 py-3 text-xs text-slate-600">{inv.description}</td>
+                      <td className="px-5 py-3 text-xs font-bold text-slate-900 tabular-nums whitespace-nowrap">{money(inv.amountPaise / 100)}</td>
+                      <td className="px-5 py-3">
+                        <span className={clsx('text-[10px] font-bold rounded-full px-2 py-0.5 border capitalize',
+                          inv.status === 'paid' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : inv.status === 'failed' || inv.status === 'expired' ? 'text-red-700 bg-red-50 border-red-200' : 'text-amber-700 bg-amber-50 border-amber-200')}>{inv.status}</span>
+                      </td>
                       <td className="px-5 py-3 text-right">
-                        <button className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 border border-surface-border rounded-lg px-2.5 py-1.5 hover:bg-surface-hover transition-colors"><Download size={11}/> PDF</button>
+                        {inv.url
+                          ? <a href={inv.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 border border-surface-border rounded-lg px-2.5 py-1.5 hover:bg-surface-hover transition-colors"><ExternalLink size={11}/> View</a>
+                          : <span className="inline-flex items-center gap-1 text-[11px] text-slate-300"><Download size={11}/> —</span>}
                       </td>
                     </tr>
                   ))}
@@ -573,6 +785,18 @@ export default function BillingSection() {
               </table>
             </div>
           </Card>
+        </div>
+      )}
+
+      <PaymentDialog dialog={dialog} config={config} sub={sub} busy={busy} error={dlgError}
+        onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
+        onPayOnceInstead={() => { setPayMode('once'); setDlgError(null); setDialog(d => ({ ...d, mode: 'once', startAtCycleEnd: false })) }}
+        onStartAtRenewal={() => { setDlgError(null); setDialog(d => ({ kind: 'new', plan: d.plan, period: d.period, mode: 'autopay', startAtCycleEnd: true })) }}/>
+
+      {toast && (
+        <div className={clsx('fixed bottom-5 left-1/2 -translate-x-1/2 z-[80] flex items-center gap-2 px-4 py-2.5 rounded-xl text-white text-xs font-semibold shadow-xl animate-fade-in max-w-[90vw]',
+          toast.tone === 'error' ? 'bg-red-600' : 'bg-slate-900')}>
+          {toast.tone === 'error' ? <AlertCircle size={14}/> : <CheckCircle2 size={14} className={toast.tone === 'ok' ? 'text-emerald-400' : 'text-sky-300'}/>} {toast.text}
         </div>
       )}
     </div>

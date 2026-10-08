@@ -92,6 +92,12 @@ export function AuthProvider({ children }) {
     setCurrentUser(null)
   }
 
+  /* The plan shown in the sidebar/top bar and used for gating. Billing is the
+     source of truth, so it pushes the plan name here after it loads or changes. */
+  function setWorkspacePlan(plan) {
+    setCurrentUser(u => (!u || u.workspace?.plan === plan ? u : { ...u, workspace: { ...u.workspace, plan } }))
+  }
+
   return (
     <AuthContext.Provider value={{
       currentUser,
@@ -101,6 +107,7 @@ export function AuthProvider({ children }) {
       login,
       loginAs,
       logout,
+      setWorkspacePlan,
     }}>
       {children}
     </AuthContext.Provider>

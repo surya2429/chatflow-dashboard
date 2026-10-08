@@ -34,3 +34,6 @@ logs/
 # Project snapshots — git already versions this tree; a 90MB zip of it
 # would sit in history permanently for every future clone.
 /claude.zip
+
+# Local dev billing state (Razorpay subscription ids etc.)
+.dev-billing.json

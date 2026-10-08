@@ -1,8 +1,13 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+// The SAME billing code the production API runs (backend/src/billing), backed by a
+// JSON file instead of Postgres so payments can be tried without any infrastructure.
+import { createBillingService } from './backend/src/billing/service.ts'
+import { createRazorpay } from './backend/src/billing/razorpay.ts'
+import { createFileBillingStore } from './backend/src/billing/fileStore.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -187,12 +192,63 @@ function devBotsApi() {
   }
 }
 
-export default defineConfig({
+/**
+ * Dev-only stand-in for backend/src/routes/billing.routes.ts — same service, same
+ * endpoints under /api/billing. Razorpay keys come from .env.local (gitignored) and
+ * are read here, in the dev server's Node process: they never reach the browser.
+ */
+function devBillingApi(env) {
+  const keyId = env.RAZORPAY_KEY_ID || undefined
+  const keySecret = env.RAZORPAY_KEY_SECRET || undefined
+  const billing = createBillingService({
+    store: createFileBillingStore(join(__dirname, '.dev-billing.json')),
+    razorpay: keyId && keySecret ? createRazorpay({ keyId, keySecret }) : undefined,
+    keyId,
+    webhookSecret: env.RAZORPAY_WEBHOOK_SECRET || undefined,
+    gstPercent: Number(env.BILLING_GST_PERCENT) || 18,
+  })
+  return {
+    name: 'dev-billing-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url?.startsWith('/api/billing')) return next()
+        const chunks = []
+        req.on('data', (c) => chunks.push(c))
+        req.on('end', async () => {
+          const rawBody = Buffer.concat(chunks)
+          let body = {}
+          try { body = rawBody.length ? JSON.parse(rawBody.toString('utf8')) : {} } catch { /* leave empty */ }
+          try {
+            const result = await billing.handle({
+              method: req.method || 'GET',
+              path: req.url.split('?')[0].replace(/^\/api\/billing/, '') || '/',
+              body,
+              rawBody,
+              headers: { 'x-razorpay-signature': req.headers['x-razorpay-signature'] },
+              workspaceId: String(req.headers['x-workspace-id'] || 'default'),
+            })
+            res.statusCode = result.status
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(result.body))
+          } catch (err) {
+            console.error('[billing]', err)
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'internal_server_error' }))
+          }
+        })
+      })
+    },
+  }
+}
+
+export default defineConfig(({ mode }) => ({
   root: __dirname,
-  plugins: [react(), devBotsApi()],
+  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, ''))],
   // Vite's default bind on this machine only listens on [::1], so anything that
   // resolves `localhost` to 127.0.0.1 — most browsers, curl, the in-app preview
   // pane — cannot connect and the page just never loads. `host: true` binds
   // every interface, IPv4 included.
   server: { host: true },
-})
+}))

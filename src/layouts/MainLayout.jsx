@@ -4,10 +4,18 @@ import clsx from 'clsx'
 import Sidebar from './Sidebar'
 import { useApp } from '../context/AppContext'
 import { useEffect } from 'react'
+import { useAuth } from '../context/AuthContext'
+import { refreshSubscription, useSubscription, planLabel } from '../lib/subscriptionStore'
 
 export default function MainLayout() {
   const { mobileMenuOpen, toggleMobileMenu, closeMobileMenu, activeProductId } = useApp()
   const { pathname } = useLocation()
+  const { currentUser, setWorkspacePlan } = useAuth()
+  const { sub } = useSubscription()
+
+  // Billing owns the plan: load it once signed in, then mirror it into the UI chrome.
+  useEffect(() => { if (currentUser) refreshSubscription() }, [currentUser?.email])
+  useEffect(() => { if (sub) setWorkspacePlan(planLabel(sub)) }, [sub])
 
   // Close mobile menu on route change
   useEffect(() => { closeMobileMenu() }, [pathname])

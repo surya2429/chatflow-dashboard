@@ -6,6 +6,8 @@ import {
   Phone, Inbox, Search, ArrowUpDown,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useSubscription, isLive } from '../lib/subscriptionStore'
+import { PLANS, getPlan, money } from '../constants/pricing'
 import Select from '../components/Select'
 import clsx from 'clsx'
 
@@ -240,6 +242,12 @@ function AddBotModal({ onClose, onAdd }) {
 export default function Home() {
   const navigate = useNavigate()
   const { bots, setActiveBotId, addBot, updateBotStatus } = useApp()
+  const { sub } = useSubscription()
+  const live = isLive(sub)
+  const plan = live ? getPlan(sub.planName) : null
+  const pool = plan ? plan.serviceMsgs * (sub.period === 'yearly' ? 12 : 1) : 0
+  const used = 6240
+  const usedPct = pool ? (used / pool) * 100 : 0
   const [showModal, setShowModal] = useState(false)
 
   function openBot(bot, route = '/dashboard') {
@@ -297,25 +305,35 @@ export default function Home() {
         <div className="card p-4 flex items-center justify-between">
           <div>
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">Current Plan</p>
-            <p className="text-sm font-bold text-slate-900">Pro</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Yearly · renews Jan 1, 2027</p>
+            <p className="text-sm font-bold text-slate-900">{live ? sub.planName : 'Free'}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              {live
+                ? `${sub.period === 'yearly' ? 'Yearly' : 'Monthly'} · ${sub.endsAt ? 'ends' : 'renews'} ${new Date((sub.endsAt || sub.nextChargeAt || sub.currentEnd) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                : 'No active subscription'}
+            </p>
           </div>
-          <button className="btn-primary text-[10px] px-2.5 py-1">Upgrade</button>
+          <button onClick={() => navigate('/settings')} className="btn-primary text-[10px] px-2.5 py-1">{live ? 'Manage' : 'Choose a plan'}</button>
         </div>
 
         {/* Conversation Credits */}
         <div className="card p-4">
           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-1">WhatsApp Message Credits</p>
-          <div className="flex items-end justify-between">
-            <div>
-              <p className="text-sm font-bold text-slate-900">6,240 <span className="text-[10px] font-normal text-slate-400">/ 1,200,000</span></p>
-              <p className="text-[10px] text-slate-400 mt-0.5">Used from your yearly pool · no monthly cap</p>
-            </div>
-            <span className="text-[10px] font-semibold text-emerald-600">&lt;1%</span>
-          </div>
-          <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full bg-primary rounded-full" style={{ width: '1%' }}/>
-          </div>
+          {live ? (
+            <>
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-sm font-bold text-slate-900">{used.toLocaleString('en-US')} <span className="text-[10px] font-normal text-slate-400">/ {pool.toLocaleString('en-US')}</span></p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{sub.period === 'yearly' ? 'Used from your yearly pool · no monthly cap' : 'Messages used this month'}</p>
+                </div>
+                <span className="text-[10px] font-semibold text-emerald-600">{usedPct < 1 ? '<1' : Math.round(usedPct)}%</span>
+              </div>
+              <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-primary rounded-full" style={{ width: `${Math.max(1, usedPct)}%` }}/>
+              </div>
+            </>
+          ) : (
+            <p className="text-[11px] text-slate-400 mt-1">Message credits come with a plan. {money(PLANS[0].monthly)}/mo + GST and up.</p>
+          )}
         </div>
 
         {/* Active Bots */}
