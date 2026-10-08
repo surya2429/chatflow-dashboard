@@ -509,8 +509,10 @@ async function main() {
   const invPage = String((await callT('GET', `/invoices/${(s1.latestInvoice as RzEntity).id}/view`, undefined, 'wt')).body)
   check('shows the supplier: legal name, product, CIN, GSTIN, address', ['Feso Social Media Private Limited', 'SMATBOT', 'U22222TG2015PTC100809', '36AACCF6679F1ZD', 'Ashoka Hitech Chambers', 'Banjara Hills', 'Telangana'].every((x) => invPage.includes(x)))
   check('shows contact details', invPage.includes('sales@smatbot.com') && invPage.includes('accounts@bytequark.com') && invPage.includes('+91 9205308991'))
-  check('shows the logo and the no-refund note', invPage.includes('<img class="logo" src="data:image/svg+xml;base64,') && invPage.includes('We do not have any refund policy.'))
-  check('line item has plan description, allowances, quantity and rate', invPage.includes('Flow-based bot with the full feature set') && invPage.includes('WhatsApp service messages: 1,00,000 per month') && invPage.includes('1 month') && invPage.includes('₹6,500.00'))
+  check('shows the SmatBot logo', invPage.includes('<img class="logo" src="data:image/png;base64,'))
+  check('notes say no refunds, Meta charges are the client pays, and the plan allowance', invPage.includes('we do not have any refund policy') && invPage.includes('Meta charges are separate') && invPage.includes('must be paid by the client') && invPage.includes('1,00,000 WhatsApp service messages'))
+  check('line item: plan, start and end date, qty and rate — no long description', invPage.includes('Plan start date') && invPage.includes('Plan end date') && invPage.includes('1 month') && invPage.includes('₹6,500.00') && !invPage.includes('Flow-based bot with the full feature set'))
+  check('contact details sit in the footer, not the supplier box', invPage.lastIndexOf('sales@smatbot.com') > invPage.indexOf('class="foot') && invPage.indexOf('sales@smatbot.com') === invPage.lastIndexOf('sales@smatbot.com'))
 
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed')
   process.exit(failures ? 1 : 0)

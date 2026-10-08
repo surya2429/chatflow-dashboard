@@ -67,15 +67,12 @@ export interface BuildInvoiceInput {
 
 const num = (n: number) => n.toLocaleString('en-IN')
 
-/* The plan's own description and allowances, so the invoice says what was bought. */
-export function planDetails(plan: PlanId, period: Period): string[] {
+/* What the plan's message allowance is — printed as a note, specific to this invoice. */
+export function allowanceNote(plan: PlanId, period: Period): string {
   const p = PLAN_CATALOG[plan]
   const k = period === 'yearly' ? 12 : 1
-  const when = period === 'yearly' ? 'for the year, credited upfront' : 'per month'
-  return [
-    p.desc,
-    `WhatsApp service messages: ${num(p.serviceMsgs * k)} ${when}; BI messages: ${num(p.biMsgs * k)} ${when} (Meta charges extra, as applicable). Website and Instagram messages: unlimited.`,
-  ]
+  const when = period === 'yearly' ? 'for the year, credited upfront as one pool' : 'per month'
+  return `Included in the ${p.name} plan: ${num(p.serviceMsgs * k)} WhatsApp service messages and ${num(p.biMsgs * k)} WhatsApp BI messages ${when}; Website and Instagram messages are unlimited.`
 }
 
 export function buildInvoice(i: BuildInvoiceInput): Invoice {
@@ -101,7 +98,6 @@ export function buildInvoice(i: BuildInvoiceInput): Invoice {
     periodStart: i.periodStart,
     periodEnd: i.periodEnd,
     description: `SmatBot ${PLAN_CATALOG[i.plan].name} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription`,
-    details: planDetails(i.plan, i.period),
     qty: 1,
     rate: c.base,
     sac: i.seller.sac,
@@ -139,6 +135,7 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   const emails = seller?.emails ?? []
   const notes = seller?.notes ?? []
   const contact = [emails.length ? `Email: ${emails.map(esc).join(' or ')}` : '', seller?.phone ? `Phone: ${esc(seller.phone)}` : ''].filter(Boolean).join(' &nbsp;·&nbsp; ')
+  const allNotes = [...notes, allowanceNote(inv.plan, inv.period)]
   const taxRows = inv.taxKind === 'intra'
     ? `<tr><td>CGST @ ${half}%</td><td class="r">${inr(inv.cgst)}</td></tr><tr><td>SGST @ ${half}%</td><td class="r">${inr(inv.sgst)}</td></tr>`
     : `<tr><td>IGST @ ${inv.gstPercent}%</td><td class="r">${inr(inv.igst)}</td></tr>`
@@ -157,7 +154,7 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   table{width:100%;border-collapse:collapse;margin-top:8px}th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#64748b;text-align:left;padding:8px 0;border-bottom:1px solid #e2e8f0}
   td{padding:9px 0;border-bottom:1px solid #f1f5f9;vertical-align:top}.r{text-align:right;white-space:nowrap}
   .totals{margin-left:auto;width:min(340px,100%);margin-top:12px}.totals td{border:0;padding:4px 0}.grand td{border-top:2px solid #0f172a;font-weight:800;font-size:16px;padding-top:10px}
-  .logo{display:block;height:48px;width:auto;margin:0 0 14px}.notes{margin-top:22px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px}.notes ul{margin:4px 0 0;padding-left:18px}
+  .logo{display:block;height:48px;width:auto;margin:0 0 14px}.notes{margin-top:22px;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px}.notes ol{margin:4px 0 0;padding-left:18px}.notes li{margin-bottom:3px}
   .foot{margin-top:28px;padding-top:16px;border-top:1px solid #e2e8f0}.actions{max-width:820px;margin:0 auto 12px;display:flex;justify-content:flex-end}
   button{font:inherit;font-weight:600;padding:8px 16px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;cursor:pointer}button:hover{background:#f8fafc}
   @media print{body{background:#fff;padding:0}.sheet{border:0;border-radius:0;padding:0}.actions{display:none}}
@@ -171,22 +168,23 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   </div>
   <div class="grid">
     <div class="box"><h3>Supplier</h3><b>${esc(s.name)}</b>${s.brand ? `<br>Product: <b>${esc(s.brand)}</b>` : ''}<br>${esc(s.address).replace(/\n/g, '<br>')}<br>
-      ${s.cin ? `CIN: ${esc(s.cin)}<br>` : ''}${s.gstin ? `GSTIN: ${esc(s.gstin)}<br>` : ''}State: ${esc(stateName(s.stateCode))} (${esc(s.stateCode)})${contact ? `<div class="small muted" style="margin-top:4px">${contact}</div>` : ''}</div>
+      ${s.cin ? `CIN: ${esc(s.cin)}<br>` : ''}${s.gstin ? `GSTIN: ${esc(s.gstin)}<br>` : ''}State: ${esc(stateName(s.stateCode))} (${esc(s.stateCode)})</div>
     <div class="box"><h3>Billed to</h3><b>${esc(b.legalName)}</b><br>${addr}<br>${b.gstin ? `GSTIN: ${esc(b.gstin)}<br>` : 'GSTIN: Unregistered<br>'}
       ${esc(b.email)} · +91 ${esc(b.phone)}<br><span class="small muted">Place of supply: ${esc(stateName(inv.placeOfSupplyCode))} (${esc(inv.placeOfSupplyCode)})</span></div>
   </div>
   <div class="items"><table class="lines">
     <thead><tr><th>#</th><th>Description</th><th class="n">SAC</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Taxable value</th></tr></thead>
-    <tbody><tr><td>1</td><td><b>${esc(inv.description)}</b>${(inv.details ?? []).map((d) => `<div class="small muted">${esc(d)}</div>`).join('')}<div class="small muted">Service period: ${day(inv.periodStart)} – ${day(inv.periodEnd)}</div></td><td class="n">${esc(inv.sac)}</td><td class="r">${qty} ${unit}</td><td class="r">${inr(rate)}</td><td class="r">${inr(inv.taxable)}</td></tr></tbody>
+    <tbody><tr><td>1</td><td><b>${esc(inv.description)}</b><div class="small muted" style="margin-top:4px">Plan start date: <b>${day(inv.periodStart)}</b></div><div class="small muted">Plan end date: <b>${day(inv.periodEnd)}</b></div></td><td class="n">${esc(inv.sac)}</td><td class="r">${qty} ${unit}</td><td class="r">${inr(rate)}</td><td class="r">${inr(inv.taxable)}</td></tr></tbody>
   </table></div>
   <table class="totals"><tbody>
     <tr><td>Taxable value</td><td class="r">${inr(inv.taxable)}</td></tr>${taxRows}
     <tr class="grand"><td>Total (incl. GST)</td><td class="r">${inr(inv.total)}</td></tr>
   </tbody></table>
-  ${notes.length ? `<div class="notes small"><b>Notes</b><ul>${notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
+  <div class="notes small"><b>Notes</b><ol>${allNotes.map((n) => `<li>${esc(n)}</li>`).join('')}</ol></div>
   <div class="foot small muted">
     Paid by ${esc(methodText(inv.method))} via Razorpay. This is a computer-generated invoice and needs no signature.<br>
     ${inv.kind === 'dunning_recovery' ? 'Issued for a renewal collected after an earlier failed attempt.' : inv.kind === 'renewal' ? 'Automatic renewal.' : ''}
+    ${contact ? `<div style="margin-top:10px"><b>Questions about this invoice?</b> ${contact}</div>` : ''}
   </div>
 </div>
 </body></html>`

@@ -91,7 +91,12 @@ export function createBillingService(opts: BillingServiceOptions) {
     emails: ['sales@smatbot.com', 'accounts@bytequark.com'],
     phone: '+91 9205308991',
     logo: DEFAULT_LOGO,
-    notes: ['We do not have any refund policy.'],
+    notes: [
+      'No refunds: we do not have any refund policy, so fees paid for a plan are non-refundable.',
+      'Meta charges are separate: WhatsApp messaging charges levied by Meta are not included in the plan price. They are charged by Meta and must be paid by the client.',
+      'Add-ons and usage beyond the plan allowance are billed separately.',
+      'The total above includes GST. Please quote the invoice number in any billing correspondence.',
+    ],
     ...opts.seller,
   }
 
