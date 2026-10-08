@@ -101,7 +101,7 @@ export default function PaymentDialog({
                 <>
                   {profile && kind === 'new' && (
                     <div className="rounded-xl border border-surface-border px-4 py-3 flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 [overflow-wrap:anywhere]">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Billed to</p>
                         <p className="text-xs font-semibold text-slate-800 mt-0.5">{profile.legalName}</p>
                         <p className="text-[11px] text-slate-500 leading-snug">{addressLine(profile, states)}</p>

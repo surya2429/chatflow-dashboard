@@ -513,7 +513,7 @@ export default function BillingSection() {
 
           <div className="flex items-start gap-3 rounded-xl border border-surface-border bg-slate-50/60 px-4 py-3">
             <Building2 size={15} className="text-slate-400 flex-shrink-0 mt-0.5"/>
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 [overflow-wrap:anywhere]">
               {profile ? (
                 <>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Billing to</p>
@@ -801,7 +801,7 @@ export default function BillingSection() {
               {profile ? (
                 <div className="flex items-start gap-3">
                   <span className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0"><Building2 size={16} className="text-slate-500"/></span>
-                  <div className="min-w-0">
+                  <div className="min-w-0 [overflow-wrap:anywhere]">
                     <p className="text-xs font-semibold text-slate-800">{profile.legalName}</p>
                     <p className="text-[10.5px] text-slate-500 leading-snug">{addressLine(profile, config?.states)}</p>
                     <p className="text-[10.5px] text-slate-400 mt-1">{profile.contactName} · {profile.email} · +91 {profile.phone}</p>
