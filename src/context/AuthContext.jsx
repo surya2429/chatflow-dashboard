@@ -25,11 +25,13 @@ export const DEMO_USERS = [
     roleLabel:'Admin',
     name:     'Deepak Kumar',
     email:    'admin@acmecorp.com',
+    phone:    '9876543210',
     password: 'admin123',
     initials: 'DK',
     color:    '#0066ff',
     desc:     'Full platform access — manage bots, analytics, billing & team',
-    workspace:{ name: 'Acme Corp', plan: 'Pro' },
+    // Where the business is based — used to pre-fill billing details (street and PIN are still asked).
+    workspace:{ name: 'Acme Corp', plan: 'Pro', city: 'Mumbai', stateCode: '27' },
     creditBalance: 4250,
   },
   {

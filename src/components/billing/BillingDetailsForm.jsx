@@ -10,13 +10,13 @@ import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { Loader2, ShieldCheck, Info, CheckCircle2 } from 'lucide-react'
 import { stateNameOf } from './billingFormat'
-import { toForm, toProfile, validateDetails, gstinError, SERVER_FIELD } from '../../lib/indiaValidation'
+import { toForm, toProfile, validateDetails, gstinError, SERVER_FIELD, EMPTY_DETAILS } from '../../lib/indiaValidation'
 
 function Field({ label, error, hint, optional, children, className }) {
   return (
     <div className={className}>
       <label className="flex items-baseline justify-between mb-1">
-        <span className="text-[11px] font-semibold text-slate-600">{label}{optional && <span className="font-normal text-slate-400"> · optional</span>}</span>
+        <span className="text-[11px] font-semibold text-slate-600">{label}{optional ? <span className="font-normal text-slate-400"> · optional</span> : <span className="text-red-500" title="Required"> *</span>}</span>
       </label>
       {children}
       {error ? <p className="text-[10.5px] text-red-600 mt-1 leading-snug">{error}</p> : hint ? <p className="text-[10.5px] text-slate-400 mt-1 leading-snug">{hint}</p> : null}
@@ -26,13 +26,19 @@ function Field({ label, error, hint, optional, children, className }) {
 
 const inputCls = (bad) => clsx('input w-full text-xs', bad && '!border-red-300 !ring-red-100')
 
-export default function BillingDetailsForm({ initial, states, onSubmit, onCancel, submitLabel = 'Save details', busy }) {
-  const [v, setV] = useState(() => toForm(initial))
+/* `initial` is a saved profile. `defaults` is what we already know from the account
+   (flat form shape) and is used only while nothing has been saved. */
+const FIELD_LABELS = { legalName: 'business name', contactName: 'contact name', email: 'email', phone: 'mobile', city: 'city', stateCode: 'state' }
+
+export default function BillingDetailsForm({ initial, defaults, states, onSubmit, onCancel, submitLabel = 'Save details', busy }) {
+  const start = () => (initial ? toForm(initial) : { ...EMPTY_DETAILS, ...Object.fromEntries(Object.entries(defaults || {}).filter(([, x]) => x)) })
+  const [v, setV] = useState(start)
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState(null)
-  useEffect(() => { setV(toForm(initial)) }, [initial])
+  useEffect(() => { setV(start()) }, [initial]) // eslint-disable-line react-hooks/exhaustive-deps
+  const prefilled = !initial ? Object.keys(FIELD_LABELS).filter((k) => defaults?.[k]) : []
 
   const set = (k, val) => {
     setV((p) => {
@@ -75,6 +81,14 @@ export default function BillingDetailsForm({ initial, states, onSubmit, onCancel
 
   return (
     <form onSubmit={submit} noValidate className="space-y-5">
+      {prefilled.length > 0 && (
+        <div className="flex items-start gap-2 p-3 rounded-xl bg-sky-50 border border-sky-200">
+          <Info size={13} className="text-sky-600 flex-shrink-0 mt-0.5"/>
+          <p className="text-[11px] text-sky-900 leading-relaxed">
+            We've filled in what we already know from your account — <b>{prefilled.map((k) => FIELD_LABELS[k]).join(', ')}</b>. Check it, change anything that's different for billing, and add your street address and PIN.
+          </p>
+        </div>
+      )}
       <section className="space-y-3">
         <h4 className="text-xs font-bold text-slate-800">Who's paying</h4>
         <Field label="Business or full name" error={err('legalName')} hint="Exactly as it should appear on your GST invoice.">
@@ -140,6 +154,8 @@ export default function BillingDetailsForm({ initial, states, onSubmit, onCancel
           <p className="flex items-center gap-1.5 text-[11px] text-emerald-700"><CheckCircle2 size={12}/> Valid GSTIN · registered in {regState}</p>
         )}
       </section>
+
+      <p className="text-[10.5px] text-slate-400"><span className="text-red-500">*</span> Required — your email and mobile number are needed to send payment notices and bank approval codes.</p>
 
       <div className="flex items-start gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
         <ShieldCheck size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>

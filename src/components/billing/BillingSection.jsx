@@ -146,6 +146,15 @@ export default function BillingSection() {
   const [invoices, setInvoices] = useState(null)
   const [requested, setRequested] = useState({})
   const [editingDetails, setEditingDetails] = useState(false)
+  // What we already know about this customer from their account — used to pre-fill the form.
+  const accountDefaults = {
+    legalName: currentUser?.workspace?.name,
+    contactName: currentUser?.name,
+    email: currentUser?.email,
+    phone: currentUser?.phone,
+    city: currentUser?.workspace?.city,
+    stateCode: currentUser?.workspace?.stateCode,
+  }
   const [quote, setQuote] = useState(null)
   const mounted = useRef(true)
   // Re-arm on every mount: React's dev double-mount runs the cleanup once before the real mount.
@@ -502,6 +511,26 @@ export default function BillingSection() {
             </p>
           </div>
 
+          <div className="flex items-start gap-3 rounded-xl border border-surface-border bg-slate-50/60 px-4 py-3">
+            <Building2 size={15} className="text-slate-400 flex-shrink-0 mt-0.5"/>
+            <div className="flex-1 min-w-0">
+              {profile ? (
+                <>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Billing to</p>
+                  <p className="text-xs font-semibold text-slate-800 mt-0.5">{profile.legalName}</p>
+                  <p className="text-[11px] text-slate-500 leading-snug">{addressLine(profile, config?.states)}</p>
+                  <p className="text-[11px] text-slate-400">{profile.email} · +91 {profile.phone}{profile.gstin ? ' · GSTIN ' + profile.gstin : ''}</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs font-semibold text-slate-800">Add your billing details</p>
+                  <p className="text-[11px] text-slate-500 leading-snug">We'll pre-fill what we know from your account. Needed for your GST invoice and payment notices.</p>
+                </>
+              )}
+            </div>
+            <button onClick={() => setEditingDetails(true)} className="text-[11px] font-semibold text-primary hover:underline flex-shrink-0">{profile ? 'Edit' : 'Add details'}</button>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 pt-2">
             {PLANS.map((plan, i) => {
               const m = planMath(plan)
@@ -830,14 +859,14 @@ export default function BillingSection() {
               <button onClick={() => setEditingDetails(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={15}/></button>
             </div>
             <div className="px-5 pb-5">
-              <BillingDetailsForm initial={profile} states={config?.states} onCancel={() => setEditingDetails(false)}
+              <BillingDetailsForm initial={profile} defaults={accountDefaults} states={config?.states} onCancel={() => setEditingDetails(false)}
                 onSubmit={async (values) => { await saveProfile(values); setEditingDetails(false); flash('Billing details saved.') }}/>
             </div>
           </div>
         </div>
       )}
 
-      <PaymentDialog dialog={dialog} config={config} sub={sub} profile={profile} quote={quote} busy={busy} error={dlgError}
+      <PaymentDialog dialog={dialog} config={config} sub={sub} profile={profile} defaults={accountDefaults} quote={quote} busy={busy} error={dlgError}
         onSaveProfile={saveProfile} onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
         onPayOnceInstead={() => { setPayMode('once'); setDlgError(null); setDialog(d => ({ ...d, mode: 'once', startAtCycleEnd: false })) }}
         onStartAtRenewal={() => { setDlgError(null); setDialog(d => ({ kind: 'new', plan: d.plan, period: d.period, mode: 'autopay', startAtCycleEnd: true })) }}/>

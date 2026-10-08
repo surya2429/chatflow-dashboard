@@ -42,7 +42,7 @@ function TaxRows({ charge }) {
 }
 
 export default function PaymentDialog({
-  dialog, config, sub, profile, quote, busy, error,
+  dialog, config, sub, profile, defaults, quote, busy, error,
   onSaveProfile, onConfirm, onClose, onPayOnceInstead, onStartAtRenewal,
 }) {
   const { kind, plan, period, mode, startAtCycleEnd, upgrade } = dialog || {}
@@ -63,7 +63,7 @@ export default function PaymentDialog({
   const isAutopayNew = kind === 'new' && mode === 'autopay'
 
   let title, cta, tone = 'primary'
-  if (step === 'details') { title = 'Billing details'; cta = '' }
+  if (step === 'details') { title = profile ? 'Edit billing details' : 'Billing details'; cta = '' }
   else if (kind === 'autopay-off') { title = 'Turn off autopay?'; cta = 'Turn off autopay'; tone = 'danger' }
   else if (kind === 'change') { title = `${upgrade ? 'Upgrade' : 'Switch'} to ${p.name}`; cta = upgrade ? 'Upgrade now' : 'Schedule change' }
   else if (startAtCycleEnd) { title = `Continue ${p.name} with autopay`; cta = 'Authorise autopay' }
@@ -78,7 +78,7 @@ export default function PaymentDialog({
           <div>
             <h3 className="text-[15px] font-bold text-slate-900">{title}</h3>
             {step === 'details'
-              ? <p className="text-xs text-slate-400 mt-0.5">Step 1 of 2 · needed for your GST invoice and payment notices</p>
+              ? <p className="text-xs text-slate-400 mt-0.5">{needsDetails ? 'Step 1 of 2 · ' : ''}needed for your GST invoice and payment notices</p>
               : kind !== 'autopay-off' && p && <p className="text-xs text-slate-400 mt-0.5">{needsDetails ? 'Step 2 of 2 · ' : ''}{p.name} · billed {period}</p>}
           </div>
           <button onClick={onClose} disabled={busy} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 disabled:opacity-40"><X size={15}/></button>
@@ -86,7 +86,7 @@ export default function PaymentDialog({
 
         {step === 'details' ? (
           <div className="px-5 pb-5">
-            <BillingDetailsForm initial={profile} states={states} submitLabel="Save & continue" onCancel={onClose}
+            <BillingDetailsForm initial={profile} defaults={defaults} states={states} submitLabel={profile ? 'Save changes' : 'Save & continue'} onCancel={profile ? () => setStep('review') : onClose}
               onSubmit={async (values) => { await onSaveProfile(values); setStep('review') }}/>
           </div>
         ) : (
@@ -105,7 +105,8 @@ export default function PaymentDialog({
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Billed to</p>
                         <p className="text-xs font-semibold text-slate-800 mt-0.5">{profile.legalName}</p>
                         <p className="text-[11px] text-slate-500 leading-snug">{addressLine(profile, states)}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">{profile.gstin ? `GSTIN ${profile.gstin}` : 'No GSTIN'} · {profile.email}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{profile.email} · +91 {profile.phone}</p>
+                        <p className="text-[11px] text-slate-400">{profile.gstin ? `GSTIN ${profile.gstin}` : 'No GSTIN'}</p>
                       </div>
                       <button onClick={() => setStep('details')} disabled={busy} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline flex-shrink-0"><Pencil size={11}/> Edit</button>
                     </div>
