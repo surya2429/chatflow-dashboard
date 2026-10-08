@@ -35,7 +35,8 @@ export function useSubscription() {
 }
 
 /* Statuses that mean "the customer currently has the plan". */
-const LIVE = new Set(['active', 'authenticated', 'pending'])
+/* past_due = a renewal failed and we are still collecting: the plan keeps working meanwhile. */
+const LIVE = new Set(['active', 'authenticated', 'pending', 'past_due'])
 export const isLive = (sub) => !!sub && LIVE.has(sub.status)
 
 /* The plan name to show in the UI chrome. */

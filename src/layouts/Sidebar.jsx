@@ -134,7 +134,9 @@ export default function Sidebar({ onNavClick }) {
   const usedPct = pool ? Math.max(1, Math.round((DEMO_USAGE.svcUsed / pool) * 100)) : 0
   const fmtSec = (sec) => new Date(sec * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   let planNote = { tone: 'text-slate-500', text: 'No active plan — pick one to unlock bots, broadcasts and live agents.' }
-  if (sub?.status === 'halted') planNote = { tone: 'text-red-600', text: 'Autopay payment failed — your plan is paused.' }
+  if (sub?.status === 'past_due') planNote = { tone: 'text-red-600', text: `Payment failed — attempt ${sub.dunning?.attempt ?? 1} of ${sub.dunning?.maxAttempts ?? 4}` }
+  else if (sub?.status === 'suspended') planNote = { tone: 'text-red-600', text: 'Plan suspended — renewal payment not received.' }
+  else if (sub?.status === 'halted') planNote = { tone: 'text-red-600', text: 'Autopay payment failed — your plan is paused.' }
   else if (sub?.status === 'pending') planNote = { tone: 'text-amber-600', text: 'A renewal is waiting for your approval.' }
   else if (live && sub.endsAt) planNote = { tone: 'text-amber-600', text: `Ends ${fmtSec(sub.endsAt)}${sub.mode === 'once' ? ' · paid once' : ' · autopay off'}` }
   else if (live) planNote = { tone: 'text-slate-500', text: `Renews ${fmtSec(sub.nextChargeAt || sub.currentEnd)} · ${money(sub.charge.total)}${sub.autopay.on ? ' · Autopay on' : ''}` }

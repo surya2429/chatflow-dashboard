@@ -160,6 +160,12 @@ export default function BillingSection() {
   // Re-arm on every mount: React's dev double-mount runs the cleanup once before the real mount.
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   useEffect(() => { refreshSubscription() }, [])
+  // Coming back from a payment link (or a bank app) in another tab: pick up what changed.
+  useEffect(() => {
+    const onFocus = () => refreshSubscription()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
 
   const hasSub = !!sub && sub.status !== 'none'
   const live = isLive(sub)
@@ -219,7 +225,8 @@ export default function BillingSection() {
       const result = await billing.verify(response)
       setSubscription(result)
       setDialog(null)
-      flash(d.startAtCycleEnd ? 'Autopay authorised — it starts when your current plan ends.' : d.mode === 'autopay' ? 'Autopay is set up. Welcome aboard!' : 'Payment received — your plan is active.')
+      const invoiceNote = !d.startAtCycleEnd && result.latestInvoice ? ` Invoice ${result.latestInvoice.number} is ready under Invoices.` : ''
+      flash((d.startAtCycleEnd ? 'Autopay authorised — it starts when your current plan ends.' : d.mode === 'autopay' ? 'Autopay is set up. Welcome aboard!' : 'Payment received — your plan is active.') + invoiceNote)
       if (['authenticated', 'created'].includes(result.status)) waitUntilActive()
     } catch (e) {
       if (e.code === 'dismissed') flash('Checkout closed — nothing was charged.', 'info')
@@ -311,6 +318,26 @@ export default function BillingSection() {
   if (loadError) notices.push(<Notice key="err" tone="warn" icon={AlertCircle} action={<button onClick={refreshSubscription} className="inline-flex items-center gap-1 font-semibold underline"><RefreshCw size={11}/> Retry</button>}>{loadError.message}</Notice>)
   else if (!loading && config && config.configured === false) notices.push(<Notice key="cfg" tone="warn" icon={AlertCircle}>Payments aren't switched on yet — the Razorpay keys are missing on the server. Plans are shown for reference.</Notice>)
   if (sub?.stale) notices.push(<Notice key="stale" tone="warn" icon={AlertCircle}>Couldn't reach Razorpay just now, so this may be slightly out of date.</Notice>)
+  if (sub?.status === 'past_due' && sub.dunning) {
+    const dn = sub.dunning
+    notices.push(
+      <Notice key="dun" tone="error" icon={AlertCircle}
+        action={dn.payUrl && <a href={dn.payUrl} target="_blank" rel="noreferrer" className="font-bold underline whitespace-nowrap">Pay now</a>}>
+        <b>Payment failed.</b> We couldn't collect your {money(dn.amountPaise / 100)} renewal (attempt {dn.attempt} of {dn.maxAttempts}).{' '}
+        {dn.nextAttemptAt ? <>We'll ask again on <b>{fmtSec(dn.nextAttemptAt)}</b>. </> : 'That was the last reminder. '}
+        Your plan keeps working until <b>{fmtSec(dn.deadline)}</b>; pay before then to avoid suspension.
+      </Notice>)
+  }
+  if (sub?.status === 'suspended') notices.push(
+    <Notice key="susp" tone="error" icon={AlertCircle}
+      action={configured && <button onClick={() => setTab('plans')} className="font-bold underline whitespace-nowrap">Choose a plan</button>}>
+      <b>Your plan is suspended.</b> We couldn't collect the renewal within {sub.dunning?.maxAttempts ?? 4} attempts over 9 days. Pick a plan to restore access.
+    </Notice>)
+  if (live && sub.autopay?.lapsed) notices.push(
+    <Notice key="lapsed" tone="warn" icon={Repeat}
+      action={configured && !sub.upcoming && <button onClick={() => { setPayMode('autopay'); openAction({ open: { kind: 'new', plan: sub.plan, period: sub.period, mode: 'autopay', startAtCycleEnd: true } }) }} className="font-bold underline whitespace-nowrap">Turn on autopay</button>}>
+      Autopay stopped after the failed payments. You've paid manually through <b>{fmtSec(sub.currentEnd)}</b> — turn autopay on again to renew automatically.
+    </Notice>)
   if (sub?.status === 'halted') notices.push(<Notice key="halt" tone="error" icon={AlertCircle}>Your last autopay charge failed and Razorpay has stopped retrying. Subscribe again from the Plans tab to restore your plan.</Notice>)
   if (sub?.status === 'pending') notices.push(<Notice key="pend" tone="warn" icon={AlertCircle}>A renewal charge is waiting for your approval. Approve it in the link your bank sent, or retry from your banking app.</Notice>)
   if (sub?.status === 'authenticated') notices.push(<Notice key="auth" tone="info" icon={Loader2}>Autopay is authorised. Your plan will show as active in a moment…</Notice>)
@@ -333,11 +360,12 @@ export default function BillingSection() {
         {loading ? (
           <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 bg-slate-100 rounded-full px-2.5 py-1"><Loader2 size={11} className="animate-spin"/> Loading…</span>
         ) : live ? (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"/> {sub.planName} · {sub.period === 'yearly' ? 'Yearly' : 'Monthly'} · {sub.autopay.on ? 'Autopay on' : 'Active'}
+          <span className={clsx('inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2.5 py-1 border',
+            sub.status === 'past_due' ? 'text-red-700 bg-red-50 border-red-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200')}>
+            <span className={clsx('w-1.5 h-1.5 rounded-full', sub.status === 'past_due' ? 'bg-red-500' : 'bg-emerald-500')}/> {sub.planName} · {sub.period === 'yearly' ? 'Yearly' : 'Monthly'} · {sub.status === 'past_due' ? 'Payment due' : sub.autopay.on ? 'Autopay on' : 'Active'}
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-full px-2.5 py-1">{hasSub ? 'Plan ended' : 'No active plan'}</span>
+          <span className={clsx('inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-full px-2.5 py-1 border', sub?.status === 'suspended' ? 'text-red-700 bg-red-50 border-red-200' : 'text-slate-600 bg-slate-100 border-slate-200')}>{sub?.status === 'suspended' ? 'Plan suspended' : hasSub ? 'Plan ended' : 'No active plan'}</span>
         )}
       </div>
 
@@ -440,8 +468,35 @@ export default function BillingSection() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {/* Autopay */}
             <Card title="Autopay"
-              action={hasSub && <span className={clsx('text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full', live && sub.autopay.on ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500')}>{live && sub.autopay.on ? 'On' : 'Off'}</span>}>
-              {live && sub.autopay.on ? (
+              action={hasSub && <span className={clsx('text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full', sub.status === 'past_due' ? 'bg-red-50 text-red-700' : live && sub.autopay.on ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500')}>{sub.status === 'past_due' ? 'Past due' : live && sub.autopay.on ? 'On' : 'Off'}</span>}>
+              {sub?.status === 'past_due' && sub.dunning ? (
+                <div className="space-y-3">
+                  <div className="rounded-xl bg-red-50/60 border border-red-100 px-4 py-3">
+                    <p className="text-[10.5px] text-red-700/80">Amount due</p>
+                    <p className="text-sm font-bold text-slate-900 mt-0.5">{money(sub.dunning.amountPaise / 100)} <span className="text-xs font-medium text-slate-500">· pay by {fmtSec(sub.dunning.deadline)}</span></p>
+                  </div>
+                  <ol className="space-y-1.5">
+                    {sub.dunning.attempts.map(a => (
+                      <li key={a.n} className="flex items-start gap-2 text-[11px]">
+                        <span className={clsx('w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 mt-0.5',
+                          a.result === 'failed' || a.result === 'send_failed' ? 'bg-red-100 text-red-700' : a.result === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-sky-100 text-sky-700')}>{a.n}</span>
+                        <span className="text-slate-600 leading-snug"><b className="text-slate-800">{fmtSec(a.at)}</b> · {a.kind === 'charge' ? 'Automatic debit failed' : a.result === 'send_failed' ? "Couldn't send the reminder" : a.result === 'expired' ? 'Reminder sent (replaced by a newer one)' : 'Reminder sent by email & SMS'}</span>
+                      </li>
+                    ))}
+                    {sub.dunning.nextAttemptAt && (
+                      <li className="flex items-start gap-2 text-[11px] text-slate-400">
+                        <span className="w-4 h-4 rounded-full border border-dashed border-slate-300 flex-shrink-0 mt-0.5"/>
+                        <span>Next reminder <b className="text-slate-500">{fmtSec(sub.dunning.nextAttemptAt)}</b> (attempt {sub.dunning.attempt + 1} of {sub.dunning.maxAttempts})</span>
+                      </li>
+                    )}
+                  </ol>
+                  <div className="flex items-center gap-3">
+                    {sub.dunning.payUrl && <a href={sub.dunning.payUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary-hover transition-colors"><ExternalLink size={12}/> Pay now</a>}
+                    <button onClick={refreshSubscription} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800"><RefreshCw size={11}/> I've paid — refresh</button>
+                  </div>
+                  <p className="text-[10.5px] text-slate-400 leading-relaxed">Your bank may also retry the card automatically. If any attempt succeeds, this clears by itself.</p>
+                </div>
+              ) : live && sub.autopay.on ? (
                 <div className="space-y-3">
                   <div className="rounded-xl bg-slate-50 border border-slate-100 px-4 py-3">
                     <p className="text-[10.5px] text-slate-400">Next charge</p>
@@ -839,7 +894,7 @@ export default function BillingSection() {
                       </td>
                       <td className="px-5 py-3 text-right">
                         {inv.url
-                          ? <a href={inv.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 border border-surface-border rounded-lg px-2.5 py-1.5 hover:bg-surface-hover transition-colors"><ExternalLink size={11}/> View</a>
+                          ? <a href={inv.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 border border-surface-border rounded-lg px-2.5 py-1.5 hover:bg-surface-hover transition-colors"><ExternalLink size={11}/> Invoice</a>
                           : <span className="inline-flex items-center gap-1 text-[11px] text-slate-300"><Download size={11}/> —</span>}
                       </td>
                     </tr>

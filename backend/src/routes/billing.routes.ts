@@ -20,7 +20,15 @@ const billing = createBillingService({
   webhookSecret: env.RAZORPAY_WEBHOOK_SECRET,
   gstPercent: env.BILLING_GST_PERCENT,
   supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE,
+  seller: {
+    name: env.BILLING_SELLER_NAME, address: env.BILLING_SELLER_ADDRESS, gstin: env.BILLING_SELLER_GSTIN,
+    sac: env.BILLING_SAC_CODE, prefix: env.BILLING_INVOICE_PREFIX,
+  },
 })
+
+/* Failed renewals are collected on a schedule (see billing/dunning.ts): this timer is what
+   sends each reminder and suspends a plan when the window closes. Safe to run often. */
+setInterval(() => { billing.runDue().catch((err) => logger.error({ err }, 'billing dunning run failed')) }, 5 * 60 * 1000).unref()
 
 /* Until requests carry an authenticated client, one workspace stands in for it —
    same assumption bots.routes.ts and instagram.routes.ts make. */
@@ -38,7 +46,8 @@ billingRouter.all('/billing/*', async (req, res) => {
       ip: req.ip,
       userAgent: req.header('user-agent'),
     })
-    res.status(result.status).json(result.body)
+    if (result.contentType) res.status(result.status).type(result.contentType).send(result.body as string)
+    else res.status(result.status).json(result.body)
   } catch (err) {
     logger.error({ err, path: req.path }, 'billing request failed')
     res.status(500).json({ error: 'internal_server_error' })

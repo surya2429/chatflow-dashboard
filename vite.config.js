@@ -207,11 +207,23 @@ function devBillingApi(env) {
     webhookSecret: env.RAZORPAY_WEBHOOK_SECRET || undefined,
     gstPercent: Number(env.BILLING_GST_PERCENT) || 18,
     supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE || '27',
+    seller: {
+      ...(env.BILLING_SELLER_NAME && { name: env.BILLING_SELLER_NAME }),
+      ...(env.BILLING_SELLER_ADDRESS && { address: env.BILLING_SELLER_ADDRESS }),
+      ...(env.BILLING_SELLER_GSTIN && { gstin: env.BILLING_SELLER_GSTIN }),
+      ...(env.BILLING_SAC_CODE && { sac: env.BILLING_SAC_CODE }),
+      ...(env.BILLING_INVOICE_PREFIX && { prefix: env.BILLING_INVOICE_PREFIX }),
+    },
   })
   return {
     name: 'dev-billing-api',
     apply: 'serve',
     configureServer(server) {
+      // Failed renewals are collected on a schedule: this is what sends each reminder and
+      // suspends a plan when the window closes (the API does the same on its own timer).
+      const timer = setInterval(() => { billing.runDue().catch((e) => console.error('[billing] dunning run failed', e)) }, 60_000)
+      timer.unref?.()
+      server.httpServer?.on('close', () => clearInterval(timer))
       server.middlewares.use((req, res, next) => {
         if (!req.url?.startsWith('/api/billing')) return next()
         const chunks = []
@@ -232,8 +244,8 @@ function devBillingApi(env) {
               userAgent: req.headers['user-agent'],
             })
             res.statusCode = result.status
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify(result.body))
+            res.setHeader('Content-Type', result.contentType || 'application/json')
+            res.end(result.contentType ? result.body : JSON.stringify(result.body))
           } catch (err) {
             console.error('[billing]', err)
             res.statusCode = 500

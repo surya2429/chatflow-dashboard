@@ -53,6 +53,13 @@ const EnvSchema = z.object({
   // GST state code of the state we are registered in (27 = Maharashtra). Customers in the
   // same state are charged CGST + SGST; everyone else IGST. Same total either way.
   BILLING_SUPPLIER_STATE_CODE: z.string().regex(/^\d{2}$/).default('27'),
+  // Printed on every GST invoice. Set these to your registered business details and confirm
+  // the SAC code with your CA — the defaults are placeholders.
+  BILLING_SELLER_NAME: z.string().min(1).default('SmatBot'),
+  BILLING_SELLER_ADDRESS: z.string().min(1).default('Registered address — set BILLING_SELLER_ADDRESS'),
+  BILLING_SELLER_GSTIN: z.string().optional(),
+  BILLING_SAC_CODE: z.string().regex(/^\d{4,8}$/).default('998314'),
+  BILLING_INVOICE_PREFIX: z.string().regex(/^[A-Z0-9]{1,6}$/).default('SB'),
 })
 
 export type Env = z.infer<typeof EnvSchema>
