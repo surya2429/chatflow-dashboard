@@ -140,3 +140,6 @@ export const SUBSCRIPTION = { start: '2026-01-01', renews: '2027-01-01' }
 
 /* ₹ amount that keeps paise when there are any (GST makes ₹1,768.82, not ₹1,769). */
 export const money = (n) => '₹' + Number(n).toLocaleString('en-US', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })
+
+/* Demo usage figures — one place so Billing, Home and the profile menu agree. */
+export const DEMO_USAGE = { svcUsed: 23481, biUsed: 1204 }

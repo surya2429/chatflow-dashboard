@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, MessageSquare, Users, Radio, Workflow,
@@ -11,6 +12,8 @@ import {
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { PRODUCT_NAV_ITEMS, COMMON_NAV_ITEMS, HOME_NAV_ITEM, PRODUCT_HIDDEN_COMMON_IDS } from '../constants/navigation'
+import { useSubscription, isLive } from '../lib/subscriptionStore'
+import { getPlan, num, money, DEMO_USAGE } from '../constants/pricing'
 import clsx from 'clsx'
 
 const ICON_MAP = {
@@ -27,6 +30,22 @@ const BADGE_COLORS = {
   pink:   'bg-pink-50 text-pink-600',
 }
 
+/* Availability. Only an ONLINE agent is offered new conversations. */
+const PRESENCE = {
+  online:  { label: 'Online',  dot: 'bg-emerald-400', hint: 'New conversations can be assigned to you.' },
+  away:    { label: 'Away',    dot: 'bg-amber-400',   hint: "You stay signed in but won't be offered new conversations." },
+  offline: { label: 'Offline', dot: 'bg-slate-300',   hint: "You won't be offered conversations or alerts." },
+}
+
+/* Account links open the matching Settings section. */
+const ACCOUNT_LINKS = [
+  { icon: User,       label: 'Profile',            section: 'general' },
+  { icon: Building2,  label: 'Workspace Settings', section: 'general' },
+  { icon: CreditCard, label: 'Billing & Plan',     section: 'billing' },
+  { icon: Key,        label: 'API Keys',           section: 'api'     },
+  { icon: UserPlus,   label: 'Team Members',       section: 'team'    },
+]
+
 const STATUS_COLOR = {
   active:       { dot: 'bg-emerald-400', label: 'Active'       },
   paused:       { dot: 'bg-amber-400',   label: 'Paused'       },
@@ -39,11 +58,14 @@ export default function Sidebar({ onNavClick }) {
     notifications, unreadCount, markAllRead, closeMobileMenu,
     products, activeProduct, activeProductId, setActiveProductId,
   } = useApp()
-  const { canAccessNavId, logout, currentUser } = useAuth()
+  const { canAccessNavId, logout, currentUser, presence, setPresence } = useAuth()
+  const { sub } = useSubscription()
   const [showBotPicker, setShowBotPicker] = useState(false)
   const [showProfile,   setShowProfile]   = useState(false)
   const [profileView,   setProfileView]   = useState('menu') // 'menu' | 'notifications'
   const profileRef  = useRef(null)
+  const popupRef    = useRef(null)
+  const [popPos, setPopPos] = useState({ left: 8, bottom: 8 })
   const navigate   = useNavigate()
 
   const hiddenCommonIds = PRODUCT_HIDDEN_COMMON_IDS[activeProductId] || []
@@ -58,13 +80,16 @@ export default function Sidebar({ onNavClick }) {
 
   useEffect(() => {
     function h(e) {
-      if (profileRef.current && !profileRef.current.contains(e.target)) {
+      if (profileRef.current && !profileRef.current.contains(e.target) && !popupRef.current?.contains(e.target)) {
         setShowProfile(false)
         setProfileView('menu')
       }
     }
+    // The popup is positioned from the button, so a resize would leave it stranded.
+    const close = () => { setShowProfile(false); setProfileView('menu') }
     document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
+    window.addEventListener('resize', close)
+    return () => { document.removeEventListener('mousedown', h); window.removeEventListener('resize', close) }
   }, [])
 
   function switchBot(id) { setActiveBotId(id); setShowBotPicker(false) }
@@ -76,10 +101,41 @@ export default function Sidebar({ onNavClick }) {
     handleNavClick()
   }
 
+  /* The menu is drawn outside the sidebar (the sidebar clips anything wider than it),
+     anchored to the profile button. */
   function openProfile() {
+    if (!showProfile && profileRef.current) {
+      const r = profileRef.current.getBoundingClientRect()
+      const width = Math.min(300, window.innerWidth - 16)
+      const left = sidebarCollapsed ? r.right + 8 : r.left + 8
+      setPopPos({
+        left: Math.min(Math.max(8, left), window.innerWidth - width - 8),   // never off-screen
+        bottom: Math.max(8, sidebarCollapsed ? window.innerHeight - r.bottom : window.innerHeight - r.top + 8),
+      })
+    }
     setProfileView('menu')
     setShowProfile(p => !p)
   }
+
+  function goSettings(section) {
+    setShowProfile(false)
+    navigate(`/settings?section=${section}`)
+    handleNavClick()
+  }
+
+  /* Plan summary for the menu. */
+  const live = isLive(sub)
+  const plan = live ? getPlan(sub.planName) : null
+  const webOnly = activeProductId === 'webchat'
+  const pool = plan ? plan.serviceMsgs * (sub.period === 'yearly' ? 12 : 1) : 0
+  const usedPct = pool ? Math.max(1, Math.round((DEMO_USAGE.svcUsed / pool) * 100)) : 0
+  const fmtSec = (sec) => new Date(sec * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  let planNote = { tone: 'text-slate-500', text: 'No active plan — pick one to unlock bots, broadcasts and live agents.' }
+  if (sub?.status === 'halted') planNote = { tone: 'text-red-600', text: 'Autopay payment failed — your plan is paused.' }
+  else if (sub?.status === 'pending') planNote = { tone: 'text-amber-600', text: 'A renewal is waiting for your approval.' }
+  else if (live && sub.endsAt) planNote = { tone: 'text-amber-600', text: `Ends ${fmtSec(sub.endsAt)}${sub.mode === 'once' ? ' · paid once' : ' · autopay off'}` }
+  else if (live) planNote = { tone: 'text-slate-500', text: `Renews ${fmtSec(sub.nextChargeAt || sub.currentEnd)} · ${money(sub.charge.total)}${sub.autopay.on ? ' · Autopay on' : ''}` }
+  const dotCls = PRESENCE[presence]?.dot || PRESENCE.offline.dot
 
   return (
     <aside className={clsx(
@@ -280,6 +336,7 @@ export default function Sidebar({ onNavClick }) {
             <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-white text-[11px] font-bold">
               {user.initials}
             </div>
+            {sidebarCollapsed && <span className={clsx('absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white', dotCls)} title={PRESENCE[presence]?.label} />}
             {unreadCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-red-500 rounded-full text-white text-[8px] font-bold flex items-center justify-center border border-white">
                 {unreadCount}
@@ -293,59 +350,93 @@ export default function Sidebar({ onNavClick }) {
                 <p className="text-[11px] font-semibold text-slate-800 truncate leading-none">{user.name.split(' ')[0]}</p>
                 <p className="text-[10px] text-slate-400 leading-none mt-0.5">{user.role}</p>
               </div>
-              <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" title="Online" />
+              <div className={clsx('w-2 h-2 rounded-full flex-shrink-0', dotCls)} title={PRESENCE[presence]?.label} />
             </>
           )}
         </button>
 
-        {/* ── Profile popup ── */}
-        {showProfile && (
-          <div className={clsx(
-            'absolute bg-white border border-surface-border rounded-xl shadow-modal z-50 animate-fade-in overflow-hidden w-60',
-            sidebarCollapsed ? 'left-full bottom-0 ml-2' : 'left-0 bottom-full mb-2'
-          )}>
+        {/* ── Profile popup (portal: the sidebar would clip it) ── */}
+        {showProfile && createPortal(
+          <div ref={popupRef}
+            className={clsx('fixed z-[60] bg-white border border-surface-border rounded-xl shadow-modal animate-fade-in overflow-hidden flex flex-col', activeProductId === 'instagram' && 'theme-instagram')}
+            style={{ left: popPos.left, bottom: popPos.bottom, width: 300, maxWidth: 'calc(100vw - 16px)', maxHeight: 'calc(100vh - 16px)' }}>
 
             {/* ── VIEW: Main menu ── */}
             {profileView === 'menu' && (
-              <>
-                {/* User header */}
-                <div className="px-4 py-3 border-b border-surface-border bg-slate-50">
+              <div className="overflow-y-auto">
+                {/* User + availability */}
+                <div className="px-4 pt-3.5 pb-3 border-b border-surface-border bg-slate-50">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                      {user.initials}
+                    <div className="relative flex-shrink-0">
+                      <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold">{user.initials}</div>
+                      <span className={clsx('absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-50', dotCls)} />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="font-semibold text-slate-900 text-xs truncate">{user.name}</p>
                       <p className="text-[10px] text-slate-500 truncate">{user.email}</p>
                     </div>
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-white border border-surface-border text-slate-600 flex-shrink-0">{user.role}</span>
                   </div>
-                  <div className="flex items-center justify-between mt-2.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="badge badge-blue text-[10px]">{user.workspace?.plan} Plan</span>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">{user.role}</span>
+
+                  <div className="mt-3">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Your status</p>
+                    <div className="grid grid-cols-3 gap-1 p-1 bg-white border border-surface-border rounded-lg" role="radiogroup" aria-label="Availability">
+                      {Object.entries(PRESENCE).map(([key, p]) => (
+                        <button key={key} role="radio" aria-checked={presence === key} onClick={() => setPresence(key)}
+                          className={clsx('flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-semibold transition-colors',
+                            presence === key ? 'bg-primary-50 text-primary ring-1 ring-primary/20' : 'text-slate-500 hover:bg-surface-hover')}>
+                          <span className={clsx('w-1.5 h-1.5 rounded-full', p.dot)} /> {p.label}
+                        </button>
+                      ))}
                     </div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
-                      <CreditCard size={10} className="text-primary" />
-                      <span className="font-semibold text-slate-700">{user.creditBalance.toLocaleString()}</span>
-                      <span>credits</span>
-                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1.5 leading-snug">{PRESENCE[presence]?.hint}</p>
                   </div>
                 </div>
 
-                {/* Notifications row */}
+                {/* Plan */}
+                <div className="px-3 pt-3 pb-1">
+                  <div className="rounded-xl border border-surface-border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-800">
+                        <CreditCard size={12} className="text-primary" />
+                        {live ? sub.planName : 'Free'} plan
+                        {live && <span className="text-[10px] font-semibold text-slate-400">· {sub.period === 'yearly' ? 'Yearly' : 'Monthly'}</span>}
+                      </span>
+                      {live && !sub.endsAt && sub.status === 'active' && <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">Active</span>}
+                    </div>
+                    <p className={clsx('text-[11px] mt-1.5 leading-snug', planNote.tone)}>{planNote.text}</p>
+
+                    {live && (
+                      webOnly ? (
+                        <p className="text-[10.5px] text-slate-400 mt-2">Website messages: unlimited</p>
+                      ) : (
+                        <div className="mt-2.5">
+                          <div className="flex items-center justify-between text-[10.5px] text-slate-500 mb-1">
+                            <span>WhatsApp messages{sub.period === 'yearly' ? ' this year' : ' this month'}</span>
+                            <span className="tabular-nums font-semibold text-slate-700">{usedPct}%</span>
+                          </div>
+                          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-primary rounded-full" style={{ width: `${usedPct}%` }} /></div>
+                          <p className="text-[10px] text-slate-400 mt-1 tabular-nums">{num(DEMO_USAGE.svcUsed)} of {num(pool)} used</p>
+                        </div>
+                      )
+                    )}
+
+                    <button onClick={() => goSettings('billing')}
+                      className="mt-3 w-full flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-bold text-primary bg-primary-50 hover:bg-primary-100 transition-colors">
+                      {live ? 'Manage plan' : 'Choose a plan'} <ChevronRight size={11} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Notifications + help */}
                 <div className="p-1.5 border-b border-surface-border">
-                  <button
-                    onClick={() => setProfileView('notifications')}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover transition-colors text-left"
-                  >
+                  <button onClick={() => setProfileView('notifications')}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover transition-colors text-left">
                     <Bell size={13} className="text-slate-400 flex-shrink-0" />
                     <span className="flex-1 text-xs text-slate-600">Notifications</span>
-                    {unreadCount > 0 && (
-                      <span className="text-[10px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full">{unreadCount}</span>
-                    )}
+                    {unreadCount > 0 && <span className="text-[10px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded-full">{unreadCount}</span>}
                     <ChevronRight size={11} className="text-slate-300 flex-shrink-0" />
                   </button>
-
                   <button className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-hover transition-colors text-left">
                     <HelpCircle size={13} className="text-slate-400 flex-shrink-0" />
                     <span className="flex-1 text-xs text-slate-600">Help &amp; Support</span>
@@ -355,28 +446,21 @@ export default function Sidebar({ onNavClick }) {
 
                 {/* Account links */}
                 <div className="p-1.5">
-                  {[
-                    { icon: User,      label: 'Profile'             },
-                    { icon: Building2, label: 'Workspace Settings'  },
-                    { icon: CreditCard,label: 'Billing'             },
-                    { icon: Key,       label: 'API Keys'            },
-                    { icon: UserPlus,  label: 'Team Members'        },
-                  ].map(item => (
-                    <button key={item.label} onClick={() => setShowProfile(false)}
+                  {ACCOUNT_LINKS.map(item => (
+                    <button key={item.label} onClick={() => goSettings(item.section)}
                       className="w-full text-left flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900 hover:bg-surface-hover rounded-lg transition-colors">
                       <item.icon size={12} className="text-slate-400 flex-shrink-0" />
                       {item.label}
                     </button>
                   ))}
                   <div className="border-t border-surface-border mt-1 pt-1">
-                    <button
-                      onClick={() => { logout(); navigate('/signin') }}
+                    <button onClick={() => { setShowProfile(false); logout(); navigate('/signin') }}
                       className="w-full text-left flex items-center gap-2.5 px-3 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg transition-colors">
                       <LogOut size={12} className="flex-shrink-0" /> Sign Out
                     </button>
                   </div>
                 </div>
-              </>
+              </div>
             )}
 
             {/* ── VIEW: Notifications ── */}
@@ -414,8 +498,8 @@ export default function Sidebar({ onNavClick }) {
                 </div>
               </>
             )}
-
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
     </aside>

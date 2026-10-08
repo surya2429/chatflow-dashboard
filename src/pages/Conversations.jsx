@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { useCall } from '../context/CallContext'
 import {
   Search, Bot, UserCheck, CheckCircle2, Send, Paperclip, Mic,
@@ -2374,7 +2375,7 @@ export default function Conversations() {
   } = useConversations()
 
   const [sidebarKey, setSidebarKey]   = useState('all')
-  const [adminOnline, setAdminOnline] = useState(false)
+  const { adminOnline, setAdminOnline } = useAuth()   // shared with the sidebar status
   const [view, setView]               = useState('chats')
   const [showPanel, setShowPanel]     = useState(true)
   // Mobile: 'list' shows conversation list, 'chat' shows the active chat

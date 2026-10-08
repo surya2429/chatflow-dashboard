@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useAuth } from '../context/AuthContext'
 import {
   Search, Bot, UserCheck, CheckCircle2, Send, Paperclip, Mic,
   Smile, MoreVertical, X, Star, FileText,
@@ -1485,7 +1486,7 @@ export default function WebChatInbox() {
   } = useConversations()
 
   const [sidebarKey, setSidebarKey]   = useState('all')
-  const [adminOnline, setAdminOnline] = useState(false)
+  const { adminOnline, setAdminOnline } = useAuth()   // shared with the sidebar status
   const [view, setView]               = useState('chats')
   const [showPanel, setShowPanel]     = useState(true)
   const [mobileView, setMobileView]   = useState('list')

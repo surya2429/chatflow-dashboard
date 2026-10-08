@@ -20,7 +20,7 @@ import {
 import { useApp } from '../../context/AppContext'
 import { useAuth } from '../../context/AuthContext'
 import {
-  PLANS, PLAN_HIGHLIGHTS, FEATURE_GROUPS, FEATURE_ADDONS, USAGE_ADDONS, getPlan, planTier, planMath, inr, money, num,
+  PLANS, PLAN_HIGHLIGHTS, FEATURE_GROUPS, FEATURE_ADDONS, USAGE_ADDONS, getPlan, planTier, planMath, inr, money, num, DEMO_USAGE,
 } from '../../constants/pricing'
 import { billing, payWithRazorpay } from '../../lib/billingApi'
 import { useSubscription, setSubscription, setProfile, refreshSubscription, isLive } from '../../lib/subscriptionStore'
@@ -283,7 +283,7 @@ export default function BillingSection() {
   const per = pooled ? 'yr' : 'mo'
   const svcAllowance = current ? current.serviceMsgs * span : 0
   const biAllowance = current ? current.biMsgs * span : 0
-  const svcUsed = 23481, biUsed = 1204
+  const svcUsed = DEMO_USAGE.svcUsed, biUsed = DEMO_USAGE.biUsed
 
   const meters = !hasSub ? [] : web
     ? [

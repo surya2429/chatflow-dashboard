@@ -1,5 +1,6 @@
 // Settings.jsx — Full-featured settings (Conversations-sidebar style + #0066ff primary)
 import { useState, useContext, createContext, useRef, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import {
   Settings as SettingsIcon, MessageSquare, Clock, Bell, Users, Shield, Timer,
@@ -2777,7 +2778,13 @@ function SectionPicker({ sections, groups, current, onSelect }) {
 
 export default function Settings() {
   const { activeProductId } = useApp()
-  const [active, setActive] = useState('general')
+  const [params] = useSearchParams()
+  const [active, setActive] = useState(() => (SECTIONS.some(s => s.id === params.get('section')) ? params.get('section') : 'general'))
+  // Menu links (Billing, API Keys…) arrive as /settings?section=…, even while Settings is already open.
+  useEffect(() => {
+    const wanted = params.get('section')
+    if (wanted && SECTIONS.some(s => s.id === wanted)) setActive(wanted)
+  }, [params])
   const [botLangs,       setBotLangs]       = useState(['English','Nepali','Sanskrit'])
   const [botDefaultLang, setBotDefaultLang] = useState('English')
   const [botMultiLingual,setBotMultiLingual]= useState(true)

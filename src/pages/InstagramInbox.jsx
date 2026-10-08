@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useAuth } from '../context/AuthContext'
 import {
   Search, Send, MessageCircle, CheckCircle2, Star, X, Tag, Users, Inbox,
   ChevronDown, Plus, Archive, AlertCircle, RefreshCw, Filter, MoreVertical,
@@ -1552,7 +1553,7 @@ export default function InstagramInbox() {
   const [conversations, setConversations] = useState(CONVERSATIONS)
   const [activeId, setActiveId]     = useState(CONVERSATIONS[0]?.id || null)
   const [sidebarKey, setSidebarKey] = useState('all')
-  const [adminOnline, setAdminOnline] = useState(false)
+  const { adminOnline, setAdminOnline } = useAuth()   // shared with the sidebar status
   const [showPanel, setShowPanel]   = useState(true)
   const [search, setSearch]         = useState('')
   const [filter, setFilter]         = useState('all')

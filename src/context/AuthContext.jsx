@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { ALL_NAV_ITEMS } from '../constants/navigation'
 
 const AuthContext = createContext(null)
@@ -60,6 +60,9 @@ export const DEMO_USERS = [
   },
 ]
 
+const PRESENCE_KEY = 'chatflow_presence_v1'
+export const PRESENCE_STATES = ['online', 'away', 'offline']
+
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null)
 
@@ -94,6 +97,33 @@ export function AuthProvider({ children }) {
     setCurrentUser(null)
   }
 
+  /* Availability, mirroring the agent API's presence (online | away | offline).
+     Only an ONLINE agent is offered new conversations; admins start offline and opt
+     in (the inbox's "Go Online" button), everyone else starts online. Remembered
+     per user in this browser. */
+  const [presence, setPresenceState] = useState('offline')
+  useEffect(() => {
+    if (!currentUser) return
+    const fallback = currentUser.role === 'admin' ? 'offline' : 'online'
+    try {
+      const saved = JSON.parse(localStorage.getItem(PRESENCE_KEY) || '{}')[currentUser.email]
+      setPresenceState(PRESENCE_STATES.includes(saved) ? saved : fallback)
+    } catch { setPresenceState(fallback) }
+  }, [currentUser?.email]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function setPresence(next) {
+    if (!PRESENCE_STATES.includes(next)) return
+    setPresenceState(next)
+    try {
+      const all = JSON.parse(localStorage.getItem(PRESENCE_KEY) || '{}')
+      if (currentUser) all[currentUser.email] = next
+      localStorage.setItem(PRESENCE_KEY, JSON.stringify(all))
+    } catch { /* storage unavailable — status just won't persist */ }
+  }
+  /* Boolean view for the inbox "Go Online" buttons, which toggle with an updater. */
+  const adminOnline = presence === 'online'
+  function setAdminOnline(v) { setPresence((typeof v === 'function' ? v(adminOnline) : v) ? 'online' : 'offline') }
+
   /* The plan shown in the sidebar/top bar and used for gating. Billing is the
      source of truth, so it pushes the plan name here after it loads or changes. */
   function setWorkspacePlan(plan) {
@@ -110,6 +140,10 @@ export function AuthProvider({ children }) {
       loginAs,
       logout,
       setWorkspacePlan,
+      presence,
+      setPresence,
+      adminOnline,
+      setAdminOnline,
     }}>
       {children}
     </AuthContext.Provider>

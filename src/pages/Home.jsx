@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useSubscription, isLive } from '../lib/subscriptionStore'
-import { PLANS, getPlan, money } from '../constants/pricing'
+import { PLANS, getPlan, money, DEMO_USAGE } from '../constants/pricing'
 import Select from '../components/Select'
 import clsx from 'clsx'
 
@@ -246,7 +246,7 @@ export default function Home() {
   const live = isLive(sub)
   const plan = live ? getPlan(sub.planName) : null
   const pool = plan ? plan.serviceMsgs * (sub.period === 'yearly' ? 12 : 1) : 0
-  const used = 6240
+  const used = DEMO_USAGE.svcUsed
   const usedPct = pool ? (used / pool) * 100 : 0
   const [showModal, setShowModal] = useState(false)
 
