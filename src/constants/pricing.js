@@ -126,3 +126,14 @@ export const USAGE_ADDONS = [
   { name: 'Basic Support',         unit: 'flat rate',               m: 6999,  y: 71988 },
   { name: 'Premium Support',       unit: 'flat rate',               m: 14999, y: 143988 },
 ]
+
+/* What each plan is for, in one glance (the long descriptions stay in PLANS). */
+export const PLAN_HIGHLIGHTS = {
+  broadcast: ['WhatsApp template & broadcast messages', 'Unlimited Website & Instagram messages', 'Google Sheets integration', 'Replies handled by an agent (no bot)'],
+  standard:  ['Everything in Broadcast', 'Flow / menu-driven chatbot', 'WhatsApp, Website, Instagram & Landing Page', 'Canned & dynamic responses, lead emails, 2FA'],
+  pro:       ['Everything in Standard', '6 platforms incl. Messenger & in-app', '3 live agents, CRM & AI Agent included', 'Voice, multi-lingual & auto email follow-up'],
+  ai:        ['Everything in Pro', 'ChatGPT AI integration included', 'Highest message allowances', 'All add-ons available'],
+}
+
+/* Demo workspace subscription. */
+export const SUBSCRIPTION = { start: '2026-01-01', renews: '2027-01-01' }
