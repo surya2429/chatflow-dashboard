@@ -22,6 +22,7 @@ export function createFileBillingStore(file: string): BillingStore {
       return records(read()).find((r) => r.subscriptionId === subscriptionId || r.upcoming?.subscriptionId === subscriptionId) ?? null
     },
     async listActiveDunning() { return records(read()).filter((r) => r.dunning?.state === 'active') },
+    async listTokenAutopay() { return records(read()).filter((r) => r.engine === 'token' && r.mandate && r.renewal) },
     // Single dev process, synchronous read-modify-write: no two callers can interleave.
     async nextSequence(key) {
       const all = read()

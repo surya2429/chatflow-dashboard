@@ -10,11 +10,34 @@ export type Period = 'monthly' | 'yearly'
 
 export const PLAN_ORDER: PlanId[] = ['broadcast', 'standard', 'pro', 'ai']
 
-export const PLAN_CATALOG: Record<PlanId, { name: string; monthly: number; yearly: number }> = {
-  broadcast: { name: 'Broadcast', monthly: 1499, yearly: 14500 },
-  standard:  { name: 'Standard',  monthly: 3500, yearly: 35000 },
-  pro:       { name: 'Pro',       monthly: 6500, yearly: 72000 },
-  ai:        { name: 'AI',        monthly: 8999, yearly: 96000 },
+export interface PlanInfo {
+  name: string
+  monthly: number
+  yearly: number
+  /** what the plan includes — printed on the invoice */
+  desc: string
+  /** WhatsApp allowances per month (yearly plans get all twelve months credited upfront) */
+  serviceMsgs: number
+  biMsgs: number
+}
+
+export const PLAN_CATALOG: Record<PlanId, PlanInfo> = {
+  broadcast: {
+    name: 'Broadcast', monthly: 1499, yearly: 14500, serviceMsgs: 10000, biMsgs: 1000,
+    desc: 'WhatsApp template/broadcast messages, plus unlimited Website and Instagram messages and Google Sheets integration. No bot; replies are handled by an agent from the dashboard.',
+  },
+  standard: {
+    name: 'Standard', monthly: 3500, yearly: 35000, serviceMsgs: 30000, biMsgs: 2000,
+    desc: 'Flow/menu-driven chatbot with Google Sheets integration. Platforms: WhatsApp, Website, Instagram and Landing Page Chatbot.',
+  },
+  pro: {
+    name: 'Pro', monthly: 6500, yearly: 72000, serviceMsgs: 100000, biMsgs: 5000,
+    desc: 'Flow-based bot with the full feature set. 6 platforms: WhatsApp, Website, Facebook Messenger, Instagram Messenger, Applications and Landing Page Chatbot. All add-ons available.',
+  },
+  ai: {
+    name: 'AI', monthly: 8999, yearly: 96000, serviceMsgs: 500000, biMsgs: 10000,
+    desc: 'Everything in Pro, plus AI integration with ChatGPT. All add-ons available.',
+  },
 }
 
 /** RBI: card / UPI recurring debits above this need the customer to approve each one. */

@@ -14,15 +14,16 @@ export const pgBillingStore: BillingStore = {
   },
   async put(record) {
     await query(
-      `INSERT INTO billing_records (workspace_id, subscription_id, upcoming_subscription_id, in_dunning, data, updated_at)
-       VALUES ($1, $2, $3, $4, $5, now())
+      `INSERT INTO billing_records (workspace_id, subscription_id, upcoming_subscription_id, in_dunning, token_autopay, data, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, now())
        ON CONFLICT (workspace_id) DO UPDATE
          SET subscription_id = EXCLUDED.subscription_id,
              upcoming_subscription_id = EXCLUDED.upcoming_subscription_id,
              in_dunning = EXCLUDED.in_dunning,
+             token_autopay = EXCLUDED.token_autopay,
              data = EXCLUDED.data,
              updated_at = now()`,
-      [record.workspaceId, record.subscriptionId ?? null, record.upcoming?.subscriptionId ?? null, record.dunning?.state === 'active', JSON.stringify(record)],
+      [record.workspaceId, record.subscriptionId ?? null, record.upcoming?.subscriptionId ?? null, record.dunning?.state === 'active', record.engine === 'token' && Boolean(record.mandate && record.renewal), JSON.stringify(record)],
     )
   },
   async findBySubscription(subscriptionId) {
@@ -34,6 +35,10 @@ export const pgBillingStore: BillingStore = {
   },
   async listActiveDunning() {
     const rows = await query<Row>('SELECT data FROM billing_records WHERE in_dunning')
+    return rows.map((r) => r.data)
+  },
+  async listTokenAutopay() {
+    const rows = await query<Row>('SELECT data FROM billing_records WHERE token_autopay')
     return rows.map((r) => r.data)
   },
   /* One atomic statement: concurrent payments can never be handed the same number. */

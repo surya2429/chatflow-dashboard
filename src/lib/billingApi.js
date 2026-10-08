@@ -82,10 +82,15 @@ export async function payWithRazorpay(session, prefill = {}) {
       },
       handler: (response) => resolve(response),
     }
-    if (session.mode === 'once') {
+    if (session.orderId) {
       options.order_id = session.orderId
       options.amount = session.amount
       options.currency = session.currency
+      // Saved-card autopay: Checkout asks the customer to save the card for recurring charges (RBI).
+      if (session.engine === 'token') {
+        options.customer_id = session.customerId
+        options.recurring = true
+      }
     } else {
       options.subscription_id = session.subscriptionId
     }

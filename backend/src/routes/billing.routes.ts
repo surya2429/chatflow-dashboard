@@ -4,6 +4,7 @@ import { logger } from '../config/logger.js'
 import { createBillingService } from '../billing/service.js'
 import { createRazorpay } from '../billing/razorpay.js'
 import { pgBillingStore } from '../billing/pgStore.js'
+import { loadLogo } from '../billing/logo.js'
 
 export const billingRouter = Router()
 
@@ -20,9 +21,13 @@ const billing = createBillingService({
   webhookSecret: env.RAZORPAY_WEBHOOK_SECRET,
   gstPercent: env.BILLING_GST_PERCENT,
   supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE,
+  autopayEngine: env.BILLING_AUTOPAY_ENGINE,
   seller: {
-    name: env.BILLING_SELLER_NAME, address: env.BILLING_SELLER_ADDRESS, gstin: env.BILLING_SELLER_GSTIN,
+    ...(env.BILLING_SELLER_NAME && { name: env.BILLING_SELLER_NAME }),
+    ...(env.BILLING_SELLER_ADDRESS && { address: env.BILLING_SELLER_ADDRESS }),
+    ...(env.BILLING_SELLER_GSTIN && { gstin: env.BILLING_SELLER_GSTIN }),
     sac: env.BILLING_SAC_CODE, prefix: env.BILLING_INVOICE_PREFIX,
+    logo: loadLogo(env.BILLING_LOGO_FILE),
   },
 })
 

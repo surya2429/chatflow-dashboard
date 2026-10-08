@@ -18,8 +18,12 @@ const check = (name: string, ok: boolean, extra?: unknown) => {
 }
 
 /* ── a tiny fake Razorpay ─────────────────────────────────────────────── */
-function fakeRazorpay() {
+function fakeRazorpay(clock: () => number) {
   let n = 0
+  const debits: { paymentId: string; orderId: string; amount: number }[] = []
+  const deletedTokens: string[] = []
+  const refunds: string[] = []
+  const state = { debit: 'capture' as 'capture' | 'fail' }
   const plans = new Map<string, RzEntity>()
   const subs = new Map<string, RzEntity>()
   const orders = new Map<string, RzEntity>()
@@ -36,7 +40,7 @@ function fakeRazorpay() {
       if (method === 'GET' && path.startsWith('/plans?')) return { items: [...plans.values()] } as never
       if (method === 'POST' && path === '/plans') { const p = { id: `plan_${++n}`, period: b.period, item: b.item, notes: b.notes }; plans.set(p.id, p); return p as never }
       if (method === 'GET' && (m = path.match(/^\/plans\/(.+)$/))) return plans.get(m[1]!) as never
-      if (method === 'POST' && path === '/orders') { const o = { id: `order_${++n}`, amount: b.amount }; orders.set(o.id, o); return o as never }
+      if (method === 'POST' && path === '/orders') { const o = { id: `order_${++n}`, ...b }; orders.set(o.id, o); return o as never }
       if (method === 'GET' && (m = path.match(/^\/payments\/(.+)$/))) return payments.get(m[1]!) as never
       if (method === 'POST' && path === '/subscriptions') {
         const s = { id: `sub_${++n}`, plan_id: b.plan_id, status: 'created', paid_count: 0, remaining_count: b.total_count, has_scheduled_changes: false, start_at: b.start_at }
@@ -57,11 +61,28 @@ function fakeRazorpay() {
       }
       if (method === 'GET' && (m = path.match(/^\/payment_links\/([^/]+)$/))) return links.get(m[1]!) as never
       if (method === 'POST' && (m = path.match(/^\/payment_links\/([^/]+)\/cancel$/))) { const l = links.get(m[1]!)!; l.status = 'cancelled'; return l as never }
+      if (method === 'POST' && path === '/customers') return { id: `cust_${++n}` } as never
+      if (method === 'GET' && (m = path.match(/^\/customers\/[^/]+\/tokens\/(.+)$/))) return { id: m[1], recurring_details: { status: 'confirmed' }, card: { last4: '5449', network: 'MasterCard' } } as never
+      if (method === 'DELETE' && (m = path.match(/^\/customers\/[^/]+\/tokens\/(.+)$/))) { deletedTokens.push(m[1]!); return {} as never }
+      if (method === 'POST' && (m = path.match(/^\/payments\/([^/]+)\/capture$/))) { const p = payments.get(m[1]!)!; p.status = 'captured'; return p as never }
+      if (method === 'POST' && (m = path.match(/^\/payments\/([^/]+)\/refund$/))) { refunds.push(m[1]!); return {} as never }
+      if (method === 'POST' && path === '/payments/create/recurring') {
+        const o = orders.get(b.order_id)
+        // Razorpay refuses a debit until the pre-debit notice period has passed.
+        if (!o?.notification || clock() < o.notification.payment_after) throw new Error('pre_debit_notification_failed')
+        if (b.amount !== o.amount || !b.token || !b.customer_id) throw new Error('bad debit request')
+        const id = `pay_${++n}`
+        payments.set(id, state.debit === 'capture'
+          ? { id, order_id: b.order_id, status: 'captured', amount: b.amount, method: 'card', card: { last4: '5449', network: 'MasterCard' }, created_at: clock() }
+          : { id, order_id: b.order_id, status: 'failed', amount: b.amount, method: 'card', error_description: 'Insufficient funds' })
+        debits.push({ paymentId: id, orderId: b.order_id, amount: b.amount })
+        return { razorpay_payment_id: id, razorpay_order_id: b.order_id } as never
+      }
       throw new Error(`fake razorpay: unhandled ${method} ${path}`)
     },
   }
   return {
-    rz, subs, calls, links, subInvoices,
+    rz, subs, calls, links, subInvoices, orders, debits, deletedTokens, refunds, state,
     pay(orderId: string | undefined, amount: number, extra: RzEntity = {}) {
       const id = `pay_${++n}`
       payments.set(id, { id, order_id: orderId, status: 'captured', amount, method: 'card', card: { last4: '1111', network: 'Visa' }, ...extra })
@@ -78,15 +99,16 @@ function memoryStore(): BillingStore {
     async put(r) { all.set(r.workspaceId, structuredClone(r)) },
     async findBySubscription(id) { return [...all.values()].find((r) => r.subscriptionId === id || r.upcoming?.subscriptionId === id) ?? null },
     async listActiveDunning() { return [...all.values()].filter((r) => r.dunning?.state === 'active').map((r) => structuredClone(r)) },
+    async listTokenAutopay() { return [...all.values()].filter((r) => r.engine === 'token' && r.mandate && r.renewal).map((r) => structuredClone(r)) },
     async nextSequence(key) { counters[key] = (counters[key] ?? 0) + 1; return counters[key]! },
   }
 }
 
 async function main() {
   let t = 1_800_000_000
-  const fake = fakeRazorpay()
+  const fake = fakeRazorpay(() => t)
   const store = memoryStore()
-  const svc = createBillingService({ store, razorpay: fake.rz, keyId: 'rzp_test_x', webhookSecret: WEBHOOK, gstPercent: 18, now: () => t })
+  const svc = createBillingService({ store, razorpay: fake.rz, keyId: 'rzp_test_x', webhookSecret: WEBHOOK, gstPercent: 18, supplierStateCode: '27', autopayEngine: 'subscription', now: () => t })
   const call = (method: string, path: string, body?: Record<string, unknown>, ws = 'ws1', extra: Partial<Parameters<typeof svc.handle>[0]> = {}) =>
     svc.handle({ method, path, body, headers: {}, workspaceId: ws, ip: '203.0.113.9', userAgent: 'smoke-test', ...extra })
   const sign = (a: string, b: string) => hmacHex(SECRET, `${a}|${b}`)
@@ -335,6 +357,160 @@ async function main() {
   check('the now-pointless pay link is cancelled', fLink.status === 'cancelled')
   const fInv = ((await call('GET', '/invoices', undefined, 'wf')).body as RzEntity).items
   check('the retried charge was invoiced', fInv.length === 2)
+
+  /* ── saved-card (token) autopay ─────────────────────────────────────── */
+  const svcT = createBillingService({ store, razorpay: fake.rz, keyId: 'rzp_test_x', webhookSecret: WEBHOOK, gstPercent: 18, supplierStateCode: '27', now: () => t })
+  const callT = (method: string, path: string, body?: Record<string, unknown>, ws = 'wt') =>
+    svcT.handle({ method, path, body, headers: {}, workspaceId: ws, ip: '203.0.113.9', userAgent: 'smoke-test' })
+  const statusT = async (ws: string) => (await callT('GET', '/subscription', undefined, ws)).body as RzEntity
+  // two passes: the first submits a debit, the second reads how the bank answered
+  const tick = async () => { await svcT.runDue(); await svcT.runDue() }
+  let tokenN = 0
+  async function activateT(ws: string, plan = 'pro', period = 'monthly') {
+    await callT('PUT', '/profile', good, ws)
+    const co = (await callT('POST', '/checkout', { plan, period, mode: 'autopay', consent: true }, ws)).body as RzEntity
+    const tokenId = `token_${++tokenN}`
+    const payId = fake.pay(co.orderId, co.amount, { status: 'authorized', token_id: tokenId, customer_id: co.customerId })
+    const v = await callT('POST', '/verify', { razorpay_payment_id: payId, razorpay_order_id: co.orderId, razorpay_signature: sign(co.orderId, payId) }, ws)
+    return { co, tokenId, payId, v, sum: v.body as RzEntity }
+  }
+  const noticeOrders = () => [...fake.orders.values()].filter((o) => o.notification)
+
+  console.log('\nsaved-card autopay: set up')
+  fake.state.debit = 'capture'
+  await callT('PUT', '/profile', good, 'wt')
+  const co1 = (await callT('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'autopay', consent: true })).body as RzEntity
+  const ord1 = fake.orders.get(co1.orderId)!
+  check('monthly autopay uses the saved-card engine (no Subscriptions needed)', co1.engine === 'token' && co1.recurring === true && !!co1.customerId && !co1.subscriptionId, co1)
+  check('the order is card-only, for the customer, with the mandate limit and the full first charge', ord1.method === 'card' && ord1.customer_id === co1.customerId && ord1.token.max_amount === 1500000 && ord1.amount === 767000, ord1)
+  const tokPay = fake.pay(co1.orderId, 767000, { status: 'authorized', token_id: 'token_a', customer_id: co1.customerId })
+  r = await callT('POST', '/verify', { razorpay_payment_id: tokPay, razorpay_order_id: co1.orderId, razorpay_signature: 'bad' })
+  check('a wrong signature is refused', r.status === 400, r.body)
+  r = await callT('POST', '/verify', { razorpay_payment_id: tokPay, razorpay_order_id: co1.orderId, razorpay_signature: sign(co1.orderId, tokPay) })
+  let s1 = r.body as RzEntity
+  check('authorised card: plan active, autopay on, card remembered', s1.status === 'active' && s1.autopay.on && s1.autopay.engine === 'token' && s1.autopay.card.last4 === '1111' && s1.autopay.requiresApproval === false, s1)
+  check('the authorised payment was captured', fake.calls.some((c) => c === `POST /payments/${tokPay}/capture`))
+  check('first charge is invoiced automatically', !!s1.latestInvoice?.number, s1.latestInvoice)
+  const due1 = s1.currentEnd as number
+  check('next charge is on the period end', s1.nextChargeAt === due1 && s1.autopay.next.noticeSent === false)
+
+  console.log('\nsaved-card autopay: renewal')
+  t = due1 - 49 * HOUR; await tick()
+  check('no notice more than 48 hours ahead', noticeOrders().length === 0)
+  t = due1 - 48 * HOUR; await tick()
+  check('pre-debit notice goes out 48 hours before (an order with a notification)', noticeOrders().length === 1 && noticeOrders()[0]!.notification.token_id === 'token_a' && noticeOrders()[0]!.notification.payment_after === due1, noticeOrders())
+  check('nothing is debited before the notice period is over', fake.debits.length === 0)
+  check('dashboard shows the notice was sent', (await statusT('wt')).autopay.next.noticeSent === true)
+  r = await callT('POST', '/change-plan', { plan: 'standard', period: 'monthly' })
+  check('plan can no longer change once the notice is out', r.status === 409 && (r.body as RzEntity).error === 'notice_sent', r.body)
+  t = due1; await tick()
+  s1 = await statusT('wt')
+  check('on the due date the card is debited for the plan price', fake.debits.length === 1 && fake.debits[0]!.amount === 767000)
+  check('plan renews for another month, still on autopay', s1.status === 'active' && s1.autopay.on && s1.currentStart === due1 && s1.currentEnd > due1 + 27 * 86400, [s1.status, s1.currentStart, s1.currentEnd])
+  const tInv1 = ((await callT('GET', '/invoices', undefined, 'wt')).body as RzEntity).items
+  check('the renewal is invoiced automatically', tInv1.length === 2 && tInv1[0].description.includes('renewal'), tInv1.map((i: RzEntity) => i.description))
+  await tick()
+  check('nothing is charged twice for the same cycle', fake.debits.length === 1)
+
+  await callT('POST', '/autopay', { enabled: false })   // keep the sections independent
+
+  console.log('\nsaved-card autopay: failed debit → dunning (48/72/72 hours)')
+  fake.state.debit = 'fail'
+  const W2 = await activateT('wt2')
+  const due2 = W2.sum.currentEnd as number
+  const orders0 = noticeOrders().length
+  t = due2 - 48 * HOUR; await tick()
+  t = due2; await tick()
+  let d2 = await statusT('wt2')
+  const T2 = t
+  check('failed renewal is past due, plan still works', d2.status === 'past_due' && d2.autopay.on === true, d2.status)
+  check('attempt 1 (the failed debit) is logged with the bank reason', d2.dunning.attempt === 1 && d2.dunning.attempts[0].result === 'failed' && /Insufficient/.test(d2.dunning.attempts[0].reason ?? ''), d2.dunning.attempts)
+  check('a pay-now link was sent straight away', typeof d2.dunning.payUrl === 'string' && [...fake.links.values()].some((l) => l.notify?.email && l.notify?.sms && l.amount === 767000))
+  check('the next debit is scheduled 48 hours out, with its notice already sent', d2.dunning.nextAttemptAt === T2 + 48 * HOUR && noticeOrders().length === orders0 + 2)
+  const retryOrder = noticeOrders().slice(-1)[0]!
+  check('the retry notice respects the 36-hour rule', retryOrder.notification.payment_after - T2 >= 37 * 3600, retryOrder.notification)
+  t = T2 + 47 * HOUR; await tick()
+  check('no retry before 48 hours', fake.debits.length === 2)
+  t = T2 + 48 * HOUR; await tick()
+  d2 = await statusT('wt2')
+  check('attempt 2 fails; attempt 3 is 72 hours after', d2.dunning.attempt === 2 && d2.dunning.attempts[1].result === 'failed' && d2.dunning.nextAttemptAt === T2 + 120 * HOUR, d2.dunning)
+  t = T2 + 120 * HOUR; await tick()
+  d2 = await statusT('wt2')
+  check('attempt 3 fails; attempt 4 is 72 hours after', d2.dunning.attempt === 3 && d2.dunning.nextAttemptAt === T2 + 192 * HOUR, d2.dunning)
+  fake.state.debit = 'capture'
+  t = T2 + 192 * HOUR; await tick()
+  d2 = await statusT('wt2')
+  const gaps2 = (await store.get('wt2'))!.dunning!.attempts.slice(1).map((a, i, arr) => (a.at - (i ? arr[i - 1]!.at : T2)) / HOUR)
+  check('attempt 4 succeeds: plan current, autopay intact, dunning cleared', d2.status === 'active' && d2.autopay.on && d2.dunning === null && d2.currentStart === due2, d2)
+  check('every gap between debits was 48–72 hours', gaps2.every((g) => g >= 48 && g <= 72), gaps2)
+  check('the pay-now link is cancelled once the card works', [...fake.links.values()].filter((l) => l.notes?.workspaceId === 'wt2').every((l) => l.status === 'cancelled'))
+  const tInv2 = ((await callT('GET', '/invoices', undefined, 'wt2')).body as RzEntity).items
+  check('the recovered payment is invoiced', tInv2.length === 2 && tInv2[0].description.includes('recovered'), tInv2.map((i: RzEntity) => i.description))
+  check('exactly four debits were attempted for that cycle', fake.debits.length === 1 + 4)
+
+  await callT('POST', '/autopay', { enabled: false }, undefined, 'wt2')   // keep the sections independent
+
+  console.log('\nsaved-card autopay: nothing works → suspended')
+  fake.state.debit = 'fail'
+  const W3 = await activateT('wt3')
+  const due3 = W3.sum.currentEnd as number
+  t = due3 - 48 * HOUR; await tick()
+  t = due3; await tick()
+  const T3 = t
+  for (const h of [48, 120, 192]) { t = T3 + h * HOUR; await tick() }
+  check('four failed debits, nothing more scheduled', (await statusT('wt3')).dunning.attempt === 4 && (await statusT('wt3')).dunning.nextAttemptAt === null)
+  t = T3 + 9 * 86400 - 1; await tick()
+  check('still active one second before the window closes', (await statusT('wt3')).status === 'past_due')
+  t = T3 + 9 * 86400; await tick()
+  const d3 = await statusT('wt3')
+  check('after 9 days the plan is suspended and the saved card removed', d3.status === 'suspended' && d3.autopay.on === false && fake.deletedTokens.includes(W3.tokenId), d3.status)
+  const debitsBefore = fake.debits.length
+  t += 40 * 86400; await tick()
+  check('a suspended plan is never charged again', fake.debits.length === debitsBefore)
+
+  console.log('\nsaved-card autopay: customer pays the link')
+  fake.state.debit = 'fail'
+  const W4 = await activateT('wt4')
+  const due4 = W4.sum.currentEnd as number
+  t = due4 - 48 * HOUR; await tick(); t = due4; await tick()
+  const T4 = t
+  const link4 = [...fake.links.values()].pop()!
+  const payLink = fake.pay(undefined, 767000)
+  Object.assign(link4, { status: 'paid', payments: [{ payment_id: payLink }] })
+  t = T4 + 3600; await tick()
+  const d4 = await statusT('wt4')
+  check('paying the link recovers the plan and keeps autopay on', d4.status === 'active' && d4.autopay.on === true && d4.autopay.lapsed === false && d4.dunning === null && d4.currentStart === due4, d4)
+  check('the card stays saved for the next renewal', d4.nextChargeAt === d4.currentEnd && d4.autopay.card.last4 === '1111')
+
+  await callT('POST', '/autopay', { enabled: false }, undefined, 'wt4')   // keep the sections independent
+
+  console.log('\nsaved-card autopay: switching it off, plan changes, limits')
+  fake.state.debit = 'capture'
+  const W5 = await activateT('wt5')
+  r = await callT('POST', '/change-plan', { plan: 'standard', period: 'monthly' }, 'wt5')
+  let s5 = r.body as RzEntity
+  check('a plan change is queued for the next renewal', r.status === 200 && s5.appliedNow === false && s5.scheduledChange?.plan === 'standard' && s5.autopay.next.plan === 'standard', r.body)
+  r = await callT('POST', '/change-plan', { plan: 'pro', period: 'yearly' }, 'wt5')
+  check('a yearly plan cannot be paid by card autopay (over ₹15,000)', r.status === 409 && (r.body as RzEntity).error === 'autopay_limit', r.body)
+  t = (W5.sum.currentEnd as number) - 48 * HOUR; await tick(); t = W5.sum.currentEnd as number; await tick()
+  s5 = await statusT('wt5')
+  check('the renewal charges the NEW plan price (Standard ₹4,130)', fake.debits.slice(-1)[0]!.amount === 413000 && s5.plan === 'standard', [s5.plan, fake.debits.slice(-1)[0]])
+  r = await callT('POST', '/autopay', { enabled: false }, 'wt5')
+  s5 = r.body as RzEntity
+  check('turning autopay off removes the saved card and keeps the plan until the period ends', s5.autopay.on === false && s5.status === 'active' && s5.endsAt === s5.currentEnd && fake.deletedTokens.length >= 2, s5)
+  const before5 = fake.debits.length
+  t = (s5.currentEnd as number) + 3600; await tick()
+  s5 = await statusT('wt5')
+  check('no debit after switching off; the plan then ends', fake.debits.length === before5 && s5.status === 'expired', [s5.status, fake.debits.length - before5])
+  const y = (await callT('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'autopay', consent: true }, 'wt')).body as RzEntity
+  check('yearly autopay still goes through Razorpay Subscriptions (needs it enabled)', y.engine === undefined && !!y.subscriptionId && !y.orderId, y)
+
+  console.log('\nthe tax invoice')
+  const invPage = String((await callT('GET', `/invoices/${(s1.latestInvoice as RzEntity).id}/view`, undefined, 'wt')).body)
+  check('shows the supplier: legal name, product, CIN, GSTIN, address', ['Feso Social Media Private Limited', 'SMATBOT', 'U22222TG2015PTC100809', '36AACCF6679F1ZD', 'Ashoka Hitech Chambers', 'Banjara Hills', 'Telangana'].every((x) => invPage.includes(x)))
+  check('shows contact details', invPage.includes('sales@smatbot.com') && invPage.includes('accounts@bytequark.com') && invPage.includes('+91 9205308991'))
+  check('shows the logo and the no-refund note', invPage.includes('<img class="logo" src="data:image/svg+xml;base64,') && invPage.includes('We do not have any refund policy.'))
+  check('line item has plan description, allowances, quantity and rate', invPage.includes('Flow-based bot with the full feature set') && invPage.includes('WhatsApp service messages: 1,00,000 per month') && invPage.includes('1 month') && invPage.includes('₹6,500.00'))
 
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed')
   process.exit(failures ? 1 : 0)

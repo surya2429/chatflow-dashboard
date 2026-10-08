@@ -58,14 +58,18 @@ export default function PaymentDialog({
   const charge = quote?.plan === plan && quote?.period === period ? quote.charge : fallback
   const testMode = (config?.keyId || '').startsWith('rzp_test_')
   const perWord = period === 'yearly' ? 'year' : 'month'
-  const approval = charge && charge.total > (config?.approvalLimit ?? 15000)
+  const approvalLimit = config?.approvalLimit ?? 15000
+  const approval = charge && charge.total > approvalLimit
+  // Monthly plans are charged to a saved card by us (RBI card-on-file); anything above the limit needs Razorpay Subscriptions.
+  const cardAutopay = mode === 'autopay' && config?.autopayEngine !== 'subscription' && charge && charge.total <= approvalLimit
+  const cardChange = kind === 'change' && sub?.autopay?.engine === 'token'
   const endDate = sub?.currentEnd ? fmtDate(sub.currentEnd) : null
   const isAutopayNew = kind === 'new' && mode === 'autopay'
 
   let title, cta, tone = 'primary'
   if (step === 'details') { title = profile ? 'Edit billing details' : 'Billing details'; cta = '' }
   else if (kind === 'autopay-off') { title = 'Turn off autopay?'; cta = 'Turn off autopay'; tone = 'danger' }
-  else if (kind === 'change') { title = `${upgrade ? 'Upgrade' : 'Switch'} to ${p.name}`; cta = upgrade ? 'Upgrade now' : 'Schedule change' }
+  else if (kind === 'change') { title = `${upgrade && !cardChange ? 'Upgrade' : 'Switch'} to ${p.name}`; cta = upgrade && !cardChange ? 'Upgrade now' : 'Schedule change' }
   else if (startAtCycleEnd) { title = `Continue ${p.name} with autopay`; cta = 'Authorise autopay' }
   else { title = mode === 'autopay' ? `Subscribe to ${p.name}` : `Pay for ${p.name}`; cta = mode === 'autopay' ? 'Authorise & continue' : `Pay ${money(charge?.total ?? 0)}` }
 
@@ -123,7 +127,9 @@ export default function PaymentDialog({
                   {kind === 'change' ? (
                     <p className="flex items-start gap-2 text-xs text-slate-600 leading-relaxed">
                       <Info size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
-                      {upgrade
+                      {cardChange
+                        ? <span>You keep <b>{sub?.planName}</b> until {endDate || 'the end of this period'}. From then your saved card is charged <b>{money(charge?.total ?? 0)}</b> every {perWord} for <b>{p.name}</b>. We email you 2 days before.</span>
+                        : upgrade
                         ? <span>Your plan changes <b>right away</b>. Razorpay charges the prorated difference for the rest of this period, then bills the new price from the next renewal.</span>
                         : <span>You keep <b>{sub?.planName}</b> until {endDate || 'the end of this period'}. <b>{p.name}</b> starts then, at the new price.</span>}
                     </p>
@@ -132,14 +138,16 @@ export default function PaymentDialog({
                       <p className="text-[10px] font-bold text-violet-700 uppercase tracking-wider flex items-center gap-1.5"><Repeat size={11}/> Autopay mandate</p>
                       <ul className="text-[11.5px] text-slate-600 leading-relaxed space-y-1">
                         <li>• <b>{money(charge?.total ?? 0)}</b> incl. GST, every <b>{perWord}</b>{startAtCycleEnd ? <>, first on <b>{endDate}</b></> : ', starting today'}.</li>
-                        <li className="flex items-start gap-1.5"><BellRing size={11} className="flex-shrink-0 mt-1 text-slate-400"/> <span>We notify you at {profile?.email || 'your email'} before every debit.</span></li>
+                        {cardAutopay && <li>• Paid with a <b>credit or debit card</b>. At checkout, tick <i>"Save this card as per RBI guidelines"</i>. Your bank records a ceiling of {money(approvalLimit)} per charge; we only ever charge your plan price.{startAtCycleEnd ? ' We charge ₹1 now only to verify the card — it is refunded.' : ''}</li>}
+                        <li className="flex items-start gap-1.5"><BellRing size={11} className="flex-shrink-0 mt-1 text-slate-400"/> <span>We notify you at {profile?.email || 'your email'} {cardAutopay ? <b>2 days before</b> : 'before'} every debit.</span></li>
+                        {cardAutopay && <li>• If a debit fails, we try again up to <b>3 more times</b> over 9 days (every 48–72 hours) and keep your plan running meanwhile. If it still fails, the plan is suspended.</li>}
                         <li className="flex items-start gap-1.5"><Ban size={11} className="flex-shrink-0 mt-1 text-slate-400"/> <span>Cancel any time in Settings → Billing → Autopay. Takes effect immediately for future charges.</span></li>
-                        {approval && <li>• Above {money(config?.approvalLimit ?? 15000)}, your bank asks you to approve each debit — the plan renews once you do.</li>}
+                        {approval && <li>• Above {money(approvalLimit)}, your bank asks you to approve each debit — the plan renews once you do.</li>}
                       </ul>
                       <label className="flex items-start gap-2.5 pt-1 cursor-pointer select-none">
                         <input type="checkbox" className="mt-0.5 accent-primary" checked={consent} onChange={(e) => setConsent(e.target.checked)}/>
                         <span className="text-[11.5px] text-slate-700 leading-relaxed">
-                          I authorise SmatBot to charge <b>{money(charge?.total ?? 0)}</b> every {perWord} to my selected payment method through Razorpay until I turn autopay off.
+                          I authorise SmatBot to charge <b>{money(charge?.total ?? 0)}</b> every {perWord} to my {cardAutopay ? 'saved card' : 'selected payment method'} through Razorpay until I turn autopay off.
                         </span>
                       </label>
                     </div>
@@ -155,7 +163,7 @@ export default function PaymentDialog({
               {testMode && kind !== 'autopay-off' && (
                 <p className="flex items-start gap-2 text-[11px] text-sky-800 bg-sky-50 border border-sky-200 rounded-lg p-2.5 leading-relaxed">
                   <ShieldCheck size={13} className="flex-shrink-0 mt-0.5"/>
-                  <span><b>Test mode</b> — no real money moves. Use card <span className="font-mono">4111 1111 1111 1111</span> with any future date and CVV, or UPI <span className="font-mono">success@razorpay</span>.</span>
+                  <span><b>Test mode</b> — no real money moves. Use card <span className="font-mono">5267 3181 8797 5449</span> with any future date and CVV (OTP: any 6 digits){cardAutopay ? '' : <>, or UPI <span className="font-mono">success@razorpay</span></>}.</span>
                 </p>
               )}
 

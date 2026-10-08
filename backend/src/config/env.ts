@@ -52,12 +52,17 @@ const EnvSchema = z.object({
   BILLING_GST_PERCENT: z.coerce.number().min(0).max(100).default(18),
   // GST state code of the state we are registered in (27 = Maharashtra). Customers in the
   // same state are charged CGST + SGST; everyone else IGST. Same total either way.
-  BILLING_SUPPLIER_STATE_CODE: z.string().regex(/^\d{2}$/).default('27'),
+  // auto = saved-card autopay up to ₹15,000 (works on every Razorpay account), Subscriptions above that
+  BILLING_AUTOPAY_ENGINE: z.enum(['auto', 'token', 'subscription']).default('auto'),
+  BILLING_SUPPLIER_STATE_CODE: z.string().regex(/^\d{2}$/).default('36'),
   // Printed on every GST invoice. Set these to your registered business details and confirm
   // the SAC code with your CA — the defaults are placeholders.
-  BILLING_SELLER_NAME: z.string().min(1).default('SmatBot'),
-  BILLING_SELLER_ADDRESS: z.string().min(1).default('Registered address — set BILLING_SELLER_ADDRESS'),
+  // Optional: the built-in defaults are Feso Social Media Private Limited (SMATBOT).
+  BILLING_SELLER_NAME: z.string().min(1).optional(),
+  BILLING_SELLER_ADDRESS: z.string().min(1).optional(),
   BILLING_SELLER_GSTIN: z.string().optional(),
+  // Path to your logo file (PNG/SVG/JPG); the built-in SmatBot logo is used when unset.
+  BILLING_LOGO_FILE: z.string().optional(),
   BILLING_SAC_CODE: z.string().regex(/^\d{4,8}$/).default('998314'),
   BILLING_INVOICE_PREFIX: z.string().regex(/^[A-Z0-9]{1,6}$/).default('SB'),
 })

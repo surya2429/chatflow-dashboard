@@ -8,6 +8,7 @@ import react from '@vitejs/plugin-react'
 import { createBillingService } from './backend/src/billing/service.ts'
 import { createRazorpay } from './backend/src/billing/razorpay.ts'
 import { createFileBillingStore } from './backend/src/billing/fileStore.ts'
+import { loadLogo } from './backend/src/billing/logo.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -206,13 +207,15 @@ function devBillingApi(env) {
     keyId,
     webhookSecret: env.RAZORPAY_WEBHOOK_SECRET || undefined,
     gstPercent: Number(env.BILLING_GST_PERCENT) || 18,
-    supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE || '27',
+    supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE || '36',
+    autopayEngine: ['auto', 'token', 'subscription'].includes(env.BILLING_AUTOPAY_ENGINE) ? env.BILLING_AUTOPAY_ENGINE : 'auto',
     seller: {
       ...(env.BILLING_SELLER_NAME && { name: env.BILLING_SELLER_NAME }),
       ...(env.BILLING_SELLER_ADDRESS && { address: env.BILLING_SELLER_ADDRESS }),
       ...(env.BILLING_SELLER_GSTIN && { gstin: env.BILLING_SELLER_GSTIN }),
       ...(env.BILLING_SAC_CODE && { sac: env.BILLING_SAC_CODE }),
       ...(env.BILLING_INVOICE_PREFIX && { prefix: env.BILLING_INVOICE_PREFIX }),
+      logo: loadLogo(env.BILLING_LOGO_FILE),
     },
   })
   return {

@@ -270,8 +270,10 @@ export default function BillingSection() {
     }
     if (sub.mode === 'autopay' && sub.autopay.on) {
       if (same) return { label: 'Your current plan', disabled: true }
+      const card = sub.autopay.engine === 'token'
+      if (card && sub.autopay.next?.plan === plan.id && sub.autopay.next?.period === period) return { label: sub.autopay.next.changed ? 'Starts at renewal' : 'Your current plan', disabled: true }
       const upgrade = price && price.total > sub.charge.total
-      return { label: `${upgrade ? 'Upgrade' : 'Switch'} to ${plan.name}`, open: { kind: 'change', plan: plan.id, period, upgrade } }
+      return { label: card ? `Switch to ${plan.name} at renewal` : `${upgrade ? 'Upgrade' : 'Switch'} to ${plan.name}`, open: { kind: 'change', plan: plan.id, period, upgrade: upgrade && !card } }
     }
     // Live, but one-time or autopay switched off: the plan will simply end.
     if (payMode === 'autopay') {
@@ -324,7 +326,7 @@ export default function BillingSection() {
       <Notice key="dun" tone="error" icon={AlertCircle}
         action={dn.payUrl && <a href={dn.payUrl} target="_blank" rel="noreferrer" className="font-bold underline whitespace-nowrap">Pay now</a>}>
         <b>Payment failed.</b> We couldn't collect your {money(dn.amountPaise / 100)} renewal (attempt {dn.attempt} of {dn.maxAttempts}).{' '}
-        {dn.nextAttemptAt ? <>We'll ask again on <b>{fmtSec(dn.nextAttemptAt)}</b>. </> : 'That was the last reminder. '}
+        {dn.nextAttemptAt ? <>{dn.engine === 'token' ? "We'll try your card again on" : "We'll ask again on"} <b>{fmtSec(dn.nextAttemptAt)}</b>. </> : dn.engine === 'token' ? 'That was the last automatic retry. ' : 'That was the last reminder. '}
         Your plan keeps working until <b>{fmtSec(dn.deadline)}</b>; pay before then to avoid suspension.
       </Notice>)
   }
@@ -480,13 +482,13 @@ export default function BillingSection() {
                       <li key={a.n} className="flex items-start gap-2 text-[11px]">
                         <span className={clsx('w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 mt-0.5',
                           a.result === 'failed' || a.result === 'send_failed' ? 'bg-red-100 text-red-700' : a.result === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-sky-100 text-sky-700')}>{a.n}</span>
-                        <span className="text-slate-600 leading-snug"><b className="text-slate-800">{fmtSec(a.at)}</b> · {a.kind === 'charge' ? 'Automatic debit failed' : a.result === 'send_failed' ? "Couldn't send the reminder" : a.result === 'expired' ? 'Reminder sent (replaced by a newer one)' : 'Reminder sent by email & SMS'}</span>
+                        <span className="text-slate-600 leading-snug"><b className="text-slate-800">{fmtSec(a.at)}</b> · {a.kind === 'charge' ? (a.result === 'pending' ? 'Automatic debit submitted — waiting for the bank' : a.result === 'paid' ? 'Automatic debit succeeded' : `Automatic debit failed${a.reason ? ` (${a.reason})` : ''}`) : a.result === 'send_failed' ? "Couldn't send the reminder" : a.result === 'expired' ? 'Reminder sent (replaced by a newer one)' : 'Reminder sent by email & SMS'}</span>
                       </li>
                     ))}
                     {sub.dunning.nextAttemptAt && (
                       <li className="flex items-start gap-2 text-[11px] text-slate-400">
                         <span className="w-4 h-4 rounded-full border border-dashed border-slate-300 flex-shrink-0 mt-0.5"/>
-                        <span>Next reminder <b className="text-slate-500">{fmtSec(sub.dunning.nextAttemptAt)}</b> (attempt {sub.dunning.attempt + 1} of {sub.dunning.maxAttempts})</span>
+                        <span>{sub.dunning.engine === 'token' ? 'Next automatic retry' : 'Next reminder'} <b className="text-slate-500">{fmtSec(sub.dunning.nextAttemptAt)}</b> (attempt {sub.dunning.attempt + 1} of {sub.dunning.maxAttempts})</span>
                       </li>
                     )}
                   </ol>
@@ -494,20 +496,21 @@ export default function BillingSection() {
                     {sub.dunning.payUrl && <a href={sub.dunning.payUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary-hover transition-colors"><ExternalLink size={12}/> Pay now</a>}
                     <button onClick={refreshSubscription} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800"><RefreshCw size={11}/> I've paid — refresh</button>
                   </div>
-                  <p className="text-[10.5px] text-slate-400 leading-relaxed">Your bank may also retry the card automatically. If any attempt succeeds, this clears by itself.</p>
+                  <p className="text-[10.5px] text-slate-400 leading-relaxed">{sub.dunning.engine === 'token' ? 'We retry your saved card on the dates above and email you before each one. Paying now with the button above also clears this.' : 'Your bank may also retry the card automatically. If any attempt succeeds, this clears by itself.'}</p>
                 </div>
               ) : live && sub.autopay.on ? (
                 <div className="space-y-3">
                   <div className="rounded-xl bg-slate-50 border border-slate-100 px-4 py-3">
                     <p className="text-[10.5px] text-slate-400">Next charge</p>
-                    <p className="text-sm font-bold text-slate-900 mt-0.5">{money(sub.charge.total)} <span className="text-xs font-medium text-slate-500">on {fmtSec(sub.nextChargeAt)}</span></p>
+                    <p className="text-sm font-bold text-slate-900 mt-0.5">{money(sub.autopay.next?.total ?? sub.charge.total)} <span className="text-xs font-medium text-slate-500">on {fmtSec(sub.nextChargeAt)}{sub.autopay.next?.changed ? ` · ${sub.autopay.next.planName}` : ''}</span></p>
+                    {sub.autopay.engine === 'token' && <p className="text-[10.5px] text-slate-400 mt-1">{sub.autopay.next?.noticeSent ? 'Debit notice sent — the card is charged on this date.' : `We email you 2 days before.`}</p>}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[11px]">
-                    <div className="rounded-lg border border-slate-100 px-3 py-2"><p className="text-slate-400">Mandate</p><p className="font-semibold text-slate-700 mt-0.5">Up to {money(sub.charge.total)} every {sub.period === 'yearly' ? 'year' : 'month'}</p></div>
+                    <div className="rounded-lg border border-slate-100 px-3 py-2"><p className="text-slate-400">{sub.autopay.card ? 'Card' : 'Mandate'}</p><p className="font-semibold text-slate-700 mt-0.5">{sub.autopay.card ? `${sub.autopay.card.network || 'Card'} •••• ${sub.autopay.card.last4 || ''}` : `Up to ${money(sub.charge.total)} every ${sub.period === 'yearly' ? 'year' : 'month'}`}</p></div>
                     <div className="rounded-lg border border-slate-100 px-3 py-2"><p className="text-slate-400">Authorised</p><p className="font-semibold text-slate-700 mt-0.5">{sub.authorisedAt ? fmtSec(sub.authorisedAt) : '—'}</p></div>
                   </div>
                   <p className="text-[11px] text-slate-500 leading-relaxed">We notify you at <b>{profile?.email || 'your email'}</b> before every debit. You can turn autopay off any time.</p>
-                  {sub.autopay.requiresApproval && (
+                  {sub.autopay.requiresApproval && sub.autopay.engine !== 'token' && (
                     <p className="flex items-start gap-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 leading-relaxed">
                       <AlertCircle size={12} className="flex-shrink-0 mt-0.5"/>
                       Renewals above {money(sub.autopay.approvalLimit)} need your approval each time. Your bank sends a link about a day before — approve it and the plan renews.

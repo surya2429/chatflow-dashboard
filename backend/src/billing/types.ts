@@ -37,11 +37,47 @@ export interface ConsentEntry {
   period: Period
   amountPaise: number
   subscriptionId?: string
+  orderId?: string
+}
+
+/* Autopay has two engines:
+     subscription  a Razorpay Subscription — Razorpay debits and retries on ITS schedule.
+                   Needs Subscriptions activated on the account; allows amounts above ₹15,000.
+     token         a saved card token (RBI card-on-file mandate) — WE debit when due and retry
+                   on OUR schedule (see dunning.ts). Works without Subscriptions, cards only,
+                   up to ₹15,000 per charge, and every debit needs a pre-debit notice first. */
+export type AutopayEngine = 'subscription' | 'token'
+
+/** The saved-card authorisation behind token autopay. */
+export interface TokenMandate {
+  id: string
+  customerId: string
+  status: string           // Razorpay's: initiated | confirmed | rejected | cancelled | paused
+  last4?: string
+  network?: string
+  maxAmountPaise: number
+  expireAt: number
+}
+
+/** The next automatic debit on a token mandate. */
+export interface Renewal {
+  plan: PlanId
+  period: Period
+  dueAt: number
+  /** order created with the pre-debit notice; the debit may only fire after payAfter */
+  orderId?: string
+  payAfter?: number
+  /** debit submitted but the bank hasn't confirmed yet */
+  paymentId?: string
+  submittedAt?: number
 }
 
 /** A checkout that has been started but not yet confirmed by a verified signature. */
 export interface PendingCheckout {
   mode: 'once' | 'autopay'
+  engine?: AutopayEngine
+  /** token engine, "turn on at renewal": a ₹1 card verification instead of the full price */
+  authOnly?: boolean
   plan: PlanId
   period: Period
   orderId?: string
@@ -74,8 +110,13 @@ export interface Invoice {
   periodStart: number
   periodEnd: number
   description: string
+  /** plan summary and allowances printed under the description */
+  details?: string[]
+  qty?: number
+  /** per-unit price before GST */
+  rate?: number
   sac: string
-  seller: { name: string; address: string; gstin?: string; stateCode: string }
+  seller: { name: string; brand?: string; cin?: string; address: string; gstin?: string; stateCode: string }
   /** snapshot of who was billed at the time — later edits to the profile don't rewrite history */
   buyer: BillingProfile
   placeOfSupplyCode: string
@@ -97,14 +138,17 @@ export interface DunningAttempt {
   at: number
   /** charge = the failed automatic debit; collection = a pay-now request sent to the customer */
   kind: 'charge' | 'collection'
-  result: 'failed' | 'sent' | 'paid' | 'send_failed' | 'expired'
+  /** pending = a debit was submitted and the bank hasn't answered yet */
+  result: 'failed' | 'sent' | 'paid' | 'send_failed' | 'expired' | 'pending'
   reason?: string
+  paymentId?: string
   linkId?: string
   linkUrl?: string
 }
 
 export interface Dunning {
   state: 'active' | 'recovered' | 'exhausted'
+  engine?: AutopayEngine
   /** the billing cycle that failed — identifies it so we never start twice for one cycle */
   cycleKey: number
   startedAt: number
@@ -115,8 +159,13 @@ export interface Dunning {
   period: Period
   attempts: DunningAttempt[]
   nextAttemptAt: number | null
+  /** token engine: a pay-now link kept open so the customer can fix it immediately */
+  linkId?: string
+  linkUrl?: string
+  /** token engine: the notified order the NEXT debit retry will use */
+  retryOrder?: { orderId: string; payAfter: number } | null
   resolvedAt?: number
-  resolution?: 'paid_via_link' | 'razorpay_retry' | 'window_elapsed'
+  resolution?: 'paid_via_link' | 'razorpay_retry' | 'auto_retry' | 'window_elapsed'
 }
 
 export interface BillingRecord {
@@ -126,6 +175,11 @@ export interface BillingRecord {
   mode: 'once' | 'autopay' | null
   status: SubStatus
   subscriptionId?: string
+  engine?: AutopayEngine
+  /** Razorpay customer the saved card belongs to */
+  customerId?: string
+  mandate?: TokenMandate | null
+  renewal?: Renewal | null
   currentStart?: number | null
   currentEnd?: number | null
   nextChargeAt?: number | null
@@ -156,6 +210,8 @@ export interface BillingStore {
   findBySubscription(subscriptionId: string): Promise<BillingRecord | null>
   /** Records currently in dunning — what the background job works through. */
   listActiveDunning(): Promise<BillingRecord[]>
+  /** Records on token autopay — the job that sends notices and debits works through these. */
+  listTokenAutopay(): Promise<BillingRecord[]>
   /** Atomic counter (invoice numbers must be gapless and never repeat, across all customers). */
   nextSequence(key: string): Promise<number>
 }
