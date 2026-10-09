@@ -40,6 +40,89 @@ export const PLAN_CATALOG: Record<PlanId, PlanInfo> = {
   },
 }
 
+/* ── add-ons ───────────────────────────────────────────────────────────────
+   Extra capacity sold on top of a plan. Mirrors USAGE_ADDONS in src/constants/pricing.js
+   (keep them in sync). Prices are ₹, excl. GST, for ONE unit per billing period; yearly is
+   the sheet's yearly price, not 12× monthly. The browser sends only ids and quantities. */
+export interface AddonDef {
+  id: string
+  name: string
+  unit: string
+  monthly: number
+  yearly: number
+  /** most that can be bought at once; 1 = a flat-rate add-on */
+  maxQty: number
+  /** plans it can be bought with */
+  plans: PlanId[]
+  /** WhatsApp-only (hidden for Website Chat) */
+  whatsapp?: boolean
+  /** can't be bought together with these */
+  excludes?: string[]
+}
+const PRO_AI: PlanId[] = ['pro', 'ai']
+export const ADDON_CATALOG: AddonDef[] = [
+  { id: 'extra-chatbots',      name: 'Extra Chatbots',          unit: 'per 5 chatbots',          monthly: 1000,  yearly: 9600,    maxQty: 20,  plans: PRO_AI },
+  { id: 'extra-live-agent',    name: 'Extra Live Agent',        unit: 'per agent',               monthly: 1000,  yearly: 9600,    maxQty: 50,  plans: PRO_AI },
+  { id: 'extra-language',      name: 'Extra Language',          unit: 'per language beyond 2',   monthly: 1000,  yearly: 9600,    maxQty: 20,  plans: PRO_AI },
+  { id: 'wa-bi-messages',      name: 'WhatsApp BI Messages',    unit: 'per 1,000 messages/mo',   monthly: 200,   yearly: 2400,    maxQty: 100, plans: PRO_AI, whatsapp: true },
+  { id: 'web-chats',           name: 'UI / Website Chats',      unit: 'per 1,000 chats/mo',      monthly: 600,   yearly: 7200,    maxQty: 100, plans: PRO_AI },
+  { id: 'sms-otps',            name: 'SMS OTPs',                unit: 'per 1,000 OTPs',          monthly: 500,   yearly: 6000,    maxQty: 100, plans: PRO_AI },
+  { id: 'wa-otps',             name: 'WhatsApp OTPs',           unit: 'per 1,000 OTPs',          monthly: 500,   yearly: 6000,    maxQty: 100, plans: PRO_AI, whatsapp: true },
+  { id: 'sms-notifications',   name: 'SMS Notifications',       unit: 'per 1,000 notifications', monthly: 500,   yearly: 6000,    maxQty: 100, plans: PRO_AI },
+  { id: 'wa-notifications',    name: 'WhatsApp Notifications',  unit: 'per 1,000 notifications', monthly: 500,   yearly: 6000,    maxQty: 100, plans: PRO_AI, whatsapp: true },
+  { id: 'media-upload',        name: 'Media Upload',            unit: 'per 50 files',            monthly: 800,   yearly: 9600,    maxQty: 50,  plans: PRO_AI },
+  { id: 'text-to-speech',      name: 'Text to Speech',          unit: 'flat rate',               monthly: 800,   yearly: 7200,    maxQty: 1,   plans: PRO_AI },
+  { id: 'remove-branding',     name: 'Remove Branding',         unit: 'flat rate',               monthly: 1900,  yearly: 20280,   maxQty: 1,   plans: PRO_AI },
+  { id: 'basic-support',       name: 'Basic Support',           unit: 'flat rate',               monthly: 6999,  yearly: 71988,   maxQty: 1,   plans: PRO_AI, excludes: ['premium-support'] },
+  { id: 'premium-support',     name: 'Premium Support',         unit: 'flat rate',               monthly: 14999, yearly: 143988,  maxQty: 1,   plans: PRO_AI, excludes: ['basic-support'] },
+]
+const ADDON_BY_ID = new Map(ADDON_CATALOG.map((a) => [a.id, a]))
+
+export interface AddonSel { id: string; qty: number }
+export interface AddonLine { id: string; name: string; unit: string; qty: number; rate: number; amount: number }
+
+/** Validate what the browser sent: known ids, sensible quantities, allowed on this plan. */
+export function normalizeAddons(input: unknown, plan: PlanId): { ok: true; addons: AddonSel[] } | { ok: false; message: string } {
+  if (input === undefined || input === null) return { ok: true, addons: [] }
+  if (!Array.isArray(input) || input.length > 40) return { ok: false, message: 'Add-ons must be a list.' }
+  const qtyById = new Map<string, number>()
+  for (const raw of input) {
+    const r = (raw ?? {}) as Record<string, unknown>
+    const def = typeof r.id === 'string' ? ADDON_BY_ID.get(r.id) : undefined
+    if (!def) return { ok: false, message: 'One of the add-ons is not available.' }
+    const qty = Number(r.qty)
+    if (!Number.isInteger(qty) || qty < 0 || qty > def.maxQty) return { ok: false, message: `${def.name}: choose between 0 and ${def.maxQty}.` }
+    if (qty === 0) continue
+    if (!def.plans.includes(plan)) return { ok: false, message: `${def.name} is not available on this plan.` }
+    qtyById.set(def.id, (qtyById.get(def.id) ?? 0) + qty)
+  }
+  const addons: AddonSel[] = []
+  for (const def of ADDON_CATALOG) {
+    const qty = qtyById.get(def.id)
+    if (!qty) continue
+    if (qty > def.maxQty) return { ok: false, message: `${def.name}: choose between 0 and ${def.maxQty}.` }
+    if (def.excludes?.some((x) => qtyById.has(x))) return { ok: false, message: `${def.name} can't be combined with ${ADDON_BY_ID.get(def.excludes.find((x) => qtyById.has(x))!)!.name}.` }
+    addons.push({ id: def.id, qty })
+  }
+  return { ok: true, addons }
+}
+
+/** The add-ons that still apply after a plan change. */
+export const eligibleAddons = (addons: AddonSel[] | undefined, plan: PlanId): AddonSel[] =>
+  (addons ?? []).filter((a) => ADDON_BY_ID.get(a.id)?.plans.includes(plan))
+
+export function addonLines(addons: AddonSel[] | undefined, period: Period): AddonLine[] {
+  const out: AddonLine[] = []
+  for (const a of addons ?? []) {
+    const def = ADDON_BY_ID.get(a.id)
+    if (!def) continue
+    const rate = def[period]
+    out.push({ id: def.id, name: def.name, unit: def.unit, qty: a.qty, rate, amount: rate * a.qty })
+  }
+  return out
+}
+export const addonsBase = (addons: AddonSel[] | undefined, period: Period) => addonLines(addons, period).reduce((n, l) => n + l.amount, 0)
+
 /** RBI: card / UPI recurring debits above this need the customer to approve each one. */
 export const AFA_LIMIT_RUPEES = 15000
 
@@ -70,8 +153,8 @@ export interface Charge {
 /** supplier = the state we are registered in; customer = place of supply. */
 export interface PlaceOfSupply { supplier: string; customer?: string }
 
-export function chargeFor(plan: PlanId, period: Period, gstPercent: number, place?: PlaceOfSupply): Charge {
-  const base = PLAN_CATALOG[plan][period]
+export function chargeFor(plan: PlanId, period: Period, gstPercent: number, place?: PlaceOfSupply, addons?: AddonSel[]): Charge {
+  const base = PLAN_CATALOG[plan][period] + addonsBase(addons, period)
   const totalPaise = Math.round(base * (1 + gstPercent / 100) * 100)
   const total = totalPaise / 100
   const gst = Math.round((total - base) * 100) / 100

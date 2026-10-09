@@ -366,9 +366,9 @@ async function main() {
   // two passes: the first submits a debit, the second reads how the bank answered
   const tick = async () => { await svcT.runDue(); await svcT.runDue() }
   let tokenN = 0
-  async function activateT(ws: string, plan = 'pro', period = 'monthly') {
+  async function activateT(ws: string, plan = 'pro', period = 'monthly', addons?: { id: string; qty: number }[]) {
     await callT('PUT', '/profile', good, ws)
-    const co = (await callT('POST', '/checkout', { plan, period, mode: 'autopay', consent: true }, ws)).body as RzEntity
+    const co = (await callT('POST', '/checkout', { plan, period, mode: 'autopay', consent: true, addons }, ws)).body as RzEntity
     const tokenId = `token_${++tokenN}`
     const payId = fake.pay(co.orderId, co.amount, { status: 'authorized', token_id: tokenId, customer_id: co.customerId })
     const v = await callT('POST', '/verify', { razorpay_payment_id: payId, razorpay_order_id: co.orderId, razorpay_signature: sign(co.orderId, payId) }, ws)
@@ -504,6 +504,82 @@ async function main() {
   check('no debit after switching off; the plan then ends', fake.debits.length === before5 && s5.status === 'expired', [s5.status, fake.debits.length - before5])
   const y = (await callT('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'autopay', consent: true }, 'wt')).body as RzEntity
   check('yearly autopay still goes through Razorpay Subscriptions (needs it enabled)', y.engine === undefined && !!y.subscriptionId && !y.orderId, y)
+
+  console.log('\nadd-ons bought with the plan')
+  await callT('PUT', '/profile', good, 'wa1')
+  const AD = [{ id: 'extra-live-agent', qty: 2 }, { id: 'remove-branding', qty: 1 }]
+  r = await callT('POST', '/quote', { plan: 'pro', period: 'monthly', addons: AD }, 'wa1')
+  const qa = r.body as RzEntity
+  check('quote prices the plan plus add-ons (₹6,500 + 2×₹1,000 + ₹1,900 + 18% GST)', qa.charge.base === 10400 && qa.charge.total === 12272 && qa.planBase === 6500 && qa.addons.length === 2 && qa.addons[0].amount === 2000, qa)
+  r = await callT('POST', '/quote', { plan: 'standard', period: 'monthly', addons: AD }, 'wa1')
+  check('add-ons not offered on a plan are refused', r.status === 400 && (r.body as RzEntity).error === 'invalid_addons', r.body)
+  r = await callT('POST', '/quote', { plan: 'pro', period: 'monthly', addons: [{ id: 'extra-live-agent', qty: 999 }] }, 'wa1')
+  check('absurd quantities are refused', r.status === 400, r.body)
+  r = await callT('POST', '/quote', { plan: 'pro', period: 'monthly', addons: [{ id: 'basic-support', qty: 1 }, { id: 'premium-support', qty: 1 }] }, 'wa1')
+  check('Basic and Premium Support cannot be combined', r.status === 400, r.body)
+  r = await callT('POST', '/quote', { plan: 'pro', period: 'monthly', addons: [{ id: 'nope', qty: 1 }] }, 'wa1')
+  check('unknown add-ons are refused', r.status === 400, r.body)
+  r = await callT('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'autopay', consent: true, addons: [{ id: 'basic-support', qty: 1 }] }, 'wa1')
+  check('plan + add-ons over ₹15,000 cannot use card autopay (falls to Subscriptions)', (r.body as RzEntity).engine !== 'token', r.body)
+  const WA = await activateT('wa2', 'pro', 'monthly', AD)
+  check('plan and add-ons are charged together in one payment', WA.co.amount === 1227200 && fake.orders.get(WA.co.orderId)!.amount === 1227200, WA.co.amount)
+  check('add-ons are active with the plan, listed with their prices', WA.sum.status === 'active' && WA.sum.addons.length === 2 && WA.sum.addons[0].name === 'Extra Live Agent' && WA.sum.addons[0].qty === 2 && WA.sum.charge.total === 12272, WA.sum.addons)
+  const waInv = ((await callT('GET', '/invoices', undefined, 'wa2')).body as RzEntity).items[0]
+  const waPage = String((await callT('GET', `/invoices/${waInv.id}/view`, undefined, 'wa2')).body)
+  check('the invoice has a row for the plan and one per add-on, totalling the payment', waInv.amountPaise === 1227200 && waPage.includes('Add-on: Extra Live Agent') && waPage.includes('Add-on: Remove Branding') && waPage.includes('₹10,400.00') && waPage.includes('₹12,272.00') && waPage.includes('₹2,000.00'))
+  const dueA = WA.sum.currentEnd as number
+  t = dueA - 48 * HOUR; await tick(); t = dueA; await tick()
+  check('the renewal debits the plan AND its add-ons', fake.debits.slice(-1)[0]!.amount === 1227200, fake.debits.slice(-1)[0])
+  r = await callT('POST', '/change-plan', { plan: 'standard', period: 'monthly' }, 'wa2')
+  check('switching to a plan without those add-ons drops them and says so', r.status === 200 && (r.body as RzEntity).droppedAddons === 2 && (r.body as RzEntity).autopay.next.total === 4130, r.body)
+  await callT('POST', '/autopay', { enabled: false }, 'wa2')
+  const once = (await callT('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'once', addons: [{ id: 'extra-chatbots', qty: 1 }] }, 'wa1')).body as RzEntity
+  check('pay-once includes add-ons too (₹72,000 + ₹9,600 + 18% = ₹96,288)', once.amount === 9628800, once.amount)
+
+  console.log('\nchanging the payment card')
+  fake.state.debit = 'capture'
+  const CU = await activateT('wc1')
+  const dueC = CU.sum.currentEnd as number
+  r = await callT('POST', '/payment-method', {}, 'wc1')
+  const cu = r.body as RzEntity
+  check('a ₹1 card check is started on the same customer', r.status === 200 && cu.amount === 100 && cu.updateCard === true && cu.customerId === CU.co.customerId && fake.orders.get(cu.orderId)!.method === 'card', r.body)
+  const newPay = fake.pay(cu.orderId, 100, { status: 'authorized', token_id: 'token_new1', customer_id: cu.customerId, card: { last4: '4242', network: 'Visa' } })
+  r = await callT('POST', '/verify', { razorpay_payment_id: newPay, razorpay_order_id: cu.orderId, razorpay_signature: 'bad' }, 'wc1')
+  check('a forged signature changes nothing', r.status === 400 && (await statusT('wc1')).autopay.card.last4 === '1111')
+  t = dueC - 48 * HOUR; await tick()
+  const noticeBefore = noticeOrders().filter((o) => o.notification.token_id === CU.tokenId).length
+  r = await callT('POST', '/verify', { razorpay_payment_id: newPay, razorpay_order_id: cu.orderId, razorpay_signature: sign(cu.orderId, newPay) }, 'wc1')
+  const cs = r.body as RzEntity
+  check('the new card replaces the old one; plan and renewal date unchanged', cs.autopay.card.last4 === '4242' && cs.status === 'active' && cs.currentEnd === dueC && cs.autopay.next.dueAt === dueC, cs.autopay)
+  check('the old card is removed from Razorpay and the ₹1 is refunded', fake.deletedTokens.includes(CU.tokenId) && fake.refunds.includes(newPay))
+  check('the ₹1 check is not a payment or an invoice', ((await callT('GET', '/invoices', undefined, 'wc1')).body as RzEntity).items.length === 1)
+  check('a fresh renewal notice goes out for the new card straight away', cs.autopay.next.noticeSent === true)
+  await tick()
+  const newNotice = noticeOrders().filter((o) => o.notification.token_id === 'token_new1')
+  check('…addressed to the new card', newNotice.length === 1 && noticeBefore === 1, [newNotice.length, noticeBefore])
+  t = dueC; await tick()
+  check('the renewal is debited on the new card', (await statusT('wc1')).currentStart === dueC && fake.debits.slice(-1)[0]!.orderId === newNotice[0]!.id)
+  fake.state.debit = 'fail'
+  const CD = await activateT('wc2')
+  const dueD = CD.sum.currentEnd as number
+  t = dueD - 48 * HOUR; await tick(); t = dueD; await tick()
+  check('(setup) debit failed, plan is past due', (await statusT('wc2')).status === 'past_due')
+  const retryBefore = (await store.get('wc2'))!.dunning!.retryOrder!.orderId
+  r = await callT('POST', '/payment-method', {}, 'wc2')
+  const cu2 = r.body as RzEntity
+  const pay2 = fake.pay(cu2.orderId, 100, { status: 'authorized', token_id: 'token_new2', customer_id: cu2.customerId })
+  r = await callT('POST', '/verify', { razorpay_payment_id: pay2, razorpay_order_id: cu2.orderId, razorpay_signature: sign(cu2.orderId, pay2) }, 'wc2')
+  const dunAfter = (await store.get('wc2'))!.dunning!
+  check('fixing the card during dunning re-aims the next retry at the new card', r.status === 200 && dunAfter.retryOrder!.orderId !== retryBefore && fake.orders.get(dunAfter.retryOrder!.orderId)!.notification.token_id === 'token_new2', dunAfter.retryOrder)
+  check('and keeps the 48-hour schedule', dunAfter.nextAttemptAt === dueD + 48 * HOUR)
+  fake.state.debit = 'capture'
+  t = dueD + 48 * HOUR; await tick()
+  const wc2 = await statusT('wc2')
+  check('the retry on the new card recovers the plan', wc2.status === 'active' && wc2.dunning === null && fake.debits.slice(-1)[0]!.orderId === dunAfter.retryOrder!.orderId, wc2.status)
+  await callT('POST', '/autopay', { enabled: false }, 'wc2')
+  await callT('POST', '/autopay', { enabled: false }, 'wc1')
+  r = await callT('POST', '/payment-method', {}, 'wc1')
+  check('no card to change once autopay is off', r.status === 409, r.body)
 
   console.log('\nthe tax invoice')
   const invPage = String((await callT('GET', `/invoices/${(s1.latestInvoice as RzEntity).id}/view`, undefined, 'wt')).body)

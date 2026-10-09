@@ -1,4 +1,4 @@
-import type { Period, PlanId } from './catalog.js'
+import type { AddonSel, Period, PlanId } from './catalog.js'
 import type { BillingProfile } from './india.js'
 
 /* 'past_due' and 'suspended' are ours: a failed renewal is past due while we are still
@@ -63,6 +63,7 @@ export interface TokenMandate {
 export interface Renewal {
   plan: PlanId
   period: Period
+  addons?: AddonSel[]
   dueAt: number
   /** order created with the pre-debit notice; the debit may only fire after payAfter */
   orderId?: string
@@ -78,8 +79,11 @@ export interface PendingCheckout {
   engine?: AutopayEngine
   /** token engine, "turn on at renewal": a ₹1 card verification instead of the full price */
   authOnly?: boolean
+  /** replacing the saved card (₹1 verification, refunded) — nothing else changes */
+  updateCard?: boolean
   plan: PlanId
   period: Period
+  addons?: AddonSel[]
   orderId?: string
   subscriptionId?: string
   /** the customer's consent to recurring charges, recorded when they authorise */
@@ -94,10 +98,19 @@ export interface UpcomingSubscription {
   subscriptionId: string
   plan: PlanId
   period: Period
+  addons?: AddonSel[]
   startsAt: number
 }
 
 /* ── tax invoice ───────────────────────────────────────────────────────── */
+export interface InvoiceItem {
+  description: string
+  qty: number
+  unit: string            // month | year | the add-on's own unit
+  rate: number            // per unit, before GST
+  taxable: number
+}
+
 export interface Invoice {
   id: string                  // URL-safe, e.g. SB-2026-27-000001
   number: string              // as printed, e.g. SB/2026-27/000001
@@ -115,6 +128,8 @@ export interface Invoice {
   qty?: number
   /** per-unit price before GST */
   rate?: number
+  /** plan + each add-on, one row apiece */
+  items?: InvoiceItem[]
   sac: string
   seller: { name: string; brand?: string; cin?: string; address: string; gstin?: string; stateCode: string }
   /** snapshot of who was billed at the time — later edits to the profile don't rewrite history */
@@ -157,6 +172,7 @@ export interface Dunning {
   amountPaise: number
   plan: PlanId
   period: Period
+  addons?: AddonSel[]
   attempts: DunningAttempt[]
   nextAttemptAt: number | null
   /** token engine: a pay-now link kept open so the customer can fix it immediately */
@@ -180,6 +196,8 @@ export interface BillingRecord {
   customerId?: string
   mandate?: TokenMandate | null
   renewal?: Renewal | null
+  /** add-ons bought with the current plan; they renew with it */
+  addons?: AddonSel[]
   currentStart?: number | null
   currentEnd?: number | null
   nextChargeAt?: number | null
@@ -189,7 +207,7 @@ export interface BillingRecord {
   cancelAtCycleEnd: boolean
   /** autopay stopped working (failed renewals) and the customer paid manually instead */
   autopayLapsed?: boolean
-  scheduledChange?: { plan: PlanId; period: Period; at: number } | null
+  scheduledChange?: { plan: PlanId; period: Period; at: number; addons?: AddonSel[] } | null
   upcoming?: UpcomingSubscription | null
   paymentMethod?: PaymentMethod | null
   payments: PaymentLogEntry[]

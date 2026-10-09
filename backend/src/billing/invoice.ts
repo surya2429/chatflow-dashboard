@@ -9,9 +9,9 @@
 //
 // It is NOT legal advice: the supplier details and SAC code below come from
 // configuration and must be confirmed with your CA before relying on these invoices.
-import { PLAN_CATALOG, chargeFor, type Period, type PlanId } from './catalog.js'
+import { PLAN_CATALOG, addonLines, chargeFor, type AddonSel, type Period, type PlanId } from './catalog.js'
 import { stateName, type BillingProfile } from './india.js'
-import type { Invoice } from './types.js'
+import type { Invoice, InvoiceItem } from './types.js'
 
 export interface SellerInfo {
   /** registered legal name */
@@ -61,6 +61,7 @@ export interface BuildInvoiceInput {
   gstPercent: number
   /** what was actually paid, in paise — wins over today's catalog price if they differ */
   amountPaise?: number
+  addons?: AddonSel[]
   method?: string
   kind: Invoice['kind']
 }
@@ -76,9 +77,10 @@ export function allowanceNote(plan: PlanId, period: Period): string {
 }
 
 export function buildInvoice(i: BuildInvoiceInput): Invoice {
-  const c = chargeFor(i.plan, i.period, i.gstPercent, { supplier: i.seller.stateCode, customer: i.buyer.address.stateCode })
+  const c = chargeFor(i.plan, i.period, i.gstPercent, { supplier: i.seller.stateCode, customer: i.buyer.address.stateCode }, i.addons)
   const taxKind = c.tax.kind === 'intra' ? 'intra' : 'inter'
   // If the price has changed since this was paid, the invoice must show what was actually charged.
+  const repriced = Boolean(i.amountPaise && i.amountPaise !== c.totalPaise)
   if (i.amountPaise && i.amountPaise !== c.totalPaise) {
     const total = i.amountPaise / 100
     const base = Math.round((total / (1 + i.gstPercent / 100)) * 100) / 100
@@ -86,6 +88,14 @@ export function buildInvoice(i: BuildInvoiceInput): Invoice {
     const half = Math.round((gst * 100) / 2) / 100
     Object.assign(c, { base, gst, total, totalPaise: i.amountPaise, tax: taxKind === 'intra' ? { kind: 'intra', cgst: half, sgst: Math.round((gst - half) * 100) / 100, igst: 0 } : { kind: 'inter', cgst: 0, sgst: 0, igst: gst } })
   }
+  const planName = PLAN_CATALOG[i.plan].name
+  const unit = i.period === 'yearly' ? 'year' : 'month'
+  const lines = addonLines(i.addons, i.period)
+  // One row for the plan and one per add-on — unless the amount was re-derived, when the rows wouldn't add up.
+  const items: InvoiceItem[] | undefined = repriced ? undefined : [
+    { description: `SmatBot ${planName} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription`, qty: 1, unit, rate: PLAN_CATALOG[i.plan][i.period], taxable: PLAN_CATALOG[i.plan][i.period] },
+    ...lines.map((l) => ({ description: `Add-on: ${l.name} (${l.unit})`, qty: l.qty, unit: l.unit, rate: l.rate, taxable: l.amount })),
+  ]
   return {
     id: invoiceId(i.number),
     number: i.number,
@@ -97,9 +107,10 @@ export function buildInvoice(i: BuildInvoiceInput): Invoice {
     period: i.period,
     periodStart: i.periodStart,
     periodEnd: i.periodEnd,
-    description: `SmatBot ${PLAN_CATALOG[i.plan].name} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription`,
+    description: `SmatBot ${planName} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription${lines.length ? ' + add-ons' : ''}`,
     qty: 1,
     rate: c.base,
+    items,
     sac: i.seller.sac,
     seller: { name: i.seller.name, brand: i.seller.brand, cin: i.seller.cin, address: i.seller.address, gstin: i.seller.gstin, stateCode: i.seller.stateCode },
     buyer: structuredClone(i.buyer),
@@ -127,6 +138,7 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   const b = inv.buyer
   const addr = [b.address.line1, b.address.line2, `${b.address.city}, ${stateName(b.address.stateCode)} ${b.address.pincode}`, 'India'].filter(Boolean).map(esc).join('<br>')
   const half = inv.gstPercent / 2
+  const dates = `<div class="small muted" style="margin-top:4px">Plan start date: <b>${day(inv.periodStart)}</b></div><div class="small muted">Plan end date: <b>${day(inv.periodEnd)}</b></div>`
   const qty = inv.qty ?? 1
   const rate = inv.rate ?? inv.taxable / qty
   const unit = inv.period === 'yearly' ? 'year' : 'month'
@@ -134,6 +146,8 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   const logo = seller?.logo
   const emails = seller?.emails ?? []
   const notes = seller?.notes ?? []
+  const rows = (inv.items?.length ? inv.items : [{ description: inv.description, qty: inv.qty ?? 1, unit: inv.period === 'yearly' ? 'year' : 'month', rate: inv.rate ?? inv.taxable, taxable: inv.taxable }])
+    .map((it, n) => `<tr><td>${n + 1}</td><td><b>${esc(it.description)}</b>${n === 0 ? dates : ''}</td><td class="n">${esc(inv.sac)}</td><td class="r">${it.qty}${n === 0 ? ' ' + esc(it.unit) : ''}</td><td class="r">${inr(it.rate)}</td><td class="r">${inr(it.taxable)}</td></tr>`).join('')
   const contact = [emails.length ? `Email: ${emails.map(esc).join(' or ')}` : '', seller?.phone ? `Phone: ${esc(seller.phone)}` : ''].filter(Boolean).join(' &nbsp;·&nbsp; ')
   const allNotes = [...notes, allowanceNote(inv.plan, inv.period)]
   const taxRows = inv.taxKind === 'intra'
@@ -174,7 +188,7 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   </div>
   <div class="items"><table class="lines">
     <thead><tr><th>#</th><th>Description</th><th class="n">SAC</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Taxable value</th></tr></thead>
-    <tbody><tr><td>1</td><td><b>${esc(inv.description)}</b><div class="small muted" style="margin-top:4px">Plan start date: <b>${day(inv.periodStart)}</b></div><div class="small muted">Plan end date: <b>${day(inv.periodEnd)}</b></div></td><td class="n">${esc(inv.sac)}</td><td class="r">${qty} ${unit}</td><td class="r">${inr(rate)}</td><td class="r">${inr(inv.taxable)}</td></tr></tbody>
+    <tbody>${rows}</tbody>
   </table></div>
   <table class="totals"><tbody>
     <tr><td>Taxable value</td><td class="r">${inr(inv.taxable)}</td></tr>${taxRows}

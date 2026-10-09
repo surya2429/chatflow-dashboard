@@ -29,8 +29,8 @@
 //   • Payments are idempotent by Razorpay payment id: a webhook, a poll and a
 //     dashboard refresh can all report the same payment and it is recorded once.
 import {
-  AFA_LIMIT_RUPEES, PLAN_CATALOG, PLAN_ORDER, addPeriod, chargeFor, isPeriod, isPlanId,
-  needsApprovalEachCycle, planKey, totalCount, type Period, type PlanId,
+  AFA_LIMIT_RUPEES, PLAN_CATALOG, PLAN_ORDER, ADDON_CATALOG, addPeriod, addonLines, chargeFor, eligibleAddons, normalizeAddons, isPeriod, isPlanId,
+  needsApprovalEachCycle, planKey, totalCount, type AddonSel, type Period, type PlanId,
 } from './catalog.js'
 import { RazorpayError, verifyWebhookSignature, type Razorpay, type RzEntity } from './razorpay.js'
 import { STATES, stateName, validateProfile } from './india.js'
@@ -102,12 +102,13 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* The charge for a plan, with GST labelled for the customer's state when known.
      The TOTAL is the same either way; only CGST/SGST vs IGST changes. */
-  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null) =>
-    chargeFor(plan, period, gstPercent, { supplier, customer: rec?.profile?.address.stateCode })
+  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null, addons?: AddonSel[]) =>
+    chargeFor(plan, period, gstPercent, { supplier, customer: rec?.profile?.address.stateCode }, addons)
 
   /* What goes on the Razorpay order / subscription as notes (visible in their dashboard). */
-  const notesFor = (rec: BillingRecord, plan: PlanId, period: Period) => ({
+  const notesFor = (rec: BillingRecord, plan: PlanId, period: Period, addons?: AddonSel[]) => ({
     workspaceId: rec.workspaceId, plan, period,
+    ...(addons?.length ? { addons: addons.map((a) => `${a.id}x${a.qty}`).join(',').slice(0, 250) } : {}),
     ...(rec.profile ? {
       billedTo: rec.profile.legalName.slice(0, 100),
       gstin: rec.profile.gstin ?? 'unregistered',
@@ -119,8 +120,8 @@ export function createBillingService(opts: BillingServiceOptions) {
   const planIdCache = new Map<string, string>()
   const keyByPlanId = new Map<string, { plan: PlanId; period: Period }>()
 
-  async function ensureRazorpayPlan(plan: PlanId, period: Period): Promise<string> {
-    const c = chargeFor(plan, period, gstPercent)
+  async function ensureRazorpayPlan(plan: PlanId, period: Period, addons?: AddonSel[]): Promise<string> {
+    const c = chargeFor(plan, period, gstPercent, undefined, addons)
     const key = planKey(plan, period)
     const cacheKey = `${key}:${c.totalPaise}`
     const cached = planIdCache.get(cacheKey)
@@ -139,7 +140,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       period,
       interval: 1,
       item: {
-        name: `SmatBot ${PLAN_CATALOG[plan].name} (${period === 'monthly' ? 'Monthly' : 'Yearly'})`,
+        name: `SmatBot ${PLAN_CATALOG[plan].name} (${period === 'monthly' ? 'Monthly' : 'Yearly'})${addons?.length ? ' + add-ons' : ''}`,
         description: `Includes ${gstPercent}% GST`,
         amount: c.totalPaise,
         currency: 'INR',
@@ -192,7 +193,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       const info = await planFromRazorpayPlanId(sub.plan_id)
       if (info) { rec.plan = info.plan; rec.period = info.period }
     }
-    if (rec.scheduledChange && !sub.has_scheduled_changes) rec.scheduledChange = null
+    if (rec.scheduledChange && !sub.has_scheduled_changes) { if (rec.scheduledChange.addons) rec.addons = rec.scheduledChange.addons; rec.scheduledChange = null }
     rec.updatedAt = now()
   }
 
@@ -204,6 +205,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     plan: PlanId
     period: Period
     amountPaise: number
+    addons?: AddonSel[]
     method?: string
     at?: number
     periodStart: number
@@ -231,7 +233,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       seller, buyer: rec.profile, number: invoiceNumber(seller.prefix, fy, seq), issuedAt,
       paymentId: p.paymentId, orderId: p.orderId, subscriptionId: p.subscriptionId,
       plan: p.plan, period: p.period, periodStart: p.periodStart, periodEnd: p.periodEnd,
-      gstPercent, amountPaise: p.amountPaise, method: p.method, kind: p.kind,
+      gstPercent, amountPaise: p.amountPaise, addons: p.addons, method: p.method, kind: p.kind,
     })
     rec.invoices.unshift(inv)
     return inv
@@ -249,7 +251,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       const wasDunning = rec.dunning?.state === 'active'
       await recordPayment(rec, {
         paymentId: inv.payment_id, subscriptionId: sub.id, plan: rec.plan, period: rec.period,
-        amountPaise: inv.amount ?? chargeOf(rec.plan, rec.period, rec).totalPaise, method: payment?.method,
+        amountPaise: inv.amount ?? chargeOf(rec.plan, rec.period, rec, rec.addons).totalPaise, addons: rec.addons, method: payment?.method,
         at: inv.paid_at ?? now(), periodStart: start, periodEnd: inv.billing_end ?? addPeriod(start, rec.period),
         kind: wasDunning ? 'dunning_recovery' : rec.payments.length ? 'renewal' : 'purchase',
       })
@@ -261,15 +263,16 @@ export function createBillingService(opts: BillingServiceOptions) {
   /* ── dunning ───────────────────────────────────────────────────────────── */
   const stopLink = (id?: string) => (id ? rz!.request('POST', `/payment_links/${id}/cancel`).catch(() => undefined) : undefined)
 
-  function startDunning(rec: BillingRecord, reason: string, due?: { plan: PlanId; period: Period }): void {
+  function startDunning(rec: BillingRecord, reason: string, due?: { plan: PlanId; period: Period; addons?: AddonSel[] }): void {
     const plan = due?.plan ?? rec.plan
     const period = due?.period ?? rec.period
+    const addons = due ? due.addons : rec.addons
     if (!plan || !period) return
     const t = now()
     const times = attemptTimes(t, policy)
     const dun: Dunning = {
       state: 'active', engine: rec.engine ?? 'subscription', cycleKey: rec.currentEnd ?? t, startedAt: t, deadline: deadlineFor(t, policy),
-      amountPaise: chargeOf(plan, period, rec).totalPaise, plan, period,
+      amountPaise: chargeOf(plan, period, rec, addons).totalPaise, plan, period, addons,
       attempts: [{ n: 1, at: t, kind: 'charge', result: 'failed', reason }],
       nextAttemptAt: times[1] ?? null,
     }
@@ -429,14 +432,14 @@ export function createBillingService(opts: BillingServiceOptions) {
     const d = rec.dunning
     const start = r.dueAt
     const end = addPeriod(start, r.period)
-    rec.plan = r.plan; rec.period = r.period; rec.mode = 'autopay'; rec.status = 'active'
+    rec.plan = r.plan; rec.period = r.period; rec.addons = r.addons; rec.mode = 'autopay'; rec.status = 'active'
     rec.currentStart = start; rec.currentEnd = end; rec.nextChargeAt = end
     rec.paidCount = (rec.paidCount ?? 0) + 1
     rec.cancelAtCycleEnd = false; rec.scheduledChange = null; rec.autopayLapsed = false
     rec.paymentMethod = methodOf(payment) ?? rec.paymentMethod
     await recordPayment(rec, {
       paymentId, orderId: payment?.order_id, plan: r.plan, period: r.period,
-      amountPaise: payment?.amount ?? chargeOf(r.plan, r.period, rec).totalPaise, method: payment?.method,
+      amountPaise: payment?.amount ?? chargeOf(r.plan, r.period, rec, r.addons).totalPaise, addons: r.addons, method: payment?.method,
       periodStart: start, periodEnd: end, kind: d?.state === 'active' ? 'dunning_recovery' : 'renewal',
     })
     if (d?.state === 'active') {
@@ -445,7 +448,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       d.linkId = undefined; d.linkUrl = undefined; d.retryOrder = null
       d.state = 'recovered'; d.resolution = how ?? 'auto_retry'; d.resolvedAt = now(); d.nextAttemptAt = null
     }
-    rec.renewal = { plan: r.plan, period: r.period, dueAt: end }
+    rec.renewal = { plan: r.plan, period: r.period, addons: r.addons, dueAt: end }
   }
 
   /* A pay-now link kept open for the whole window, so the customer can fix it at any moment. */
@@ -480,8 +483,8 @@ export function createBillingService(opts: BillingServiceOptions) {
   /* The renewal debit failed: start collecting. Attempt 1 is this failure; 2–4 are our retries. */
   async function failRenewal(rec: BillingRecord, reason: string): Promise<void> {
     const r = rec.renewal!
-    rec.renewal = { plan: r.plan, period: r.period, dueAt: r.dueAt }
-    startDunning(rec, reason, { plan: r.plan, period: r.period })
+    rec.renewal = { plan: r.plan, period: r.period, addons: r.addons, dueAt: r.dueAt }
+    startDunning(rec, reason, { plan: r.plan, period: r.period, addons: r.addons })
     const d = rec.dunning!
     await openPayLink(rec, d)
     await scheduleRetry(rec, d)
@@ -493,7 +496,7 @@ export function createBillingService(opts: BillingServiceOptions) {
   async function advanceRenewal(rec: BillingRecord): Promise<boolean> {
     const r = rec.renewal
     if (!r || !rec.mandate || !rec.profile || rec.dunning?.state === 'active') return false
-    const amount = chargeOf(r.plan, r.period, rec).totalPaise
+    const amount = chargeOf(r.plan, r.period, rec, r.addons).totalPaise
 
     if (r.paymentId) {                                   // a debit is in flight
       const p = await rz!.request<RzEntity>('GET', `/payments/${r.paymentId}`).catch(() => null)
@@ -583,6 +586,7 @@ export function createBillingService(opts: BillingServiceOptions) {
         const sub = await rz!.request<RzEntity>('GET', `/subscriptions/${rec.upcoming.subscriptionId}`)
         await applySubscription(rec, sub)
         rec.cancelAtCycleEnd = false
+        if (rec.upcoming.addons) rec.addons = rec.upcoming.addons
         rec.upcoming = null
         dirty = true
       } catch { stale = true }
@@ -603,7 +607,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     }
     if (dirty) { rec.updatedAt = now(); await store.put(rec) }
 
-    const c = chargeOf(rec.plan, rec.period, rec)
+    const c = chargeOf(rec.plan, rec.period, rec, rec.addons)
     const d = rec.dunning
     const status = d?.state === 'active' ? 'past_due' : rec.status
     const ending = rec.mode === 'once' || rec.cancelAtCycleEnd
@@ -621,6 +625,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       period: rec.period,
       mode: rec.mode,
       charge: { base: c.base, gst: c.gst, total: c.total, gstPercent, tax: c.tax },
+      addons: addonLines(rec.addons, rec.period),
       currentStart: rec.currentStart ?? null,
       currentEnd: rec.currentEnd ?? null,
       nextChargeAt: ending || status === 'past_due' ? null : (token ? (rn?.dueAt ?? null) : (rec.nextChargeAt ?? rec.currentEnd ?? null)),
@@ -631,10 +636,11 @@ export function createBillingService(opts: BillingServiceOptions) {
         approvalLimit: AFA_LIMIT_RUPEES,
         lapsed: Boolean(rec.autopayLapsed),
         engine: rec.engine ?? 'subscription',
+        canUpdateCard: Boolean(token && rec.mandate && rec.renewal),
         card: token && rec.mandate ? { last4: rec.mandate.last4 ?? null, network: rec.mandate.network ?? null } : null,
         next: token && rn && !rec.cancelAtCycleEnd ? (() => {
-          const nc = chargeOf(rn.plan, rn.period, rec)
-          return { plan: rn.plan, planName: PLAN_CATALOG[rn.plan].name, period: rn.period, total: nc.total, dueAt: rn.dueAt, noticeSent: Boolean(rn.orderId), changed: rn.plan !== rec.plan || rn.period !== rec.period }
+          const nc = chargeOf(rn.plan, rn.period, rec, rn.addons)
+          return { plan: rn.plan, planName: PLAN_CATALOG[rn.plan].name, period: rn.period, total: nc.total, dueAt: rn.dueAt, noticeSent: Boolean(rn.orderId), changed: rn.plan !== rec.plan || rn.period !== rec.period, addons: addonLines(rn.addons, rn.period) }
         })() : null,
       },
       dunning: d && d.state !== 'recovered' ? {
@@ -664,17 +670,20 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* ── handlers ──────────────────────────────────────────────────────────── */
   async function checkout(req: BillingRequest): Promise<BillingResponse> {
-    const { plan, period, mode, startAtCycleEnd, consent } = (req.body ?? {}) as Record<string, unknown>
+    const { plan, period, mode, startAtCycleEnd, consent, addons: addonsIn } = (req.body ?? {}) as Record<string, unknown>
     if (!isPlanId(plan) || !isPeriod(period) || (mode !== 'once' && mode !== 'autopay')) {
       return err(400, 'invalid_request', 'plan, period and mode are required.')
     }
+    const sel = normalizeAddons(addonsIn, plan)
+    if (!sel.ok) return err(400, 'invalid_addons', sel.message)
+    const addons = sel.addons
     const rec = (await store.get(req.workspaceId)) ?? blank(req.workspaceId)
     // No payment starts without knowing who is being billed (GST invoice, bank notices).
     if (!rec.profile) return err(409, 'billing_details_required', 'Add your billing details before paying.')
     // A recurring mandate needs the customer's explicit, recorded agreement.
     if (mode === 'autopay' && consent !== true) return err(409, 'consent_required', 'Please confirm that you authorise the recurring charges.')
-    const c = chargeOf(plan, period, rec)
-    const description = `SmatBot ${PLAN_CATALOG[plan].name} · ${period} (incl. ${gstPercent}% GST)`
+    const c = chargeOf(plan, period, rec, addons)
+    const description = `SmatBot ${PLAN_CATALOG[plan].name}${addons.length ? ' + add-ons' : ''} · ${period} (incl. ${gstPercent}% GST)`
     const base = { keyId, amount: c.totalPaise, currency: 'INR', description, plan, period }
 
     if (mode === 'once') {
@@ -682,9 +691,9 @@ export function createBillingService(opts: BillingServiceOptions) {
         amount: c.totalPaise,
         currency: 'INR',
         receipt: `${req.workspaceId}-${now()}`.slice(0, 40),
-        notes: notesFor(rec, plan, period),
+        notes: notesFor(rec, plan, period, addons),
       })
-      rec.pending = { mode: 'once', plan, period, orderId: order.id, createdAt: now() }
+      rec.pending = { mode: 'once', plan, period, addons, orderId: order.id, createdAt: now() }
       rec.updatedAt = now()
       await store.put(rec)
       return reply(200, { ...base, mode, orderId: order.id })
@@ -700,10 +709,10 @@ export function createBillingService(opts: BillingServiceOptions) {
       const order = await rz!.request<RzEntity>('POST', '/orders', {
         amount, currency: 'INR', receipt: `${req.workspaceId}-${now()}`.slice(0, 40), customer_id: customerId, method: 'card',
         token: { max_amount: TOKEN_MAX_PAISE, expire_at: now() + 10 * 365 * 86400, frequency: 'as_presented' },
-        notes: notesFor(rec, plan, period),
+        notes: notesFor(rec, plan, period, addons),
       })
       rec.pending = {
-        mode: 'autopay', engine: 'token', authOnly, plan, period, orderId: order.id, startAt: authOnly ? rec.currentEnd ?? undefined : undefined, createdAt: now(),
+        mode: 'autopay', engine: 'token', authOnly, plan, period, addons, orderId: order.id, startAt: authOnly ? rec.currentEnd ?? undefined : undefined, createdAt: now(),
         consent: { version: CONSENT_VERSION, at: now(), ip: req.ip, userAgent: req.userAgent, plan, period, amountPaise: c.totalPaise, orderId: order.id },
       }
       rec.updatedAt = now()
@@ -712,12 +721,12 @@ export function createBillingService(opts: BillingServiceOptions) {
     }
 
     // autopay on a Razorpay Subscription
-    const planId = await ensureRazorpayPlan(plan, period)
+    const planId = await ensureRazorpayPlan(plan, period, addons)
     const body: Record<string, unknown> = {
       plan_id: planId,
       total_count: totalCount(period),
       customer_notify: 1,
-      notes: notesFor(rec, plan, period),
+      notes: notesFor(rec, plan, period, addons),
     }
     let startAt: number | undefined
     if (startAtCycleEnd === true) {
@@ -727,7 +736,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     }
     const sub = await rz!.request<RzEntity>('POST', '/subscriptions', body)
     rec.pending = {
-      mode: 'autopay', plan, period, subscriptionId: sub.id, startAt, createdAt: now(),
+      mode: 'autopay', plan, period, addons, subscriptionId: sub.id, startAt, createdAt: now(),
       consent: { version: CONSENT_VERSION, at: now(), ip: req.ip, userAgent: req.userAgent, plan, period, amountPaise: c.totalPaise, subscriptionId: sub.id },
     }
     rec.updatedAt = now()
@@ -751,8 +760,9 @@ export function createBillingService(opts: BillingServiceOptions) {
       return err(400, 'invalid_signature', 'The payment signature did not match, so it was not applied.')
     }
 
+    if (pend.updateCard) return verifyCardUpdate(rec, pend, paymentId)
     const payment = await rz!.request<RzEntity>('GET', `/payments/${paymentId}`).catch(() => null)
-    const c = chargeOf(pend.plan, pend.period, rec)
+    const c = chargeOf(pend.plan, pend.period, rec, pend.addons)
 
     if (pend.mode === 'once') {
       // A valid signature proves Razorpay issued it; the payment itself must still
@@ -770,13 +780,13 @@ export function createBillingService(opts: BillingServiceOptions) {
       const start = now()
       rec.plan = pend.plan; rec.period = pend.period; rec.mode = 'once'; rec.status = 'active'
       rec.subscriptionId = undefined; rec.cancelAtCycleEnd = false; rec.scheduledChange = null; rec.upcoming = null
-      rec.dunning = null; rec.autopayLapsed = false
+      rec.dunning = null; rec.autopayLapsed = false; rec.addons = pend.addons ?? []
       if (rec.engine === 'token') await dropMandate(rec)
       rec.engine = undefined
       rec.currentStart = start; rec.currentEnd = addPeriod(start, pend.period); rec.nextChargeAt = null
       rec.paymentMethod = methodOf(p)
       await recordPayment(rec, {
-        paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, method: p.method,
+        paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, method: p.method,
         periodStart: rec.currentStart, periodEnd: rec.currentEnd, kind: 'purchase',
       })
     } else if (pend.engine === 'token') {
@@ -807,15 +817,15 @@ export function createBillingService(opts: BillingServiceOptions) {
 
       if (pend.authOnly) {
         await rz!.request('POST', `/payments/${paymentId}/refund`, { amount: 100 }).catch(() => undefined)
-        rec.renewal = { plan: pend.plan, period: pend.period, dueAt: rec.currentEnd ?? now() }
+        rec.renewal = { plan: pend.plan, period: pend.period, addons: pend.addons, dueAt: rec.currentEnd ?? now() }
       } else {
         const start = now()
-        rec.plan = pend.plan; rec.period = pend.period; rec.status = 'active'
+        rec.plan = pend.plan; rec.period = pend.period; rec.addons = pend.addons ?? []; rec.status = 'active'
         rec.currentStart = start; rec.currentEnd = addPeriod(start, pend.period); rec.nextChargeAt = rec.currentEnd
         rec.paidCount = (rec.paidCount ?? 0) + 1
-        rec.renewal = { plan: pend.plan, period: pend.period, dueAt: rec.currentEnd }
+        rec.renewal = { plan: pend.plan, period: pend.period, addons: pend.addons, dueAt: rec.currentEnd }
         await recordPayment(rec, {
-          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, method: p.method,
+          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, method: p.method,
           periodStart: start, periodEnd: rec.currentEnd, kind: 'purchase',
         })
       }
@@ -823,7 +833,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       const sub = await rz!.request<RzEntity>('GET', `/subscriptions/${pend.subscriptionId}`)
       if (pend.startAt) {
         // Authorised now, bills when the current period ends.
-        rec.upcoming = { subscriptionId: sub.id, plan: pend.plan, period: pend.period, startsAt: pend.startAt }
+        rec.upcoming = { subscriptionId: sub.id, plan: pend.plan, period: pend.period, addons: pend.addons, startsAt: pend.startAt }
         rec.cancelAtCycleEnd = true      // the running plan stops; the queued one continues it
         rec.paymentMethod = methodOf(payment) ?? rec.paymentMethod
         // Don't leave the old autopay running alongside the new one.
@@ -832,14 +842,14 @@ export function createBillingService(opts: BillingServiceOptions) {
         }
       } else {
         await applySubscription(rec, sub)
-        rec.cancelAtCycleEnd = false; rec.scheduledChange = null; rec.upcoming = null
+        rec.cancelAtCycleEnd = false; rec.scheduledChange = null; rec.upcoming = null; rec.addons = pend.addons ?? []
         rec.dunning = null; rec.autopayLapsed = false
         rec.paymentMethod = methodOf(payment)
         // The first debit is charged with the authorisation; invoice it as soon as it's captured.
         if (payment?.status === 'captured') {
           const start = sub.current_start ?? now()
           await recordPayment(rec, {
-            paymentId, subscriptionId: sub.id, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, method: payment.method,
+            paymentId, subscriptionId: sub.id, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, method: payment.method,
             periodStart: start, periodEnd: sub.current_end ?? addPeriod(start, pend.period), kind: 'purchase',
           })
         }
@@ -863,13 +873,15 @@ export function createBillingService(opts: BillingServiceOptions) {
       if (r.plan === plan && r.period === period) return err(409, 'same_plan', 'That is already your plan.')
       if (rec.dunning?.state === 'active') return err(409, 'not_changeable', 'Fix the payment issue on your current plan before changing it.')
       if (r.orderId) return err(409, 'notice_sent', 'Your next renewal notice has already been sent, so it can no longer be changed. Change your plan after it renews.')
-      const next = chargeOf(plan, period, rec)
+      const kept = eligibleAddons(r.addons, plan)
+      const dropped = (r.addons ?? []).length - kept.length
+      const next = chargeOf(plan, period, rec, kept)
       if (next.total > AFA_LIMIT_RUPEES) return err(409, 'autopay_limit', `Card autopay is limited to ₹${AFA_LIMIT_RUPEES.toLocaleString('en-IN')} per charge, so this plan can only be paid once.`)
-      rec.renewal = { ...r, plan, period }
-      rec.scheduledChange = plan === rec.plan && period === rec.period ? null : { plan, period, at: r.dueAt }
+      rec.renewal = { ...r, plan, period, addons: kept }
+      rec.scheduledChange = plan === rec.plan && period === rec.period && !dropped ? null : { plan, period, at: r.dueAt, addons: kept }
       rec.updatedAt = now()
       await store.put(rec)
-      return reply(200, { ...(await summarize(rec) as object), appliedNow: false })
+      return reply(200, { ...(await summarize(rec) as object), appliedNow: false, droppedAddons: dropped })
     }
     if (!rec || rec.mode !== 'autopay' || !rec.subscriptionId || !rec.plan || !rec.period) {
       return err(409, 'no_autopay_subscription', 'Plan changes need an active autopay subscription.')
@@ -879,11 +891,12 @@ export function createBillingService(opts: BillingServiceOptions) {
       return err(409, 'not_changeable', 'Fix the payment issue on your current plan before changing it.')
     }
 
-    const cur = chargeFor(rec.plan, rec.period, gstPercent)
-    const next = chargeFor(plan, period, gstPercent)
+    const keptAddons = eligibleAddons(rec.addons, plan)
+    const cur = chargeFor(rec.plan, rec.period, gstPercent, undefined, rec.addons)
+    const next = chargeFor(plan, period, gstPercent, undefined, keptAddons)
     const upgrade = next.totalPaise > cur.totalPaise
     try {
-      const planId = await ensureRazorpayPlan(plan, period)
+      const planId = await ensureRazorpayPlan(plan, period, keptAddons)
       await rz!.request('PATCH', `/subscriptions/${rec.subscriptionId}`, {
         plan_id: planId,
         remaining_count: totalCount(period),
@@ -899,13 +912,72 @@ export function createBillingService(opts: BillingServiceOptions) {
     if (upgrade) {
       const sub = await rz!.request<RzEntity>('GET', `/subscriptions/${rec.subscriptionId}`)
       await applySubscription(rec, sub)
-      rec.plan = plan; rec.period = period
+      rec.plan = plan; rec.period = period; rec.addons = keptAddons
     } else {
-      rec.scheduledChange = { plan, period, at: rec.currentEnd ?? now() }
+      rec.scheduledChange = { plan, period, at: rec.currentEnd ?? now(), addons: keptAddons }
     }
     rec.updatedAt = now()
     await store.put(rec)
     return reply(200, { ...(await summarize(rec) as object), appliedNow: upgrade })
+  }
+
+  /* ── replace the saved card ───────────────────────────────────────────── */
+  async function cardUpdateCheckout(req: BillingRequest): Promise<BillingResponse> {
+    const rec = await store.get(req.workspaceId)
+    if (!rec || rec.engine !== 'token' || !rec.mandate || !rec.renewal || !rec.profile) {
+      return err(409, 'no_card_autopay', 'There is no saved card to replace. Turn autopay on instead.')
+    }
+    const r = rec.renewal
+    const c = chargeOf(r.plan, r.period, rec, r.addons)
+    const customerId = await ensureCustomer(rec)
+    const order = await rz!.request<RzEntity>('POST', '/orders', {
+      amount: 100, currency: 'INR', receipt: `${req.workspaceId}-c${now()}`.slice(0, 40), customer_id: customerId, method: 'card',
+      token: { max_amount: TOKEN_MAX_PAISE, expire_at: now() + 10 * 365 * 86400, frequency: 'as_presented' },
+      notes: { workspaceId: rec.workspaceId, purpose: 'replace card' },
+    })
+    rec.pending = {
+      mode: 'autopay', engine: 'token', updateCard: true, authOnly: true, plan: r.plan, period: r.period, addons: r.addons, orderId: order.id, createdAt: now(),
+      consent: { version: CONSENT_VERSION, at: now(), ip: req.ip, userAgent: req.userAgent, plan: r.plan, period: r.period, amountPaise: c.totalPaise, orderId: order.id },
+    }
+    rec.updatedAt = now()
+    await store.put(rec)
+    return reply(200, {
+      keyId, amount: 100, currency: 'INR', description: 'SmatBot · change payment card', mode: 'autopay', engine: 'token',
+      orderId: order.id, customerId, recurring: true, authOnly: true, updateCard: true, plan: r.plan, period: r.period,
+    })
+  }
+
+  async function verifyCardUpdate(rec: BillingRecord, pend: NonNullable<BillingRecord['pending']>, paymentId: string): Promise<BillingResponse> {
+    let p = await rz!.request<RzEntity>('GET', `/payments/${paymentId}`).catch(() => null)
+    if (!p) return err(502, 'payment_lookup_failed', 'Could not confirm the card with Razorpay. Nothing was changed — try again in a moment.')
+    if (p.order_id !== pend.orderId) return err(400, 'order_mismatch', 'That payment belongs to a different order.')
+    if (p.status === 'authorized') p = await rz!.request<RzEntity>('POST', `/payments/${paymentId}/capture`, { amount: 100, currency: 'INR' })
+    if (p.status !== 'captured' || p.amount !== 100) return err(402, 'payment_not_captured', `Card check status is "${p.status}".`)
+    const tokenId = p.token_id as string | undefined
+    const customerId = (p.customer_id as string | undefined) ?? rec.customerId
+    if (!tokenId || !customerId) return err(502, 'card_not_saved', 'The card could not be saved for autopay. Your old card is unchanged.')
+    const tok = await rz!.request<RzEntity>('GET', `/customers/${customerId}/tokens/${tokenId}`).catch(() => null)
+    if (tok?.recurring_details?.status === 'rejected') return err(402, 'card_rejected', 'Your bank did not allow this card for autopay. Your old card is unchanged.')
+    // The ₹1 check is returned either way.
+    await rz!.request('POST', `/payments/${paymentId}/refund`, { amount: 100 }).catch(() => undefined)
+    if (rec.engine !== 'token' || !rec.mandate || !rec.renewal) {
+      rec.pending = null; await store.put(rec)
+      return err(409, 'autopay_off', 'Autopay was turned off meanwhile, so the new card was not saved.')
+    }
+    const old = rec.mandate
+    rec.mandate = { id: tokenId, customerId, status: tok?.recurring_details?.status ?? 'confirmed', last4: p.card?.last4 ?? tok?.card?.last4, network: p.card?.network ?? tok?.card?.network, maxAmountPaise: TOKEN_MAX_PAISE, expireAt: now() + 10 * 365 * 86400 }
+    rec.customerId = customerId
+    rec.paymentMethod = methodOf(p) ?? rec.paymentMethod
+    await rz!.request('DELETE', `/customers/${old.customerId}/tokens/${old.id}`).catch(() => undefined)
+    // Notices already sent were for the old card: send them again for the new one.
+    if (rec.renewal && !rec.renewal.paymentId) { rec.renewal.orderId = undefined; rec.renewal.payAfter = undefined }
+    const d = rec.dunning
+    if (d?.state === 'active' && !d.attempts.some((a) => a.result === 'pending')) await scheduleRetry(rec, d)
+    if (pend.consent) rec.consents = [pend.consent, ...(rec.consents ?? [])]
+    rec.pending = null
+    rec.updatedAt = now()
+    await store.put(rec)
+    return reply(200, await summarize(rec))
   }
 
   async function setAutopay(req: BillingRequest): Promise<BillingResponse> {
@@ -1075,11 +1147,13 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* What a plan will cost THIS customer, with GST labelled for their state. */
   async function quote(req: BillingRequest): Promise<BillingResponse> {
-    const { plan, period } = (req.body ?? {}) as Record<string, unknown>
+    const { plan, period, addons: addonsIn } = (req.body ?? {}) as Record<string, unknown>
     if (!isPlanId(plan) || !isPeriod(period)) return err(400, 'invalid_request', 'plan and period are required.')
+    const sel = normalizeAddons(addonsIn, plan)
+    if (!sel.ok) return err(400, 'invalid_addons', sel.message)
     const rec = await store.get(req.workspaceId)
-    const c = chargeOf(plan, period, rec)
-    return reply(200, { plan, planName: PLAN_CATALOG[plan].name, period, charge: c, requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES })
+    const c = chargeOf(plan, period, rec, sel.addons)
+    return reply(200, { plan, planName: PLAN_CATALOG[plan].name, period, charge: c, planBase: PLAN_CATALOG[plan][period], addons: addonLines(sel.addons, period), requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES })
   }
 
   /* ── router ────────────────────────────────────────────────────────────── */
@@ -1094,6 +1168,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       return reply(200, {
         configured: Boolean(rz && keyId), keyId: keyId ?? null, gstPercent, approvalLimit: AFA_LIMIT_RUPEES, prices,
         states: STATES, supplierStateCode: supplier, autopayEngine: engineMode,
+        addons: ADDON_CATALOG,
         dunning: { maxAttempts: policy.maxAttempts, windowDays: policy.windowDays, retryAfterHours: policy.retryAfterHours },
       })
     }
@@ -1112,6 +1187,7 @@ export function createBillingService(opts: BillingServiceOptions) {
         case 'POST /verify':        return await verify(req)
         case 'POST /change-plan':   return await changePlan(req)
         case 'POST /autopay':       return await setAutopay(req)
+        case 'POST /payment-method': return await cardUpdateCheckout(req)
         case 'GET /invoices':       return await invoices(req)
         case 'POST /webhook':       return await webhook(req)
         default:                    return err(404, 'not_found')

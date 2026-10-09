@@ -8,10 +8,10 @@
 //         cancel any time).
 // Nothing is charged until they confirm here and then finish Razorpay Checkout.
 //
-// kinds: new · change (switch plan on an autopay subscription) · autopay-off
+// kinds: new · change (switch plan on an autopay subscription) · autopay-off · update-card
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
-import { X, ShieldCheck, Info, AlertCircle, Loader2, Repeat, CreditCard, Pencil, BellRing, Ban } from 'lucide-react'
+import { X, ShieldCheck, Info, AlertCircle, Loader2, Repeat, CreditCard, Pencil, BellRing, Ban, Plus, Minus, Puzzle } from 'lucide-react'
 import { PLANS, money } from '../../constants/pricing'
 import BillingDetailsForm from './BillingDetailsForm'
 import { addressLine } from './billingFormat'
@@ -24,6 +24,47 @@ function Row({ k, v, strong, muted, sub }) {
     <div className="flex items-start justify-between gap-4 py-1.5">
       <span className={clsx('text-xs', muted ? 'text-slate-400' : 'text-slate-500')}>{k}{sub && <span className="block text-[10px] text-slate-400">{sub}</span>}</span>
       <span className={clsx('text-xs tabular-nums', strong ? 'font-bold text-slate-900 text-sm' : 'font-semibold text-slate-700')}>{v}</span>
+    </div>
+  )
+}
+
+const sigOf = (list) => (list || []).map((a) => `${a.id}x${a.qty}`).join(',')
+
+/* Optional extras bought together with the plan. The server re-prices them; this only picks ids and quantities. */
+function AddonPicker({ defs, period, selected, onChange, disabled }) {
+  const qtyOf = (id) => selected.find((a) => a.id === id)?.qty || 0
+  const set = (def, qty) => {
+    let next = selected.filter((a) => a.id !== def.id)
+    if (qty > 0) next.push({ id: def.id, qty })
+    if (qty > 0 && def.excludes) next = next.filter((a) => !def.excludes.includes(a.id))   // Basic ⇄ Premium Support
+    onChange(next)
+  }
+  const per = period === 'yearly' ? 'yr' : 'mo'
+  return (
+    <div className="rounded-xl border border-surface-border divide-y divide-slate-100 max-h-56 overflow-y-auto">
+      {defs.map((def) => {
+        const q = qtyOf(def.id)
+        return (
+          <div key={def.id} className={clsx('flex items-center gap-3 px-3 py-2', q > 0 && 'bg-primary/[0.04]')}>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-slate-800">{def.name}</p>
+              <p className="text-[10px] text-slate-400">{def.unit} · {money(def[period])} / {per}</p>
+            </div>
+            {def.maxQty === 1 ? (
+              <button type="button" disabled={disabled} onClick={() => set(def, q ? 0 : 1)}
+                className={clsx('px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors disabled:opacity-50', q ? 'bg-primary text-white border-primary' : 'text-primary border-primary/30 hover:bg-primary/5')}>
+                {q ? 'Added' : 'Add'}
+              </button>
+            ) : (
+              <div className="inline-flex items-center rounded-lg border border-slate-200 overflow-hidden">
+                <button type="button" disabled={disabled || q === 0} onClick={() => set(def, q - 1)} aria-label={`Fewer ${def.name}`} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><Minus size={11}/></button>
+                <span className="w-7 text-center text-xs font-bold tabular-nums text-slate-800">{q}</span>
+                <button type="button" disabled={disabled || q >= def.maxQty} onClick={() => set(def, q + 1)} aria-label={`More ${def.name}`} className="w-6 h-6 flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><Plus size={11}/></button>
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -43,7 +84,7 @@ function TaxRows({ charge }) {
 
 export default function PaymentDialog({
   dialog, config, sub, profile, defaults, quote, busy, error,
-  onSaveProfile, onConfirm, onClose, onPayOnceInstead, onStartAtRenewal,
+  onSaveProfile, onConfirm, onClose, onPayOnceInstead, onStartAtRenewal, onAddonsChange, web,
 }) {
   const { kind, plan, period, mode, startAtCycleEnd, upgrade } = dialog || {}
   const needsDetails = kind === 'new' && !profile
@@ -55,7 +96,19 @@ export default function PaymentDialog({
   const states = config?.states
   const p = plan ? planOf(plan) : null
   const fallback = plan && config?.prices?.[plan]?.[period]
-  const charge = quote?.plan === plan && quote?.period === period ? quote.charge : fallback
+  // What was picked, priced from the catalog; the server's quote (with the GST split) replaces it when it arrives.
+  const selected = dialog.addons || []
+  const defs = (config?.addons || []).filter((a) => a.plans.includes(plan) && !(web && a.whatsapp))
+  const quoteOk = !!quote && quote.plan === plan && quote.period === period && sigOf(quote.addons) === sigOf(selected)
+  const planBase = quoteOk ? quote.planBase : fallback?.base
+  const lines = selected.map((a) => { const d = defs.find((x) => x.id === a.id); return d ? { id: d.id, name: d.name, unit: d.unit, qty: a.qty, amount: d[period] * a.qty } : null }).filter(Boolean)
+  let charge = quoteOk ? quote.charge : fallback
+  if (!quoteOk && fallback && lines.length) {
+    const sum = fallback.base + lines.reduce((n, l) => n + l.amount, 0)
+    const total = Math.round(sum * (1 + fallback.gstPercent / 100) * 100) / 100
+    charge = { base: sum, gst: Math.round((total - sum) * 100) / 100, total, gstPercent: fallback.gstPercent, tax: { kind: 'unknown' } }
+  }
+  const showAddons = kind === 'new' && !!config?.addons
   const testMode = (config?.keyId || '').startsWith('rzp_test_')
   const perWord = period === 'yearly' ? 'year' : 'month'
   const approvalLimit = config?.approvalLimit ?? 15000
@@ -69,11 +122,12 @@ export default function PaymentDialog({
   let title, cta, tone = 'primary'
   if (step === 'details') { title = profile ? 'Edit billing details' : 'Billing details'; cta = '' }
   else if (kind === 'autopay-off') { title = 'Turn off autopay?'; cta = 'Turn off autopay'; tone = 'danger' }
+  else if (kind === 'update-card') { title = 'Change payment card'; cta = 'Add new card' }
   else if (kind === 'change') { title = `${upgrade && !cardChange ? 'Upgrade' : 'Switch'} to ${p.name}`; cta = upgrade && !cardChange ? 'Upgrade now' : 'Schedule change' }
   else if (startAtCycleEnd) { title = `Continue ${p.name} with autopay`; cta = 'Authorise autopay' }
   else { title = mode === 'autopay' ? `Subscribe to ${p.name}` : `Pay for ${p.name}`; cta = mode === 'autopay' ? 'Authorise & continue' : `Pay ${money(charge?.total ?? 0)}` }
 
-  const canConfirm = !busy && (!isAutopayNew || consent)
+  const canConfirm = !busy && (!isAutopayNew || consent) && (kind !== 'update-card' || consent)
 
   return (
     <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4 overflow-y-auto" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
@@ -96,7 +150,26 @@ export default function PaymentDialog({
         ) : (
           <>
             <div className="px-5 pb-4 space-y-3">
-              {kind === 'autopay-off' ? (
+              {kind === 'update-card' ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Your plan stays exactly as it is. We charge <b>₹1</b> to check the new card (it is refunded straight away) and use it for your next renewals.
+                    {sub?.autopay?.card && <> Your current card, <b>{sub.autopay.card.network || 'Card'} •••• {sub.autopay.card.last4}</b>, is then removed.</>}
+                  </p>
+                  {sub?.status === 'past_due' && (
+                    <p className="flex items-start gap-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 leading-relaxed">
+                      <AlertCircle size={12} className="flex-shrink-0 mt-0.5"/>
+                      Your last renewal payment didn't go through. We'll try the new card on the next retry date{sub.dunning?.nextAttemptAt ? ` (${new Date(sub.dunning.nextAttemptAt * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})` : ''}, or you can pay now from the Autopay card.
+                    </p>
+                  )}
+                  <label className="flex items-start gap-2.5 cursor-pointer select-none rounded-xl border border-violet-200 bg-violet-50/50 px-4 py-3">
+                    <input type="checkbox" className="mt-0.5 accent-primary" checked={consent} onChange={(e) => setConsent(e.target.checked)}/>
+                    <span className="text-[11.5px] text-slate-700 leading-relaxed">
+                      I authorise SmatBot to charge <b>{money(sub?.autopay?.next?.total ?? sub?.charge?.total ?? 0)}</b> every {(sub?.autopay?.next?.period ?? sub?.period) === 'yearly' ? 'year' : 'month'} to this new card through Razorpay until I turn autopay off. At checkout, tick <i>"Save this card as per RBI guidelines"</i>.
+                    </span>
+                  </label>
+                </div>
+              ) : kind === 'autopay-off' ? (
                 <p className="text-xs text-slate-600 leading-relaxed">
                   Your <b>{sub?.planName}</b> plan stays active{endDate ? <> until <b>{endDate}</b></> : ''}, then stops. You won't be charged again.
                   You can turn autopay back on any time before then.
@@ -116,9 +189,26 @@ export default function PaymentDialog({
                     </div>
                   )}
 
+                  {showAddons && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5"><Puzzle size={11}/> Add-ons <span className="normal-case font-medium tracking-normal">(optional)</span></p>
+                        {selected.length > 0 && <button type="button" onClick={() => onAddonsChange?.([])} disabled={busy} className="text-[10.5px] font-semibold text-slate-400 hover:text-slate-600">Clear</button>}
+                      </div>
+                      {defs.length > 0 ? (
+                        <AddonPicker defs={defs} period={period} selected={selected} onChange={(a) => onAddonsChange?.(a)} disabled={busy}/>
+                      ) : (
+                        <p className="text-[11px] text-slate-500 leading-relaxed rounded-xl border border-dashed border-slate-200 px-3 py-2.5">
+                          Extra capacity is sold with Pro and AI. Feature add-ons for {p.name} (CRM, Live Agents, Cart &amp; Catalog…) are priced on request — see the Add-ons tab.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {charge && (
                     <div className="rounded-xl border border-surface-border bg-slate-50/60 px-4 py-2.5 divide-y divide-slate-100">
-                      <Row k={`${p.name} plan (${period})`} v={money(charge.base)} />
+                      <Row k={`${p.name} plan (${period})`} v={money(planBase ?? charge.base)} />
+                      {lines.map((l) => <Row key={l.id} k={`${l.name}${l.qty > 1 ? ` × ${l.qty}` : ''}`} v={money(l.amount)} sub={l.unit} />)}
                       <TaxRows charge={charge}/>
                       <Row k={mode === 'autopay' ? `Charged every ${perWord}` : 'Total today'} v={money(charge.total)} strong />
                     </div>
@@ -163,7 +253,7 @@ export default function PaymentDialog({
               {testMode && kind !== 'autopay-off' && (
                 <p className="flex items-start gap-2 text-[11px] text-sky-800 bg-sky-50 border border-sky-200 rounded-lg p-2.5 leading-relaxed">
                   <ShieldCheck size={13} className="flex-shrink-0 mt-0.5"/>
-                  <span><b>Test mode</b> — no real money moves. Use card <span className="font-mono">5267 3181 8797 5449</span> with any future date and CVV (OTP: any 6 digits){cardAutopay ? '' : <>, or UPI <span className="font-mono">success@razorpay</span></>}.</span>
+                  <span><b>Test mode</b> — no real money moves. Use card <span className="font-mono">5267 3181 8797 5449</span> with any future date and CVV (OTP: any 6 digits){cardAutopay || kind === 'update-card' ? '' : <>, or UPI <span className="font-mono">success@razorpay</span></>}.</span>
                 </p>
               )}
 

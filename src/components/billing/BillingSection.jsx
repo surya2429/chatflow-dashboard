@@ -184,9 +184,9 @@ export default function BillingSection() {
   useEffect(() => {
     if (!dialog?.plan) { setQuote(null); return }
     let off = false
-    billing.quote({ plan: dialog.plan, period: dialog.period }).then(q => !off && setQuote(q)).catch(() => !off && setQuote(null))
+    billing.quote({ plan: dialog.plan, period: dialog.period, addons: dialog.addons || [] }).then(q => !off && setQuote(q)).catch(() => !off && setQuote(null))
     return () => { off = true }
-  }, [dialog?.plan, dialog?.period, profile?.address?.stateCode])
+  }, [dialog?.plan, dialog?.period, JSON.stringify(dialog?.addons || []), profile?.address?.stateCode])
 
   async function saveProfile(values) {
     const saved = await billing.saveProfile(values)
@@ -217,7 +217,7 @@ export default function BillingSection() {
   async function runCheckout(d) {
     setBusy(true); setDlgError(null)
     try {
-      const session = await billing.checkout({ plan: d.plan, period: d.period, mode: d.mode, startAtCycleEnd: !!d.startAtCycleEnd, consent: !!d.consent })
+      const session = await billing.checkout({ plan: d.plan, period: d.period, mode: d.mode, startAtCycleEnd: !!d.startAtCycleEnd, consent: !!d.consent, addons: d.addons || [] })
       // Prefill from the billing details so Checkout never has to guess (or reuse someone else's saved info).
       const response = await payWithRazorpay(session, profile
         ? { name: profile.contactName, email: profile.email, contact: `+91${profile.phone}` }
@@ -248,6 +248,26 @@ export default function BillingSection() {
     finally { if (mounted.current) setBusy(false) }
   }
 
+  async function runUpdateCard() {
+    setBusy(true); setDlgError(null)
+    try {
+      const session = await billing.updateCard()
+      const response = await payWithRazorpay(session, profile
+        ? { name: profile.contactName, email: profile.email, contact: `+91${profile.phone}` }
+        : { name: currentUser?.name, email: currentUser?.email })
+      const result = await billing.verify(response)
+      setSubscription(result)
+      setDialog(null)
+      flash('Card updated. Your next renewal will use it — the ₹1 check is refunded.')
+    } catch (e) {
+      if (e.code === 'dismissed') flash('Checkout closed — your card was not changed.', 'info')
+      else if (e.code === 'payment_failed') flash(e.message, 'error')
+      else setDlgError(e)
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }
+
   async function runAutopayOff() {
     setBusy(true); setDlgError(null)
     try {
@@ -258,7 +278,7 @@ export default function BillingSection() {
     finally { if (mounted.current) setBusy(false) }
   }
 
-  const confirm = (extras) => (dialog.kind === 'autopay-off' ? runAutopayOff() : dialog.kind === 'change' ? runChange(dialog) : runCheckout({ ...dialog, consent: !!extras?.consent }))
+  const confirm = (extras) => (dialog.kind === 'autopay-off' ? runAutopayOff() : dialog.kind === 'update-card' ? runUpdateCard() : dialog.kind === 'change' ? runChange(dialog) : runCheckout({ ...dialog, consent: !!extras?.consent }))
 
   /* What a plan card's button does, given where the customer is today. */
   function actionFor(plan, i, period) {
@@ -417,8 +437,13 @@ export default function BillingSection() {
                   </div>
                   <p className="mt-2 text-sm text-white/80">
                     <span className="text-lg font-bold text-white">{inr(pooled ? current.yearly : current.monthly)}</span> / {pooled ? 'year' : 'month'} <span className="text-white/50">+ GST</span>
-                    <span className="text-white/50"> · {money(sub.charge.total)} incl. {sub.charge.gstPercent}% GST</span>
+                    <span className="text-white/50"> · {money(sub.charge.total)} incl. {sub.charge.gstPercent}% GST{sub.addons?.length ? ' with add-ons' : ''}</span>
                   </p>
+                  {sub.addons?.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      {sub.addons.map(a => <span key={a.id} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/15 text-white/90">{a.name}{a.qty > 1 ? ` × ${a.qty}` : ''}</span>)}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => setTab('plans')} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white text-slate-900 text-xs font-bold hover:bg-slate-100 transition-colors">
@@ -494,6 +519,7 @@ export default function BillingSection() {
                   </ol>
                   <div className="flex items-center gap-3">
                     {sub.dunning.payUrl && <a href={sub.dunning.payUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary-hover transition-colors"><ExternalLink size={12}/> Pay now</a>}
+                    {sub.autopay.canUpdateCard && <button onClick={() => { setDlgError(null); setDialog({ kind: 'update-card' }) }} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"><CreditCard size={11}/> Update card</button>}
                     <button onClick={refreshSubscription} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800"><RefreshCw size={11}/> I've paid — refresh</button>
                   </div>
                   <p className="text-[10.5px] text-slate-400 leading-relaxed">{sub.dunning.engine === 'token' ? 'We retry your saved card on the dates above and email you before each one. Paying now with the button above also clears this.' : 'Your bank may also retry the card automatically. If any attempt succeeds, this clears by itself.'}</p>
@@ -516,7 +542,10 @@ export default function BillingSection() {
                       Renewals above {money(sub.autopay.approvalLimit)} need your approval each time. Your bank sends a link about a day before — approve it and the plan renews.
                     </p>
                   )}
-                  <button onClick={() => { setDlgError(null); setDialog({ kind: 'autopay-off' }) }} className="text-xs font-semibold text-red-600 hover:underline">Turn off autopay</button>
+                  <div className="flex items-center gap-4 flex-wrap">
+                    {sub.autopay.canUpdateCard && <button onClick={() => { setDlgError(null); setDialog({ kind: 'update-card' }) }} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"><CreditCard size={12}/> Update payment method</button>}
+                    <button onClick={() => { setDlgError(null); setDialog({ kind: 'autopay-off' }) }} className="text-xs font-semibold text-red-600 hover:underline">Turn off autopay</button>
+                  </div>
                 </div>
               ) : live ? (
                 <div className="space-y-3">
@@ -544,13 +573,14 @@ export default function BillingSection() {
                   <span className="w-11 h-8 rounded-md bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center flex-shrink-0"><CreditCard size={15} className="text-white"/></span>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-slate-800">{methodLabel}</p>
-                    <p className="text-[10.5px] text-slate-400">{sub.mode === 'autopay' ? 'Used for renewals' : 'Used for your last payment'}</p>
+                    <p className="text-[10.5px] text-slate-400">{sub.autopay?.on ? 'Used for renewals' : 'Used for your last payment'}</p>
                   </div>
+                  {sub.autopay?.canUpdateCard && <button onClick={() => { setDlgError(null); setDialog({ kind: 'update-card' }) }} className="text-[11px] font-semibold text-primary hover:underline flex-shrink-0">Update</button>}
                 </div>
               ) : (
                 <p className="text-xs text-slate-500">No payment method yet — it's saved securely by Razorpay when you pay.</p>
               )}
-              <p className="text-[10.5px] text-slate-400 mt-3 leading-relaxed">Card details never touch our servers. To use a different card, turn off autopay and set it up again.</p>
+              <p className="text-[10.5px] text-slate-400 mt-3 leading-relaxed">Card details never touch our servers. {sub?.autopay?.canUpdateCard ? 'Use Update to switch to a different card — your plan and renewal date stay the same.' : 'To use a different card, set up autopay again with the new one.'}</p>
             </Card>
           </div>
         </div>
@@ -807,7 +837,7 @@ export default function BillingSection() {
             <div className="flex items-end justify-between gap-3 flex-wrap mb-2">
               <div>
                 <h3 className="text-[13px] font-bold text-slate-900">Usage add-ons</h3>
-                <p className="text-[11px] text-slate-400">Extra capacity on Pro &amp; AI plans · indicative prices, excl. GST</p>
+                <p className="text-[11px] text-slate-400">Extra capacity on Pro &amp; AI plans · excl. GST · add them when you subscribe or renew</p>
               </div>
               <BillingSwitch value={view} onChange={setView}/>
             </div>
@@ -925,7 +955,7 @@ export default function BillingSection() {
       )}
 
       <PaymentDialog dialog={dialog} config={config} sub={sub} profile={profile} defaults={accountDefaults} quote={quote} busy={busy} error={dlgError}
-        onSaveProfile={saveProfile} onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
+        web={web} onAddonsChange={(addons) => setDialog(d => (d ? { ...d, addons } : d))} onSaveProfile={saveProfile} onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
         onPayOnceInstead={() => { setPayMode('once'); setDlgError(null); setDialog(d => ({ ...d, mode: 'once', startAtCycleEnd: false })) }}
         onStartAtRenewal={() => { setDlgError(null); setDialog(d => ({ kind: 'new', plan: d.plan, period: d.period, mode: 'autopay', startAtCycleEnd: true })) }}/>
 
