@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   MessageSquare, Settings, Smartphone, Monitor, Tablet,
@@ -2668,6 +2668,9 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                   Visitors must give their <b className="text-slate-600">name, email and phone number</b> before they can confirm a booking,
                   so the confirmation email can be sent. These three fields are always required.
                 </p>
+                <label className="label mt-2">Your time zone</label>
+                <p className="text-[10px] text-slate-400 mb-1">Slot times are set in this zone. Visitors choose their own and see every slot converted.</p>
+                <TimezoneSelect value={cfg.bookingTimezone} onChange={v=>set('bookingTimezone',v)} className="input"/>
               </div>
             )}
             <div className="p-4 border-t border-surface-border space-y-1">
@@ -2811,6 +2814,64 @@ function sameDay(a, b) {
   return a && b && a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate()
 }
 
+/* ─── Time zones ─────────────────────────────────────────────────────────
+   Slots are defined in the BUSINESS time zone (Behavior → Booking). The visitor picks the zone
+   they are in — it starts as their browser's — and every slot is shown converted, with a +1/−1 day
+   marker when the conversion crosses midnight. Built on Intl only, so no library and DST is right. */
+const FALLBACK_TIMEZONES = [
+  'Pacific/Honolulu', 'America/Anchorage', 'America/Los_Angeles', 'America/Denver', 'America/Chicago', 'America/New_York',
+  'America/Sao_Paulo', 'Atlantic/Reykjavik', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Africa/Cairo', 'Africa/Johannesburg',
+  'Europe/Moscow', 'Asia/Dubai', 'Asia/Karachi', 'Asia/Kolkata', 'Asia/Dhaka', 'Asia/Bangkok', 'Asia/Singapore', 'Asia/Hong_Kong',
+  'Asia/Tokyo', 'Australia/Sydney', 'Pacific/Auckland',
+]
+const browserTimezone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata' } catch { return 'Asia/Kolkata' } }
+
+function tzOffsetMs(ms, tz) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(new Date(ms)).map(x => [x.type, x.value]))
+  return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour % 24, +parts.minute, +parts.second) - Math.floor(ms / 1000) * 1000
+}
+function tzGmtLabel(tz) {
+  try {
+    const off = tzOffsetMs(Date.now(), tz) / 60000
+    const a = Math.abs(off)
+    return `GMT${off < 0 ? '−' : '+'}${Math.floor(a / 60)}${a % 60 ? ':' + String(a % 60).padStart(2, '0') : ''}`
+  } catch { return '' }
+}
+/* "9:00 AM" on a calendar date, in zone `from`, shown in zone `to`. */
+function slotInZone(date, label, from, to) {
+  try {
+    const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(label)
+    if (!m) return { time: label, abbr: '', shift: 0, date }
+    let h = (+m[1]) % 12; if (/pm/i.test(m[3])) h += 12
+    const guess = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate(), h, +m[2])
+    const instant = guess - tzOffsetMs(guess - tzOffsetMs(guess, from), from)
+    const at = new Date(instant)
+    const time = new Intl.DateTimeFormat('en-US', { timeZone: to, hour: 'numeric', minute: '2-digit' }).format(at)
+    const abbr = new Intl.DateTimeFormat('en-US', { timeZone: to, timeZoneName: 'short' }).formatToParts(at).find(x => x.type === 'timeZoneName')?.value || ''
+    const d = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: to, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(at).map(x => [x.type, x.value]))
+    const shift = Math.round((Date.UTC(+d.year, +d.month - 1, +d.day) - Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())) / 86400000)
+    return { time, abbr, shift, date: new Date(date.getFullYear(), date.getMonth(), date.getDate() + shift) }
+  } catch { return { time: label, abbr: '', shift: 0, date } }
+}
+
+function TimezoneSelect({ value, onChange, dark, className, style }) {
+  const zones = useMemo(() => {
+    let list
+    try { list = Intl.supportedValuesOf('timeZone') } catch { list = null }
+    list = list?.length ? [...list] : [...FALLBACK_TIMEZONES]
+    if (value && !list.includes(value)) list.push(value)
+    const withOff = list.map(tz => { let o = 0; try { o = tzOffsetMs(Date.now(), tz) } catch { /* unknown zone */ } return { tz, o } })
+    return withOff.sort((a, b) => a.o - b.o || a.tz.localeCompare(b.tz)).map(x => x.tz)
+  }, [value])
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)} className={className} style={style} aria-label="Time zone">
+      {zones.map(tz => <option key={tz} value={tz}>{tz.replace(/_/g, ' ')} ({tzGmtLabel(tz)})</option>)}
+    </select>
+  )
+}
+
 function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
   const today = new Date(); today.setHours(0,0,0,0)
   const [viewDate, setViewDate] = useState(new Date(today))
@@ -2822,6 +2883,8 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
      reminder call if needed) has to go somewhere. They are asked for on the same screen as the
      slots, so nothing is hidden behind an extra step. */
   const [step, setStep] = useState('pick')            // pick → done
+  const bizTz = cfg?.bookingTimezone || 'Asia/Kolkata'
+  const [tz, setTz] = useState(browserTimezone)          // the visitor's zone: starts as their browser's
   const [info, setInfo] = useState({ name: '', email: '', phone: '' })
   const [tried, setTried] = useState(false)
   const phoneDigits = info.phone.replace(/\D/g, '')
@@ -2861,7 +2924,11 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
   const slots = slotsForDate(selectedDate)
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
-  const dateLabel = selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  const fmtDay = (d) => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  const view = slots.map(t => ({ t, ...slotInZone(selectedDate, t, bizTz, tz) }))
+  const picked = view.find(v => v.t === selectedSlot)
+  const dateLabel = fmtDay(picked ? picked.date : selectedDate)
+  const pickedLabel = picked ? `${picked.time}${picked.abbr ? ' ' + picked.abbr : ''}` : selectedSlot
   const reset = () => { setStep('pick'); setSelectedSlot(null); setInfo({ name: '', email: '', phone: '' }); setTried(false) }
 
   if (step === 'done') {
@@ -2869,7 +2936,8 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
       <div className="mt-6 text-center px-2">
         <div className="w-11 h-11 rounded-full mx-auto flex items-center justify-center" style={{ background: `${accent}1a`, color: accent }}><Check size={20} strokeWidth={2.6}/></div>
         <p className="text-[13px] font-bold mt-3" style={{ color: ink }}>You're booked</p>
-        <p className="text-[11px] mt-1" style={{ color: muted }}>{dateLabel} at {selectedSlot}</p>
+        <p className="text-[11px] mt-1" style={{ color: muted }}>{dateLabel} at {pickedLabel}</p>
+        <p className="text-[10px] mt-0.5" style={{ color: muted }}>{tz.replace(/_/g, ' ')} · {tzGmtLabel(tz)}</p>
         {info.email.trim() && (
           <p className="text-[10.5px] mt-3 leading-relaxed" style={{ color: muted }}>
             A confirmation email is on its way to <b style={{ color: ink }}>{info.email.trim()}</b>.
@@ -2966,18 +3034,21 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
       {/* Slots update immediately below — same flow, no extra step, no boxed
           card around either the calendar or the slot buttons. */}
       <div className="mt-4">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Your time zone</p>
+        <TimezoneSelect value={tz} onChange={(v) => { setTz(v); setSelectedSlot(null) }} dark={dark}
+          className="w-full rounded-lg px-2 py-1.5 text-[11px] outline-none mb-3" style={fieldStyle}/>
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">
-          Available times — {selectedDate.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric'})}
+          Available times — {fmtDay(selectedDate)}
         </p>
         {slots.length === 0 ? (
           <p className="text-[11px] text-slate-400 italic py-2">No slots available this day — try another date.</p>
         ) : (
           <div className="grid grid-cols-3 gap-1.5">
-            {slots.map(t=>(
-              <button key={t} onClick={()=>setSelectedSlot(t)}
+            {view.map(v=>(
+              <button key={v.t} onClick={()=>setSelectedSlot(v.t)} title={v.shift ? `${fmtDay(v.date)} in ${tz.replace(/_/g, ' ')}` : undefined}
                 className={clsx('rounded-lg py-1.5 text-[10px] font-bold text-center transition-colors',
-                  selectedSlot===t ? 'bg-primary text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-primary')}>
-                {t}
+                  selectedSlot===v.t ? 'bg-primary text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-primary')}>
+                {v.time}{v.shift !== 0 && <sup className="ml-0.5 text-[8px] opacity-80">{v.shift > 0 ? '+' : '−'}{Math.abs(v.shift)}d</sup>}
               </button>
             ))}
           </div>
@@ -3005,7 +3076,7 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
       <button disabled={!selectedSlot}
         onClick={() => { setTried(true); if (detailsOk) setStep('done') }}
         className="w-full mt-3 bg-primary text-white text-[11px] font-bold py-2 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed">
-        {selectedSlot ? `Confirm booking · ${dateLabel} at ${selectedSlot}` : 'Pick a time to continue'}
+        {selectedSlot ? `Confirm booking · ${dateLabel} at ${pickedLabel}` : 'Pick a time to continue'}
       </button>
       <p className="text-[9.5px] mt-1.5 text-center" style={{ color: muted }}>A confirmation email is sent to the address above.</p>
     </div>
@@ -3391,6 +3462,7 @@ export default function WebChatAppearance() {
     gifPicker: true, voiceInput: true, saveChat: true,
     // Widget tabs — Chat is always on by default
     showHomeTab: false, showChatTab: true, showMessagesTab: false, showFaqTab: false, showBookingTab: false,
+    bookingTimezone: 'Asia/Kolkata',
     enableVoiceCall: false, enableVideoCall: false,
     googleMapsApiKey: '',
       // Lead capture
