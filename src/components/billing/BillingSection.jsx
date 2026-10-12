@@ -323,6 +323,24 @@ export default function BillingSection() {
     return { label: same ? 'Renew now' : `Switch now`, open: { kind: 'new', plan: plan.id, period, mode: 'once' } }
   }
   const openAction = (a) => { setDlgError(null); setDialog(a.open) }
+  /* The "change my card" button, whatever state the customer is in:
+     saved-card autopay → swap the card (₹1 check, plan untouched);
+     any other live plan → set autopay up (again) with a new card from the next renewal. */
+  const updateMethodButton = () => {
+    if (!configured || !hasSub) return null
+    const cls = 'mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-primary/30 text-primary text-xs font-bold hover:bg-primary/5 transition-colors'
+    if (sub.autopay?.canUpdateCard) {
+      return <button onClick={() => { setDlgError(null); setDialog({ kind: 'update-card' }) }} className={cls}><CreditCard size={13}/> Update payment method</button>
+    }
+    if (live && !sub.upcoming) {
+      return (
+        <button onClick={() => { setPayMode('autopay'); openAction({ open: { kind: 'new', plan: sub.plan, period: sub.period, mode: 'autopay', startAtCycleEnd: true } }) }} className={cls}>
+          <CreditCard size={13}/> {sub.autopay?.on ? 'Change payment method' : 'Add a card for autopay'}
+        </button>
+      )
+    }
+    return null
+  }
 
   const groups = FEATURE_GROUPS.filter(g => !(web && g.wa)).map(g => ({ ...g, rows: g.rows.filter(r => !(web && r.wa)) })).filter(g => g.rows.length)
   const featureAddons = FEATURE_ADDONS.filter(a => !(web && a.wa))
@@ -604,12 +622,12 @@ export default function BillingSection() {
                     <p className="text-xs font-semibold text-slate-800">{methodLabel}</p>
                     <p className="text-[10.5px] text-slate-400">{sub.autopay?.on ? 'Used for renewals' : 'Used for your last payment'}</p>
                   </div>
-                  {sub.autopay?.canUpdateCard && <button onClick={() => { setDlgError(null); setDialog({ kind: 'update-card' }) }} className="text-[11px] font-semibold text-primary hover:underline flex-shrink-0">Update</button>}
                 </div>
               ) : (
                 <p className="text-xs text-slate-500">No payment method yet — it's saved securely by Razorpay when you pay.</p>
               )}
-              <p className="text-[10.5px] text-slate-400 mt-3 leading-relaxed">Card details never touch our servers. {sub?.autopay?.canUpdateCard ? 'Use Update to switch to a different card — your plan and renewal date stay the same.' : 'To use a different card, set up autopay again with the new one.'}</p>
+              {updateMethodButton()}
+              <p className="text-[10.5px] text-slate-400 mt-3 leading-relaxed">Card details never touch our servers. {sub?.autopay?.canUpdateCard ? 'Switching cards keeps your plan and renewal date the same.' : sub?.autopay?.on ? 'Changing it sets up autopay again with the new card from your next renewal.' : sub?.charge?.total > (config?.approvalLimit ?? 15000) ? `Renewals above ${money(config?.approvalLimit ?? 15000)} need your bank's approval each time.` : 'Autopay uses a saved card to renew your plan automatically.'}</p>
             </Card>
           </div>
         </div>
@@ -930,6 +948,7 @@ export default function BillingSection() {
                   </div>
                 </div>
               ) : <p className="text-xs text-slate-500">No payment method yet.</p>}
+              {updateMethodButton()}
             </Card>
             <Card title="Billing details" action={<button onClick={() => setEditingDetails(true)} className="text-[11px] font-semibold text-primary hover:underline">{profile ? 'Edit' : 'Add details'}</button>}>
               {profile ? (
