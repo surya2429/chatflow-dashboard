@@ -165,7 +165,8 @@ export default function PaymentDialog({
 
   /* Buying a plan (or add-ons) is ONE screen: add-ons on the left, the order and the consent on the right,
      so nothing has to be scrolled to be read. Narrow screens stack the two halves. */
-  const wide = step === 'review' && (kind === 'new' || addonsOnly) && showAddons && defs.length > 0
+  const wide = step === 'review' && (kind === 'new' || addonsOnly)
+  const hasAddons = showAddons && defs.length > 0
   const shortLines = lines.length > 3
   const lineRows = shortLines
     ? [{ id: 'many', name: `Add-ons × ${lines.reduce((n, l) => n + l.qty, 0)}`, amount: lines.reduce((n, l) => n + l.amount, 0), unit: lines.map((l) => l.name).join(', ') }]
@@ -174,7 +175,7 @@ export default function PaymentDialog({
 
   return (
     <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4 overflow-y-auto" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div className={clsx('bg-white rounded-2xl shadow-modal w-full animate-fade-in my-auto overflow-hidden', wide ? 'max-w-4xl' : 'max-w-md')}>
+      <div className={clsx('bg-white rounded-2xl shadow-modal w-full animate-fade-in my-auto overflow-hidden', wide ? (hasAddons ? 'max-w-4xl' : 'max-w-2xl') : 'max-w-md')}>
         <div className={clsx('flex items-start justify-between gap-3 px-5 pb-3', wide ? 'pt-4 border-b border-surface-border' : 'pt-5')}>
           <div>
             <h3 className="text-[15px] font-bold text-slate-900">{title}</h3>
@@ -208,13 +209,22 @@ export default function PaymentDialog({
                   ))}
                 </div>
               )}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5"><Puzzle size={11}/> Add-ons <span className="normal-case font-medium tracking-normal">(optional · {termChoice && term === 'monthly' ? 'monthly price' : `per ${perWord}`})</span></p>
-                  {selected.length > 0 && <button type="button" onClick={() => onAddonsChange?.([])} disabled={busy} className="text-[10.5px] font-semibold text-slate-400 hover:text-slate-600">Clear all</button>}
+              {hasAddons ? (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5"><Puzzle size={11}/> Add-ons <span className="normal-case font-medium tracking-normal">(optional · {termChoice && term === 'monthly' ? 'monthly price' : `per ${perWord}`})</span></p>
+                    {selected.length > 0 && <button type="button" onClick={() => onAddonsChange?.([])} disabled={busy} className="text-[10.5px] font-semibold text-slate-400 hover:text-slate-600">Clear all</button>}
+                  </div>
+                  <AddonPicker grid defs={defs} period={pricePeriod} selected={selected} onChange={(a) => onAddonsChange?.(a)} disabled={busy}/>
                 </div>
-                <AddonPicker grid defs={defs} period={pricePeriod} selected={selected} onChange={(a) => onAddonsChange?.(a)} disabled={busy}/>
-              </div>
+              ) : showAddons && (
+                <div className="rounded-lg border border-dashed border-slate-200 px-3 py-2.5 flex items-start gap-2">
+                  <Puzzle size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
+                  <p className="text-[11px] text-slate-500 leading-snug">
+                    <b className="text-slate-700">Add-ons</b> — extra capacity is sold with Pro and AI. Feature add-ons for {p.name} (CRM, Live Agents, Cart &amp; Catalog…) are priced on request.
+                  </p>
+                </div>
+              )}
               {profile && (
                 <div className="rounded-lg border border-surface-border px-3 py-2 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
