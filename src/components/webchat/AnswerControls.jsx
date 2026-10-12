@@ -44,12 +44,12 @@ function flagEmoji(iso2) {
   if (!iso2 || iso2.length !== 2) return '🏳️'
   return String.fromCodePoint(...[...iso2.toUpperCase()].map(c => 0x1f1e6 + c.charCodeAt(0) - 65))
 }
-const COUNTRIES = [
+export const COUNTRIES = [
   ['US','United States','+1'], ['IN','India','+91'], ['GB','United Kingdom','+44'],
   ['CA','Canada','+1'], ['AU','Australia','+61'], ['DE','Germany','+49'],
   ['FR','France','+33'], ['ES','Spain','+34'], ['IT','Italy','+39'],
   ['BR','Brazil','+55'], ['MX','Mexico','+52'], ['JP','Japan','+81'],
-  ['CN','China','+86'], ['SG','Singapore','+65'], ['AE','UAE','+971'],
+  ['CN','China','+86'], ['SG','Singapore','+65'], ['AE','United Arab Emirates','+971'],
   ['SA','Saudi Arabia','+966'], ['ZA','South Africa','+27'], ['NG','Nigeria','+234'],
   ['ID','Indonesia','+62'], ['PK','Pakistan','+92'], ['BD','Bangladesh','+880'],
   ['PH','Philippines','+63'], ['VN','Vietnam','+84'], ['TH','Thailand','+66'],
@@ -62,22 +62,42 @@ const COUNTRIES = [
   ['IL','Israel','+972'], ['AR','Argentina','+54'], ['CL','Chile','+56'],
   ['CO','Colombia','+57'],
 ].map(([code, name, dial]) => ({ code, name, dial, flag: flagEmoji(code) }))
+/* The rest of the world, alphabetically after the popular ones above. */
+COUNTRIES.push(...('AF|Afghanistan|+93;AL|Albania|+355;DZ|Algeria|+213;AD|Andorra|+376;AO|Angola|+244;AM|Armenia|+374;AZ|Azerbaijan|+994;BS|Bahamas|+1242;BH|Bahrain|+973;BB|Barbados|+1246;BY|Belarus|+375;BZ|Belize|+501;BJ|Benin|+229;BT|Bhutan|+975;BO|Bolivia|+591;BA|Bosnia and Herzegovina|+387;BW|Botswana|+267;BN|Brunei|+673;BG|Bulgaria|+359;BF|Burkina Faso|+226;BI|Burundi|+257;KH|Cambodia|+855;CM|Cameroon|+237;CV|Cape Verde|+238;CF|Central African Republic|+236;TD|Chad|+235;KM|Comoros|+269;CG|Congo|+242;CD|DR Congo|+243;CR|Costa Rica|+506;HR|Croatia|+385;CU|Cuba|+53;CY|Cyprus|+357;CZ|Czechia|+420;DJ|Djibouti|+253;DO|Dominican Republic|+1809;EC|Ecuador|+593;SV|El Salvador|+503;GQ|Equatorial Guinea|+240;ER|Eritrea|+291;EE|Estonia|+372;SZ|Eswatini|+268;ET|Ethiopia|+251;FJ|Fiji|+679;GA|Gabon|+241;GM|Gambia|+220;GE|Georgia|+995;GH|Ghana|+233;GT|Guatemala|+502;GN|Guinea|+224;GY|Guyana|+592;HT|Haiti|+509;HN|Honduras|+504;HK|Hong Kong|+852;HU|Hungary|+36;IS|Iceland|+354;IQ|Iraq|+964;IR|Iran|+98;JM|Jamaica|+1876;JO|Jordan|+962;KZ|Kazakhstan|+7;KE|Kenya|+254;KW|Kuwait|+965;KG|Kyrgyzstan|+996;LA|Laos|+856;LV|Latvia|+371;LB|Lebanon|+961;LS|Lesotho|+266;LR|Liberia|+231;LY|Libya|+218;LI|Liechtenstein|+423;LT|Lithuania|+370;LU|Luxembourg|+352;MO|Macao|+853;MG|Madagascar|+261;MW|Malawi|+265;MV|Maldives|+960;ML|Mali|+223;MT|Malta|+356;MR|Mauritania|+222;MU|Mauritius|+230;MD|Moldova|+373;MC|Monaco|+377;MN|Mongolia|+976;ME|Montenegro|+382;MA|Morocco|+212;MZ|Mozambique|+258;MM|Myanmar|+95;NA|Namibia|+264;NP|Nepal|+977;NI|Nicaragua|+505;NE|Niger|+227;MK|North Macedonia|+389;OM|Oman|+968;PA|Panama|+507;PG|Papua New Guinea|+675;PY|Paraguay|+595;PE|Peru|+51;PS|Palestine|+970;PR|Puerto Rico|+1787;QA|Qatar|+974;RO|Romania|+40;RW|Rwanda|+250;SN|Senegal|+221;RS|Serbia|+381;SL|Sierra Leone|+232;SK|Slovakia|+421;SI|Slovenia|+386;SO|Somalia|+252;LK|Sri Lanka|+94;SD|Sudan|+249;SR|Suriname|+597;SY|Syria|+963;TW|Taiwan|+886;TJ|Tajikistan|+992;TZ|Tanzania|+255;TG|Togo|+228;TT|Trinidad and Tobago|+1868;TN|Tunisia|+216;TM|Turkmenistan|+993;UG|Uganda|+256;UA|Ukraine|+380;UY|Uruguay|+598;UZ|Uzbekistan|+998;VE|Venezuela|+58;YE|Yemen|+967;ZM|Zambia|+260;ZW|Zimbabwe|+263').split(';').map(x => x.split('|'))
+  .filter(([c]) => !COUNTRIES.some(k => k.code === c))
+  .map(([code, name, dial]) => ({ code, name, dial, flag: flagEmoji(code) }))
+  .sort((a, b) => a.name.localeCompare(b.name)))
 
-/* Attempts an IP-geolocation lookup once on mount to preselect the visitor's
-   own country for the phone control. Times out fast and falls back silently
-   — this may run in a sandboxed/offline environment. */
-export function useDetectedCountry() {
-  /* Best offline guess first — the browser's time zone, then its language region — so a visitor in
-     India sees +91 straight away instead of a US default while (or if) the IP lookup runs. */
+/* Picks the country for a phone control.
+   - With no options (Book tab, forms): best offline guess from the browser, then an IP lookup refines it.
+   - With options (the Phone question type's settings): `defaultCode` is used as is, and the IP lookup runs
+     ONLY when `ip` is true; `allowed` limits the countries on offer. The lookup times out fast and falls back
+     silently — this may run in a sandboxed/offline environment. */
+export function useDetectedCountry(opts = {}) {
+  const { defaultCode, ip = true, allowed } = opts
+  const allowedKey = (allowed || []).join(',')
+  const pool = allowed?.length ? COUNTRIES.filter(c => allowed.includes(c.code)) : COUNTRIES
   const [country, setCountry] = useState(() => {
+    if (defaultCode) return pool.find(c => c.code === defaultCode) || pool[0] || COUNTRIES.find(c => c.code === 'US')
     const TZ_COUNTRY = { 'Asia/Kolkata': 'IN', 'Asia/Calcutta': 'IN', 'Asia/Dubai': 'AE', 'Asia/Karachi': 'PK', 'Asia/Dhaka': 'BD', 'Asia/Singapore': 'SG', 'Asia/Tokyo': 'JP', 'Asia/Seoul': 'KR', 'Asia/Manila': 'PH', 'Asia/Jakarta': 'ID', 'Asia/Bangkok': 'TH', 'Asia/Riyadh': 'SA', 'Europe/London': 'GB', 'Europe/Berlin': 'DE', 'Europe/Paris': 'FR', 'Australia/Sydney': 'AU', 'Australia/Melbourne': 'AU', 'America/Toronto': 'CA', 'America/Sao_Paulo': 'BR', 'Africa/Lagos': 'NG', 'Africa/Johannesburg': 'ZA' }
     let guess
     try { guess = TZ_COUNTRY[Intl.DateTimeFormat().resolvedOptions().timeZone] } catch { /* no Intl */ }
     if (!guess) { try { guess = (navigator.language || '').split('-')[1]?.toUpperCase() } catch { /* no navigator */ } }
-    return COUNTRIES.find(c => c.code === guess) || COUNTRIES.find(c => c.code === 'US')
+    return pool.find(c => c.code === guess) || pool.find(c => c.code === 'US') || pool[0]
   })
-  const [status, setStatus] = useState('detecting') // detecting | detected | fallback
+  const [status, setStatus] = useState(ip ? 'detecting' : 'fallback') // detecting | detected | fallback
+
+  // The merchant changed the default / the allowed list: follow it (and never sit on a country that was removed).
   useEffect(() => {
+    if (!defaultCode && !allowedKey) return
+    setCountry(cur => {
+      if (defaultCode && pool.some(c => c.code === defaultCode) && !ip) return pool.find(c => c.code === defaultCode)
+      return pool.some(c => c.code === cur?.code) ? cur : (pool.find(c => c.code === defaultCode) || pool[0] || cur)
+    })
+  }, [defaultCode, allowedKey, ip]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!ip) { setStatus('fallback'); return }
     let cancelled = false
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 2500)
@@ -86,14 +106,14 @@ export function useDetectedCountry() {
       .then(data => {
         if (cancelled) return
         const iso = (data && data.country_code) ? String(data.country_code).toUpperCase() : null
-        const match = iso && COUNTRIES.find(c => c.code === iso)
+        const match = iso && pool.find(c => c.code === iso)
         if (match) { setCountry(match); setStatus('detected') }
         else setStatus('fallback')
       })
       .catch(() => { if (!cancelled) setStatus('fallback') })
       .finally(() => clearTimeout(timer))
-    return () => { cancelled = true; clearTimeout(timer); clearTimeout(timer) }
-  }, [])
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [ip]) // eslint-disable-line react-hooks/exhaustive-deps
   return [country, setCountry, status]
 }
 
@@ -196,7 +216,7 @@ function EmailAnswer({ accent, dark, onSubmit }) {
 /* ── shared country/dial-code picker (trigger + searchable popover) — used
    by the standalone Phone question AND the Phone field inside a multi-field
    Form, so the country-picker UX/logic lives in exactly one place. ────── */
-export function CountryDialPicker({ country, setCountry, dark, dropDirection = 'up' }) {
+export function CountryDialPicker({ country, setCountry, dark, dropDirection = 'up', countries = COUNTRIES }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const ref = useRef(null)
@@ -205,7 +225,7 @@ export function CountryDialPicker({ country, setCountry, dark, dropDirection = '
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
-  const filtered = COUNTRIES.filter(c => !q.trim() || c.name.toLowerCase().includes(q.toLowerCase()) || c.dial.includes(q))
+  const filtered = countries.filter(c => !q.trim() || c.name.toLowerCase().includes(q.toLowerCase()) || c.dial.includes(q))
   return (
     <div className="relative flex-shrink-0" ref={ref}>
       <button onClick={() => setOpen(o => !o)} type="button"
@@ -240,13 +260,17 @@ export function CountryDialPicker({ country, setCountry, dark, dropDirection = '
   )
 }
 /* ── phone: composer pill + searchable country/dial-code popover ─────────── */
-function PhoneAnswer({ accent, dark, onSubmit }) {
+function PhoneAnswer({ accent, dark, onSubmit, data = {} }) {
   const [val, setVal] = useState('')
-  const [country, setCountry] = useDetectedCountry()
+  /* Settings from the flow builder: which countries are offered, the default one, and whether the
+     visitor's country is taken from their IP address (off unless switched on). */
+  const allowed = Array.isArray(data.allowedCountries) && data.allowedCountries.length ? data.allowedCountries : null
+  const offered = allowed ? COUNTRIES.filter(c => allowed.includes(c.code)) : COUNTRIES
+  const [country, setCountry] = useDetectedCountry({ defaultCode: data.defaultCountry || 'IN', ip: data.ipDetect === true, allowed })
   const submit = () => { if (val.trim()) onSubmit?.(`${country.dial} ${val.trim()}`) }
   return (
     <ComposerPill dark={dark} accent={accent} className="relative">
-      <CountryDialPicker country={country} setCountry={setCountry} dark={dark} dropDirection="up"/>
+      <CountryDialPicker country={country} setCountry={setCountry} dark={dark} dropDirection="up" countries={offered}/>
       <input autoFocus type="tel" value={val} onChange={e => setVal(e.target.value.replace(/[^\d\s-]/g, ''))}
         onKeyDown={e => e.key === 'Enter' && submit()}
         placeholder="Phone number"
@@ -1905,7 +1929,7 @@ export function AnswerControl({ questionType, accent = '#0066ff', dark = false, 
     case 'email':
       return <EmailAnswer accent={accent} dark={dark} onSubmit={submit}/>
     case 'phone':
-      return <PhoneAnswer accent={accent} dark={dark} onSubmit={submit}/>
+      return <PhoneAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'single':
       return <SingleChoiceAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'multi':
