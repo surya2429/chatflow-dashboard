@@ -10,6 +10,7 @@ import {
 import { useConversations } from '../context/ConversationContext'
 import clsx from 'clsx'
 import { NativeSelect } from '../components/Select'
+import PopupShell, { PopupSection, PopupFooter } from '../components/webchat/PopupShell'
 import { WEBCHAT_CONTACTS } from '../constants/mockData'
 import {
   avBg, inits, fmtD, fmtR, inMo, tSt, SORT_OPTS, datePass,
@@ -219,23 +220,11 @@ function AddModal({ onClose, onAdd }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"
-      onClick={e => e.target===e.currentTarget && onClose()}>
-      <div className="bg-white w-full max-w-md rounded-2xl shadow-modal flex flex-col max-h-[88vh] overflow-hidden border border-surface-border">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-border flex-shrink-0">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{background: avBg().bg}}>
-            <UserPlus size={13} style={{color: avBg().color}}/>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-bold text-slate-900">Add New Contact</p>
-            <p className="text-[10px] text-slate-400">Fill in the details below to create a contact</p>
-          </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-surface-hover text-slate-400 transition-colors"><X size={14}/></button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">Basic Information</p>
+    <PopupShell icon={UserPlus} color="#0066ff" title="Add New Contact" badge="Contacts" width={640}
+      meta={<span>Fill in the details below to create a contact</span>} onClose={onClose}
+      footer={<PopupFooter onCancel={onClose} onSave={submit} saveLabel="Add contact"/>}>
+        <>
+          <PopupSection title="Basic information">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="sm:col-span-2">
                 <label className={lb}>Name <span className="text-red-400">*</span></label>
@@ -285,10 +274,10 @@ function AddModal({ onClose, onAdd }) {
                 </NativeSelect>
               </div>
             </div>
-          </div>
+          </PopupSection>
 
-          <div>
-            <div className="flex items-center justify-between mb-2.5">
+          <PopupSection>
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Variable size={11} className="text-slate-400"/>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Custom Attributes</p>
@@ -324,21 +313,13 @@ function AddModal({ onClose, onAdd }) {
                 </div>
               </div>
             )}
-          </div>
+          </PopupSection>
 
           {err && (
             <p className="text-[11px] text-red-500 bg-red-50 border border-red-100 px-3 py-2 rounded-lg flex items-center gap-1.5"><X size={11}/>{err}</p>
           )}
-        </div>
-
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-surface-border flex-shrink-0">
-          <button onClick={onClose} className="text-[11px] text-slate-400 hover:text-slate-600 transition-colors">Cancel</button>
-          <button onClick={submit} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-[11px] font-semibold hover:bg-primary/90 transition-colors">
-            <UserPlus size={11}/>Add Contact
-          </button>
-        </div>
-      </div>
-    </div>
+        </>
+    </PopupShell>
   )
 }
 

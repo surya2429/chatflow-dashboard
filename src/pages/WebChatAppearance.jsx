@@ -24,6 +24,7 @@ import { getBotId, useBotId } from '../constants/webchat'
 import { usePublishSection, useLoadSection, SECTION_APPEARANCE } from '../lib/liveConfig'
 import { AnswerControl, CountryDialPicker, COUNTRIES, useDetectedCountry } from '../components/webchat/AnswerControls'
 import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
+import PopupShell, { PopupSection, PopupFooter } from '../components/webchat/PopupShell'
 import CompanyEmailSetting from '../components/webchat/CompanyEmailSetting'
 import { isFreeEmail, COMPANY_EMAIL_MESSAGE } from '../lib/emailDomains'
 import LocationMap from '../components/webchat/LocationMap'
@@ -2686,37 +2687,10 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
               ))}
             </div>
             {editor === 'faq' && (
-              <SettingsModal title="Help articles" subtitle="What visitors see on the widget's Help tab" wide onClose={()=>setEditor(null)}>
-                <FaqEditor items={Array.isArray(cfg.faqItems) ? cfg.faqItems : DEFAULT_FAQS} onChange={v => set('faqItems', v)}/>
-              </SettingsModal>
+              <FaqPopup items={Array.isArray(cfg.faqItems) ? cfg.faqItems : DEFAULT_FAQS} onSave={v => set('faqItems', v)} onClose={()=>setEditor(null)}/>
             )}
             {editor === 'booking' && (
-              <SettingsModal title="Booking" subtitle="How the Book tab works" wide overflowVisible onClose={()=>setEditor(null)}>
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-[11px] font-semibold text-slate-700 mb-1.5">Visitors must give</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {['Name', 'Email', 'Phone number'].map(x => <span key={x} className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-100 rounded-full px-2.5 py-1"><Check size={10} className="text-emerald-500"/>{x}</span>)}
-                    </div>
-                    <p className="text-[10.5px] text-slate-400 mt-1.5 leading-snug">All three are required before a booking can be confirmed, so the confirmation email can be sent.</p>
-                  </div>
-                  <div>
-                    <label className="label">Your time zone</label>
-                    <p className="text-[10.5px] text-slate-400 mb-1.5">Slot times are set in this zone. Visitors choose their own and see every slot converted.</p>
-                    <TimezoneSelect value={cfg.bookingTimezone} onChange={v=>set('bookingTimezone',v)} className="input"/>
-                  </div>
-                  <div className="pt-3 border-t border-surface-border">
-                    <p className="text-[11px] font-semibold text-slate-700 mb-2">Email</p>
-                    <CompanyEmailSetting value={cfg.bookingCompanyEmailOnly} onChange={v=>set('bookingCompanyEmailOnly', v)}/>
-                  </div>
-                  <div className="pt-3 border-t border-surface-border">
-                    <p className="text-[11px] font-semibold text-slate-700 mb-2">Phone number country</p>
-                    <PhoneCountrySettings
-                      value={{ allowedCountries: cfg.bookingCountries, defaultCountry: cfg.bookingDefaultCountry, ipDetect: cfg.bookingIpDetect }}
-                      set={(k, v) => set({ allowedCountries: 'bookingCountries', defaultCountry: 'bookingDefaultCountry', ipDetect: 'bookingIpDetect' }[k], v)}/>
-                  </div>
-                </div>
-              </SettingsModal>
+              <BookingPopup cfg={cfg} onSave={patch => Object.entries(patch).forEach(([k, v]) => set(k, v))} onClose={()=>setEditor(null)}/>
             )}
             <div className="p-4 border-t border-surface-border space-y-1">
               <label className="label">Calling</label>
@@ -3007,31 +2981,55 @@ const DEFAULT_FAQS = [
 ]
 const newFaqId = () => `faq${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
 
-/* A small centred dialog for the settings that are too big to live inline (Help articles, Booking). */
 const TAB_EDITORS = { showFaqTab: 'faq', showBookingTab: 'booking' }
 
-function SettingsModal({ title, subtitle, onClose, children, wide, overflowVisible }) {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+/* Help articles popup — edits a draft; Cancel throws it away, Save changes applies it. */
+function FaqPopup({ items, onSave, onClose }) {
+  const [draft, setDraft] = useState(items)
+  const shown = draft.filter(f => (f.q || '').trim()).length
   return (
-    <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label={title} className={clsx('bg-white rounded-2xl shadow-modal w-full flex flex-col max-h-[calc(100vh-2rem)] animate-fade-in', wide ? 'max-w-xl' : 'max-w-md')}>
-        <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-surface-border">
-          <div>
-            <h3 className="text-[15px] font-bold text-slate-900">{title}</h3>
-            {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
-          </div>
-          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={15}/></button>
+    <PopupShell icon={HelpCircle} color="#0ea5e9" title="Help articles" badge="Help tab" width={680}
+      meta={<span>{shown} shown in the widget</span>} onClose={onClose}
+      footer={<PopupFooter onCancel={onClose} onSave={() => { onSave(draft); onClose() }}/>}>
+      <PopupSection title="Questions & answers">
+        <FaqEditor items={draft} onChange={setDraft}/>
+      </PopupSection>
+    </PopupShell>
+  )
+}
+
+/* Booking popup — what the Book tab asks for and how it behaves. Same draft / Save changes model. */
+function BookingPopup({ cfg, onSave, onClose }) {
+  const [d, setD] = useState({
+    bookingTimezone: cfg.bookingTimezone,
+    bookingCompanyEmailOnly: cfg.bookingCompanyEmailOnly,
+    bookingCountries: cfg.bookingCountries,
+    bookingDefaultCountry: cfg.bookingDefaultCountry,
+    bookingIpDetect: cfg.bookingIpDetect,
+  })
+  const upd = (k, v) => setD(p => ({ ...p, [k]: v }))
+  return (
+    <PopupShell icon={CalendarCheck2} color="#10b981" title="Booking" badge="Book tab" width={680} overflowVisible
+      meta={<span>What visitors give, and when slots are offered</span>} onClose={onClose}
+      footer={<PopupFooter onCancel={onClose} onSave={() => { onSave(d); onClose() }}/>}>
+      <PopupSection title="Visitor details" hint="All three are required before a booking can be confirmed, so the confirmation email can be sent.">
+        <div className="flex flex-wrap gap-1.5">
+          {['Name', 'Email', 'Phone number'].map(x => <span key={x} className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-white border border-slate-200 rounded-full px-2.5 py-1"><Check size={10} className="text-emerald-500"/>{x}</span>)}
         </div>
-        <div className={clsx('px-5 py-4 min-h-0', overflowVisible ? 'overflow-visible' : 'overflow-y-auto')}>{children}</div>
-        <div className="flex justify-end px-5 py-3 border-t border-surface-border bg-slate-50/60 rounded-b-2xl">
-          <button onClick={onClose} className="px-5 py-2 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary-hover">Done</button>
+        <CompanyEmailSetting value={d.bookingCompanyEmailOnly} onChange={v => upd('bookingCompanyEmailOnly', v)}/>
+      </PopupSection>
+      <PopupSection title="Time zone" hint="Slot times are set in this zone. Visitors choose their own and see every slot converted.">
+        <div className="space-y-1">
+          <label className="label">Your time zone</label>
+          <TimezoneSelect value={d.bookingTimezone} onChange={v => upd('bookingTimezone', v)} className="input"/>
         </div>
-      </div>
-    </div>
+      </PopupSection>
+      <PopupSection title="Phone number country">
+        <PhoneCountrySettings
+          value={{ allowedCountries: d.bookingCountries, defaultCountry: d.bookingDefaultCountry, ipDetect: d.bookingIpDetect }}
+          set={(k, v) => upd({ allowedCountries: 'bookingCountries', defaultCountry: 'bookingDefaultCountry', ipDetect: 'bookingIpDetect' }[k], v)}/>
+      </PopupSection>
+    </PopupShell>
   )
 }
 
@@ -3042,9 +3040,7 @@ function FaqEditor({ items, onChange }) {
   const add = () => onChange([...items, { id: newFaqId(), q: '', a: '' }])
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-slate-500">
-        {items.filter(f => f.q.trim()).length} shown in the widget. Visitors can search them; articles with no question are hidden.
-      </p>
+      <p className="text-[10.5px] text-slate-400">Visitors can search these on the Help tab. Articles with no question are hidden.</p>
       {items.length === 0 && <p className="text-[11px] text-slate-400 border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">No articles yet — add your first one.</p>}
       {items.map((f, i) => (
         <div key={f.id} className="rounded-xl border border-surface-border p-2.5 space-y-1.5 bg-slate-50/50">

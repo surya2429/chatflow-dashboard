@@ -18,6 +18,7 @@ import { QUESTION_TYPES as WEBCHAT_QUESTION_TYPES } from '../constants/webchatQu
 import { WIDGET_CFG_STORAGE_KEY, useWidgetTheme, WidgetPreview, getLandingBotId, slugifyBotName } from './WebChatAppearance'
 import { usePublishSection, useLoadSection, SECTION_FLOWS } from '../lib/liveConfig'
 import { useBotId } from '../constants/webchat'
+import PopupShell, { PopupSection, PopupFooter } from '../components/webchat/PopupShell'
 import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
 import CompanyEmailSetting from '../components/webchat/CompanyEmailSetting'
 import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES, CHOICE_DIRECTIONS, CHOICE_DEFAULT_DIRECTION } from '../components/webchat/AnswerControls'
@@ -815,23 +816,11 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
   const save = () => { onChange(local); onClose() }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(4px)' }}
-      onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden max-h-[85vh]">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: catColor + '15', border: `1.5px solid ${catColor}25` }}>
-              <Icon size={14} style={{ color: catColor }}/>
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-bold text-slate-900 truncate">{def.label}</p>
-              <span className="text-[9px] font-semibold rounded-full px-1.5 py-0.5" style={{ color: catColor, background: catColor + '15' }}>{CAT_LABELS[def.cat]}</span>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-surface-hover text-slate-400 flex-shrink-0"><X size={15}/></button>
-        </div>
-
-        <div className="p-4 space-y-3 overflow-y-auto">
+    <PopupShell icon={Icon} color={catColor} title={def.label} badge={CAT_LABELS[def.cat]} width={680}
+      meta={<span className="flex items-center gap-1"><span className="font-mono truncate max-w-[140px]" title={node.id}>{node.id}</span><CopyIdButton id={node.id}/></span>}
+      onClose={onClose}
+      footer={<PopupFooter onCancel={onClose} onSave={save} onDelete={onDelete}/>}>
+      <PopupSection className="space-y-3">
           <div className="space-y-1">
             <label className="label">Node name</label>
             <input className="input" value={d.name || ''} onChange={e => set('name', e.target.value)}/>
@@ -1347,15 +1336,20 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
               <p className="text-[9px] text-slate-400">Jumps into that subflow's own graph, starting from its first node. Execution doesn't return here — use this for reusable pieces of logic, so this bot only needs one Main Flow.</p>
             </>
           )}
-        </div>
+      </PopupSection>
+    </PopupShell>
+  )
+}
 
-        <div className="flex gap-2 p-4 border-t border-surface-border flex-shrink-0">
-          <button onClick={onDelete} className="p-2 rounded-lg text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"><Trash2 size={14}/></button>
-          <button onClick={onClose} className="btn-secondary flex-1 justify-center">Cancel</button>
-          <button onClick={save} className="btn-primary flex-1 justify-center"><Check size={13}/> Save</button>
-        </div>
-      </div>
-    </div>
+/* "Copy ID" chip in the popup header, same as the WhatsApp editor's. */
+function CopyIdButton({ id }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button type="button" title="Copy node ID"
+      onClick={() => { navigator.clipboard?.writeText(id).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }) }}
+      className={clsx('flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium transition-all', copied ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 hover:text-primary hover:bg-slate-100')}>
+      {copied ? <><Check size={9}/> Copied</> : <><Copy size={9}/> Copy ID</>}
+    </button>
   )
 }
 
