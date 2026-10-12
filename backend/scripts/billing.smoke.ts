@@ -636,6 +636,33 @@ async function main() {
   r = await callT('POST', '/verify', { razorpay_payment_id: po2Pay, razorpay_order_id: po2.orderId, razorpay_signature: sign(po2.orderId, po2Pay) }, 'wo4')
   check('pay-once customers can add them too, ending with their plan', r.status === 200 && (r.body as RzEntity).mode === 'once' && (r.body as RzEntity).extraAddons[0].until === (r.body as RzEntity).currentEnd, r.body)
 
+  console.log('\nyearly plans can buy add-ons monthly')
+  await callT('PUT', '/profile', good, 'wo5')
+  const yo = (await callT('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'once' }, 'wo5')).body as RzEntity
+  const yoPay = fake.pay(yo.orderId, yo.amount)
+  const yoSum = (await callT('POST', '/verify', { razorpay_payment_id: yoPay, razorpay_order_id: yo.orderId, razorpay_signature: sign(yo.orderId, yoPay) }, 'wo5')).body as RzEntity
+  r = await callT('POST', '/quote', { plan: 'pro', period: 'yearly', addons: AO, addonsOnly: true, term: 'monthly' }, 'wo5')
+  check('monthly rate: 2 agents = ₹2,000 + GST = ₹2,360', (r.body as RzEntity).charge.total === 2360 && (r.body as RzEntity).addonPeriod === 'monthly', r.body)
+  r = await callT('POST', '/quote', { plan: 'pro', period: 'yearly', addons: AO, addonsOnly: true }, 'wo5')
+  check('yearly rate for the rest of the year: ₹19,200 + GST = ₹22,656', (r.body as RzEntity).charge.total === 22656, r.body)
+  r = await callT('POST', '/addons/checkout', { addons: AO, term: 'monthly' }, 'wo5')
+  const ym = r.body as RzEntity
+  check('checkout charges the monthly rate', ym.amount === 236000, ym)
+  const ymPay = fake.pay(ym.orderId, 236000)
+  const tBuy = t
+  r = await callT('POST', '/verify', { razorpay_payment_id: ymPay, razorpay_order_id: ym.orderId, razorpay_signature: sign(ym.orderId, ymPay) }, 'wo5')
+  const ys = r.body as RzEntity
+  check('they run for one month — not the whole year — and the yearly plan is unchanged', ys.extraAddons[0].term === 'monthly' && ys.extraAddons[0].until > tBuy + 27 * 86400 && ys.extraAddons[0].until < tBuy + 32 * 86400 && ys.currentEnd === yoSum.currentEnd && ys.period === 'yearly', [ys.extraAddons, ys.currentEnd])
+  const yInv = ((await callT('GET', '/invoices', undefined, 'wo5')).body as RzEntity).items[0]
+  const yPage = String((await callT('GET', `/invoices/${yInv.id}/view`, undefined, 'wo5')).body)
+  check('the invoice says 1 month', yInv.amountPaise === 236000 && yPage.includes('1 month'))
+  r = await callT('POST', '/addons/checkout', { addons: AO }, 'wo5')
+  check('without choosing a term they pay the yearly rate', (r.body as RzEntity).amount === 2265600, r.body)
+  r = await callT('POST', '/addons/checkout', { addons: AO, term: 'monthly' }, 'wo4')
+  check('on a monthly plan the term makes no difference (₹2,360)', (r.body as RzEntity).amount === 236000, r.body)
+  t += 40 * 86400
+  check('after a month they are gone, the plan is still there', (await statusT('wo5')).extraAddons.length === 0 && (await statusT('wo5')).status === 'active')
+
   console.log('\nthe tax invoice')
   const invPage = String((await callT('GET', `/invoices/${(s1.latestInvoice as RzEntity).id}/view`, undefined, 'wt')).body)
   check('shows the supplier: legal name, product, CIN, GSTIN, address', ['Feso Social Media Private Limited', 'SMATBOT', 'U22222TG2015PTC100809', '36AACCF6679F1ZD', 'Ashoka Hitech Chambers', 'Banjara Hills', 'Telangana'].every((x) => invPage.includes(x)))

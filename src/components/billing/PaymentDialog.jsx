@@ -84,7 +84,7 @@ function TaxRows({ charge }) {
 
 export default function PaymentDialog({
   dialog, config, sub, profile, defaults, quote, busy, error,
-  onSaveProfile, onConfirm, onClose, onPayOnceInstead, onStartAtRenewal, onAddonsChange, web,
+  onSaveProfile, onConfirm, onClose, onPayOnceInstead, onStartAtRenewal, onAddonsChange, onTermChange, web,
 }) {
   const { kind, plan, period, mode, startAtCycleEnd, upgrade } = dialog || {}
   const needsDetails = kind === 'new' && !profile
@@ -99,9 +99,13 @@ export default function PaymentDialog({
   // What was picked, priced from the catalog; the server's quote (with the GST split) replaces it when it arrives.
   const selected = dialog.addons || []
   const defs = (config?.addons || []).filter((a) => a.plans.includes(plan) && !(web && a.whatsapp))
-  const quoteOk = !!quote && quote.plan === plan && quote.period === period && sigOf(quote.addons) === sigOf(selected)
+  /* A yearly plan can buy extras for one month at the monthly rate, or for the rest of the year at the yearly rate. */
+  const termChoice = kind === 'addons-once' && period === 'yearly'
+  const term = dialog.term || (termChoice ? 'monthly' : 'plan')
+  const pricePeriod = termChoice && term === 'monthly' ? 'monthly' : period
+  const quoteOk = !!quote && quote.plan === plan && quote.period === period && sigOf(quote.addons) === sigOf(selected) && (quote.addonPeriod || null) === (pricePeriod !== period ? pricePeriod : null)
   const planBase = quoteOk ? quote.planBase : fallback?.base
-  const lines = selected.map((a) => { const d = defs.find((x) => x.id === a.id); return d ? { id: d.id, name: d.name, unit: d.unit, qty: a.qty, amount: d[period] * a.qty } : null }).filter(Boolean)
+  const lines = selected.map((a) => { const d = defs.find((x) => x.id === a.id); return d ? { id: d.id, name: d.name, unit: d.unit, qty: a.qty, amount: d[pricePeriod] * a.qty } : null }).filter(Boolean)
   const addonsOnly = kind === 'addons-once'
   let charge = quoteOk ? quote.charge : addonsOnly ? null : fallback
   if (!quoteOk && lines.length && (fallback || addonsOnly)) {
@@ -192,6 +196,21 @@ export default function PaymentDialog({
                     </div>
                   )}
 
+                  {termChoice && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        ['monthly', '1 month', 'Monthly price'],
+                        ['plan', endDate ? `Until ${endDate}` : 'Until plan ends', 'Yearly price'],
+                      ].map(([k, label, sub2]) => (
+                        <button key={k} type="button" disabled={busy} onClick={() => onTermChange?.(k)}
+                          className={clsx('text-left rounded-xl border px-3 py-2 transition-colors', term === k ? 'border-primary bg-primary/5' : 'border-surface-border hover:bg-slate-50')}>
+                          <p className="text-xs font-bold text-slate-800">{label}</p>
+                          <p className="text-[10px] text-slate-400">{sub2}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   {showAddons && (
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
@@ -199,7 +218,7 @@ export default function PaymentDialog({
                         {selected.length > 0 && <button type="button" onClick={() => onAddonsChange?.([])} disabled={busy} className="text-[10.5px] font-semibold text-slate-400 hover:text-slate-600">Clear</button>}
                       </div>
                       {defs.length > 0 ? (
-                        <AddonPicker defs={defs} period={period} selected={selected} onChange={(a) => onAddonsChange?.(a)} disabled={busy}/>
+                        <AddonPicker defs={defs} period={pricePeriod} selected={selected} onChange={(a) => onAddonsChange?.(a)} disabled={busy}/>
                       ) : (
                         <p className="text-[11px] text-slate-500 leading-relaxed rounded-xl border border-dashed border-slate-200 px-3 py-2.5">
                           Extra capacity is sold with Pro and AI. Feature add-ons for {p.name} (CRM, Live Agents, Cart &amp; Catalog…) are priced on request.
@@ -221,7 +240,7 @@ export default function PaymentDialog({
                     <p className="flex items-start gap-2 text-xs text-slate-600 leading-relaxed">
                       <Info size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
                       <span>
-                        A <b>one-time</b> purchase: these add-ons run until <b>{endDate || 'the end of your current period'}</b> and <b>don't renew</b>.
+                        A <b>one-time</b> purchase: these add-ons run {termChoice && term === 'monthly' ? <>for <b>one month</b></> : <>until <b>{endDate || 'the end of your current period'}</b></>} and <b>don't renew</b>.
                         {sub?.autopay?.on ? ' Your plan and autopay stay exactly as they are — the next renewal is charged as usual.' : ''}
                         {' '}Pick them again next period if you still need them, or add them to your plan when you subscribe.
                       </span>

@@ -184,9 +184,9 @@ export default function BillingSection() {
   useEffect(() => {
     if (!dialog?.plan) { setQuote(null); return }
     let off = false
-    billing.quote({ plan: dialog.plan, period: dialog.period, addons: dialog.addons || [], addonsOnly: dialog.kind === 'addons-once' }).then(q => !off && setQuote(q)).catch(() => !off && setQuote(null))
+    billing.quote({ plan: dialog.plan, period: dialog.period, addons: dialog.addons || [], addonsOnly: dialog.kind === 'addons-once', term: dialog.term || (dialog.period === 'yearly' ? 'monthly' : 'plan') }).then(q => !off && setQuote(q)).catch(() => !off && setQuote(null))
     return () => { off = true }
-  }, [dialog?.plan, dialog?.period, dialog?.kind, JSON.stringify(dialog?.addons || []), profile?.address?.stateCode])
+  }, [dialog?.plan, dialog?.period, dialog?.kind, dialog?.term, JSON.stringify(dialog?.addons || []), profile?.address?.stateCode])
 
   async function saveProfile(values) {
     const saved = await billing.saveProfile(values)
@@ -251,14 +251,15 @@ export default function BillingSection() {
   async function runAddonsOnce(d) {
     setBusy(true); setDlgError(null)
     try {
-      const session = await billing.addonsCheckout(d.addons || [])
+      const session = await billing.addonsCheckout(d.addons || [], d.term || (d.period === 'yearly' ? 'monthly' : 'plan'))
       const response = await payWithRazorpay(session, profile
         ? { name: profile.contactName, email: profile.email, contact: `+91${profile.phone}` }
         : { name: currentUser?.name, email: currentUser?.email })
       const result = await billing.verify(response)
       setSubscription(result)
       setDialog(null)
-      flash('Add-ons added until ' + fmtSec(result.currentEnd) + '. They are one-time, so they won\'t renew.')
+      const added = result.extraAddons?.length ? Math.max(...result.extraAddons.map(a => a.until)) : result.currentEnd
+      flash('Add-ons added until ' + fmtSec(added) + '. They are one-time, so they won\'t renew.')
     } catch (e) {
       if (e.code === 'dismissed') flash('Checkout closed — nothing was charged.', 'info')
       else if (e.code === 'payment_failed') flash(e.message, 'error')
@@ -332,7 +333,7 @@ export default function BillingSection() {
   const openAddons = (name) => {
     const def = name ? config?.addons?.find(x => x.name === name) : null
     setDlgError(null)
-    setDialog({ kind: 'addons-once', plan: sub.plan, period: sub.period, mode: 'once', addons: def ? [{ id: def.id, qty: 1 }] : [] })
+    setDialog({ kind: 'addons-once', plan: sub.plan, period: sub.period, mode: 'once', addons: def ? [{ id: def.id, qty: 1 }] : [], term: sub.period === 'yearly' ? 'monthly' : 'plan' })
   }
 
   const span = pooled ? 12 : 1
@@ -875,7 +876,7 @@ export default function BillingSection() {
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold text-slate-800">Buy add-ons once</p>
                   <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-                    One payment, valid until <b>{fmtSec(sub.currentEnd)}</b>, no renewal. {sub.autopay?.on ? 'Your autopay and plan are not changed.' : ''}
+                    One payment, no renewal. {sub.period === 'yearly' ? <>Take them for <b>one month</b> at the monthly price, or until <b>{fmtSec(sub.currentEnd)}</b> at the yearly price.</> : <>Valid until <b>{fmtSec(sub.currentEnd)}</b>.</>} {sub.autopay?.on ? 'Your autopay and plan are not changed.' : ''}
                   </p>
                   {sub.extraAddons?.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-2">
@@ -901,7 +902,7 @@ export default function BillingSection() {
                       <p className="text-xs font-semibold text-slate-800">{a.name}</p>
                       <p className="text-[10.5px] text-slate-400">{a.unit}</p>
                     </div>
-                    <span className="text-xs font-bold text-slate-900 tabular-nums whitespace-nowrap">{(canBuyAddons ? sub.period : view) === 'yearly' ? `${inr(a.y)} / yr` : `${inr(a.m)} / mo`}</span>
+                    <span className="text-xs font-bold text-slate-900 tabular-nums whitespace-nowrap">{canBuyAddons && sub.period === 'yearly' ? `${inr(a.m)} / mo · ${inr(a.y)} / yr` : (canBuyAddons ? sub.period : view) === 'yearly' ? `${inr(a.y)} / yr` : `${inr(a.m)} / mo`}</span>
                     <button disabled={!usageEligible || (!canBuyAddons && requested[key])} onClick={() => (canBuyAddons ? openAddons(a.name) : setRequested(r => ({ ...r, [key]: true })))}
                       className={clsx('w-[84px] py-1.5 rounded-lg text-[11px] font-bold transition-colors flex-shrink-0',
                         !canBuyAddons && requested[key] ? 'bg-emerald-50 text-emerald-700' : usageEligible ? 'border border-primary text-primary hover:bg-primary/5' : 'bg-slate-100 text-slate-300 cursor-not-allowed')}>
@@ -1000,7 +1001,7 @@ export default function BillingSection() {
       )}
 
       <PaymentDialog dialog={dialog} config={config} sub={sub} profile={profile} defaults={accountDefaults} quote={quote} busy={busy} error={dlgError}
-        web={web} onAddonsChange={(addons) => setDialog(d => (d ? { ...d, addons } : d))} onSaveProfile={saveProfile} onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
+        web={web} onAddonsChange={(addons) => setDialog(d => (d ? { ...d, addons } : d))} onTermChange={(term) => setDialog(d => (d ? { ...d, term } : d))} onSaveProfile={saveProfile} onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
         onPayOnceInstead={() => { setPayMode('once'); setDlgError(null); setDialog(d => ({ ...d, mode: 'once', startAtCycleEnd: false })) }}
         onStartAtRenewal={() => { setDlgError(null); setDialog(d => ({ kind: 'new', plan: d.plan, period: d.period, mode: 'autopay', startAtCycleEnd: true })) }}/>
 

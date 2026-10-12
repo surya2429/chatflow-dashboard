@@ -83,6 +83,8 @@ export interface PendingCheckout {
   updateCard?: boolean
   /** a one-time add-on purchase on the current plan: no plan change, nothing recurring */
   addonsOnly?: boolean
+  /** which price list those add-ons were bought at (a yearly plan can buy them monthly) */
+  addonPeriod?: Period
   plan: PlanId
   period: Period
   addons?: AddonSel[]
@@ -193,6 +195,8 @@ export interface ExtraAddon {
   at: number
   until: number
   paymentId: string
+  /** 'monthly' = bought for one month on a yearly plan */
+  term?: Period
 }
 
 export interface BillingRecord {

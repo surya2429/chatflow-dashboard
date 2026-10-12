@@ -64,6 +64,8 @@ export interface BuildInvoiceInput {
   addons?: AddonSel[]
   /** invoice only the add-ons (a one-time purchase) */
   addonsOnly?: boolean
+  /** price list used for the add-ons */
+  addonPeriod?: Period
   method?: string
   kind: Invoice['kind']
 }
@@ -79,7 +81,7 @@ export function allowanceNote(plan: PlanId, period: Period): string {
 }
 
 export function buildInvoice(i: BuildInvoiceInput): Invoice {
-  const c = chargeFor(i.plan, i.period, i.gstPercent, { supplier: i.seller.stateCode, customer: i.buyer.address.stateCode }, i.addons, i.addonsOnly)
+  const c = chargeFor(i.plan, i.period, i.gstPercent, { supplier: i.seller.stateCode, customer: i.buyer.address.stateCode }, i.addons, i.addonsOnly, i.addonPeriod)
   const taxKind = c.tax.kind === 'intra' ? 'intra' : 'inter'
   // If the price has changed since this was paid, the invoice must show what was actually charged.
   const repriced = Boolean(i.amountPaise && i.amountPaise !== c.totalPaise)
@@ -92,11 +94,11 @@ export function buildInvoice(i: BuildInvoiceInput): Invoice {
   }
   const planName = PLAN_CATALOG[i.plan].name
   const unit = i.period === 'yearly' ? 'year' : 'month'
-  const lines = addonLines(i.addons, i.period)
+  const lines = addonLines(i.addons, i.addonPeriod ?? i.period)
   // One row for the plan and one per add-on — unless the amount was re-derived, when the rows wouldn't add up.
   const items: InvoiceItem[] | undefined = repriced ? undefined : [
     ...(i.addonsOnly ? [] : [{ description: `SmatBot ${planName} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription`, qty: 1, unit, rate: PLAN_CATALOG[i.plan][i.period], taxable: PLAN_CATALOG[i.plan][i.period] }]),
-    ...lines.map((l) => ({ description: `Add-on: ${l.name} (${l.unit})`, qty: l.qty, unit: l.unit, rate: l.rate, taxable: l.amount })),
+    ...lines.map((l) => ({ description: `Add-on: ${l.name} (${l.unit})${i.addonsOnly ? ((i.addonPeriod ?? i.period) === 'monthly' ? ' · 1 month' : ' · yearly rate') : ''}`, qty: l.qty, unit: l.unit, rate: l.rate, taxable: l.amount })),
   ]
   return {
     id: invoiceId(i.number),

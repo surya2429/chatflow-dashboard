@@ -102,8 +102,8 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* The charge for a plan, with GST labelled for the customer's state when known.
      The TOTAL is the same either way; only CGST/SGST vs IGST changes. */
-  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null, addons?: AddonSel[], addonsOnly = false) =>
-    chargeFor(plan, period, gstPercent, { supplier, customer: rec?.profile?.address.stateCode }, addons, addonsOnly)
+  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null, addons?: AddonSel[], addonsOnly = false, addonPeriod?: Period) =>
+    chargeFor(plan, period, gstPercent, { supplier, customer: rec?.profile?.address.stateCode }, addons, addonsOnly, addonPeriod)
 
   /* What goes on the Razorpay order / subscription as notes (visible in their dashboard). */
   const notesFor = (rec: BillingRecord, plan: PlanId, period: Period, addons?: AddonSel[]) => ({
@@ -207,6 +207,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     amountPaise: number
     addons?: AddonSel[]
     addonsOnly?: boolean
+    addonPeriod?: Period
     method?: string
     at?: number
     periodStart: number
@@ -234,7 +235,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       seller, buyer: rec.profile, number: invoiceNumber(seller.prefix, fy, seq), issuedAt,
       paymentId: p.paymentId, orderId: p.orderId, subscriptionId: p.subscriptionId,
       plan: p.plan, period: p.period, periodStart: p.periodStart, periodEnd: p.periodEnd,
-      gstPercent, amountPaise: p.amountPaise, addons: p.addons, addonsOnly: p.addonsOnly, method: p.method, kind: p.kind,
+      gstPercent, amountPaise: p.amountPaise, addons: p.addons, addonsOnly: p.addonsOnly, addonPeriod: p.addonPeriod, method: p.method, kind: p.kind,
     })
     rec.invoices.unshift(inv)
     return inv
@@ -629,7 +630,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       addons: addonLines(rec.addons, rec.period),
       extraAddons: (rec.extraAddons ?? []).filter((e) => e.until > now()).map((e) => {
         const def = ADDON_CATALOG.find((a) => a.id === e.id)
-        return { id: e.id, name: def?.name ?? e.id, unit: def?.unit ?? '', qty: e.qty, until: e.until }
+        return { id: e.id, name: def?.name ?? e.id, unit: def?.unit ?? '', qty: e.qty, until: e.until, term: e.term ?? null }
       }),
       canBuyAddons: rec.status === 'active' && d?.state !== 'active' && Boolean(rec.currentEnd && rec.currentEnd > now()) && ADDON_CATALOG.some((a) => a.plans.includes(rec.plan!)),
       currentStart: rec.currentStart ?? null,
@@ -768,7 +769,7 @@ export function createBillingService(opts: BillingServiceOptions) {
 
     if (pend.updateCard) return verifyCardUpdate(rec, pend, paymentId)
     const payment = await rz!.request<RzEntity>('GET', `/payments/${paymentId}`).catch(() => null)
-    const c = chargeOf(pend.plan, pend.period, rec, pend.addons, pend.addonsOnly)
+    const c = chargeOf(pend.plan, pend.period, rec, pend.addons, pend.addonsOnly, pend.addonPeriod)
 
     if (pend.mode === 'once') {
       // A valid signature proves Razorpay issued it; the payment itself must still
@@ -785,10 +786,13 @@ export function createBillingService(opts: BillingServiceOptions) {
 
       if (pend.addonsOnly) {
         // Add-ons bought once on the running plan: plan, autopay and saved card are untouched.
-        const until = rec.currentEnd ?? now()
-        rec.extraAddons = [...(rec.extraAddons ?? []), ...(pend.addons ?? []).map((a) => ({ id: a.id, qty: a.qty, at: now(), until, paymentId }))]
+        // Bought at the monthly rate on a yearly plan: one month, or whatever is left of the year if less.
+        const monthly = pend.addonPeriod === 'monthly' && pend.period === 'yearly'
+        const planEnd = rec.currentEnd ?? now()
+        const until = monthly ? Math.min(addPeriod(now(), 'monthly'), planEnd) : planEnd
+        rec.extraAddons = [...(rec.extraAddons ?? []), ...(pend.addons ?? []).map((a) => ({ id: a.id, qty: a.qty, at: now(), until, paymentId, ...(monthly ? { term: 'monthly' as Period } : {}) }))]
         await recordPayment(rec, {
-          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, addonsOnly: true,
+          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, addonsOnly: true, addonPeriod: pend.addonPeriod,
           method: p.method, periodStart: now(), periodEnd: until, kind: 'addon',
         })
         rec.pending = null
@@ -953,16 +957,18 @@ export function createBillingService(opts: BillingServiceOptions) {
     const sel = normalizeAddons((req.body ?? {}).addons, rec.plan)
     if (!sel.ok) return err(400, 'invalid_addons', sel.message)
     if (!sel.addons.length) return err(400, 'no_addons', 'Choose at least one add-on.')
-    const c = chargeOf(rec.plan, rec.period, rec, sel.addons, true)
+    // A yearly plan may buy them for one month at the monthly rate instead of until the year ends.
+    const term: Period | undefined = (req.body ?? {}).term === 'monthly' && rec.period === 'yearly' ? 'monthly' : undefined
+    const c = chargeOf(rec.plan, rec.period, rec, sel.addons, true, term)
     const order = await rz!.request<RzEntity>('POST', '/orders', {
       amount: c.totalPaise, currency: 'INR', receipt: `${req.workspaceId}-a${now()}`.slice(0, 40),
       notes: { ...notesFor(rec, rec.plan, rec.period, sel.addons), purpose: 'one-time add-ons' },
     })
-    rec.pending = { mode: 'once', addonsOnly: true, plan: rec.plan, period: rec.period, addons: sel.addons, orderId: order.id, createdAt: now() }
+    rec.pending = { mode: 'once', addonsOnly: true, addonPeriod: term, plan: rec.plan, period: rec.period, addons: sel.addons, orderId: order.id, createdAt: now() }
     rec.updatedAt = now()
     await store.put(rec)
     return reply(200, {
-      keyId, amount: c.totalPaise, currency: 'INR', description: `SmatBot add-ons · one-time (incl. ${gstPercent}% GST)`,
+      keyId, amount: c.totalPaise, currency: 'INR', description: `SmatBot add-ons · ${term ? '1 month' : 'one-time'} (incl. ${gstPercent}% GST)`,
       plan: rec.plan, period: rec.period, mode: 'once', orderId: order.id,
     })
   }
@@ -1193,14 +1199,15 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* What a plan will cost THIS customer, with GST labelled for their state. */
   async function quote(req: BillingRequest): Promise<BillingResponse> {
-    const { plan, period, addons: addonsIn, addonsOnly } = (req.body ?? {}) as Record<string, unknown>
+    const { plan, period, addons: addonsIn, addonsOnly, term } = (req.body ?? {}) as Record<string, unknown>
     if (!isPlanId(plan) || !isPeriod(period)) return err(400, 'invalid_request', 'plan and period are required.')
     const sel = normalizeAddons(addonsIn, plan)
     if (!sel.ok) return err(400, 'invalid_addons', sel.message)
     const rec = await store.get(req.workspaceId)
     const only = addonsOnly === true
-    const c = chargeOf(plan, period, rec, sel.addons, only)
-    return reply(200, { plan, planName: PLAN_CATALOG[plan].name, period, charge: c, planBase: only ? 0 : PLAN_CATALOG[plan][period], addons: addonLines(sel.addons, period), requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES })
+    const addonPeriod: Period | undefined = only && period === 'yearly' && term === 'monthly' ? 'monthly' : undefined
+    const c = chargeOf(plan, period, rec, sel.addons, only, addonPeriod)
+    return reply(200, { plan, planName: PLAN_CATALOG[plan].name, period, charge: c, planBase: only ? 0 : PLAN_CATALOG[plan][period], addonPeriod: addonPeriod ?? null, addons: addonLines(sel.addons, addonPeriod ?? period), requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES })
   }
 
   /* ── router ────────────────────────────────────────────────────────────── */
