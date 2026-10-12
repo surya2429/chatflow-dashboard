@@ -9,6 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import clsx from 'clsx'
 import LocationMap, { useGoogleMaps, reverseGeocode } from './LocationMap'
+import { isFreeEmail, COMPANY_EMAIL_MESSAGE } from '../../lib/emailDomains'
 import ShipmentBookingAnswer from './ShipmentBookingAnswer'
 import ShipmentCalculationAnswer from './ShipmentCalculationAnswer'
 import {
@@ -191,31 +192,34 @@ function FreeTextAnswer({ questionType, accent, dark, onSubmit }) {
 
 /* ── email: composer pill + live validity affordance ─────────────────────── */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
-function EmailAnswer({ accent, dark, onSubmit }) {
+function EmailAnswer({ accent, dark, onSubmit, data = {} }) {
   const [val, setVal] = useState('')
+  const companyOnly = data.companyEmailOnly === true
   const touched = val.length > 2
-  const valid = EMAIL_RE.test(val)
+  const formatOk = EMAIL_RE.test(val)
+  const personal = companyOnly && formatOk && isFreeEmail(val)     // a real address, but not a company one
+  const valid = formatOk && !personal
   const submit = () => { if (valid) onSubmit?.(val.trim()) }
   return (
-    <ComposerPill dark={dark} accent={accent}>
-      <input autoFocus type="email" value={val} onChange={e => setVal(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && submit()}
-        placeholder="you@example.com"
-        className={clsx('flex-1 bg-transparent outline-none min-w-0 px-1 py-1.5 text-[12px]', dark ? 'text-slate-100 placeholder-slate-500' : 'text-slate-800 placeholder-slate-400')}
-        style={{ color: touched && !valid ? '#ef4444' : undefined }}/>
-      {touched && (
-        <span className="flex-shrink-0 flex items-center justify-center wc-ac-pop" style={{ width: 18, height: 18, marginBottom: 6 }}>
-          {valid ? <Check size={14} color="#10b981" strokeWidth={3}/> : <X size={14} color="#ef4444" strokeWidth={3}/>}
-        </span>
-      )}
-      <SendBtn accent={accent} onClick={submit} disabled={!valid}/>
-    </ComposerPill>
+    <div className="w-full">
+      <ComposerPill dark={dark} accent={accent}>
+        <input autoFocus type="email" value={val} onChange={e => setVal(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && submit()}
+          placeholder={companyOnly ? 'you@company.com' : 'you@example.com'}
+          className={clsx('flex-1 bg-transparent outline-none min-w-0 px-1 py-1.5 text-[12px]', dark ? 'text-slate-100 placeholder-slate-500' : 'text-slate-800 placeholder-slate-400')}
+          style={{ color: touched && !valid ? '#ef4444' : undefined }}/>
+        {touched && (
+          <span className="flex-shrink-0 flex items-center justify-center wc-ac-pop" style={{ width: 18, height: 18, marginBottom: 6 }}>
+            {valid ? <Check size={14} color="#10b981" strokeWidth={3}/> : <X size={14} color="#ef4444" strokeWidth={3}/>}
+          </span>
+        )}
+        <SendBtn accent={accent} onClick={submit} disabled={!valid}/>
+      </ComposerPill>
+      {personal && <p className="text-[10px] mt-1 px-3 leading-snug" style={{ color: '#ef4444' }}>{COMPANY_EMAIL_MESSAGE}</p>}
+    </div>
   )
 }
 
-/* ── shared country/dial-code picker (trigger + searchable popover) — used
-   by the standalone Phone question AND the Phone field inside a multi-field
-   Form, so the country-picker UX/logic lives in exactly one place. ────── */
 export function CountryDialPicker({ country, setCountry, dark, dropDirection = 'up', countries = COUNTRIES }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
@@ -1927,7 +1931,7 @@ export function AnswerControl({ questionType, accent = '#0066ff', dark = false, 
     case 'long':
       return <FreeTextAnswer questionType="long" accent={accent} dark={dark} onSubmit={submit}/>
     case 'email':
-      return <EmailAnswer accent={accent} dark={dark} onSubmit={submit}/>
+      return <EmailAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'phone':
       return <PhoneAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'single':

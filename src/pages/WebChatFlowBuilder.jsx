@@ -19,6 +19,7 @@ import { WIDGET_CFG_STORAGE_KEY, useWidgetTheme, WidgetPreview, getLandingBotId,
 import { usePublishSection, useLoadSection, SECTION_FLOWS } from '../lib/liveConfig'
 import { useBotId } from '../constants/webchat'
 import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
+import CompanyEmailSetting from '../components/webchat/CompanyEmailSetting'
 import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES, CHOICE_DIRECTIONS, CHOICE_DEFAULT_DIRECTION } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
 
@@ -1015,6 +1016,7 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
                 <input className="input" placeholder="e.g. email" value={d.saveAs || ''} onChange={e => set('saveAs', e.target.value)}/>
               </div>
               {def.questionType === 'phone' && <PhoneCountrySettings value={d} set={set}/>}
+              {def.questionType === 'email' && <CompanyEmailSetting value={d.companyEmailOnly} onChange={v => set('companyEmailOnly', v)}/>}
               {def.questionType === 'form' && (
                 <FormFieldsEditor fields={d.formFields || DEFAULT_FORM_FIELDS} onChange={v => set('formFields', v)}/>
               )}

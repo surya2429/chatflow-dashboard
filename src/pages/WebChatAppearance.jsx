@@ -24,6 +24,8 @@ import { getBotId, useBotId } from '../constants/webchat'
 import { usePublishSection, useLoadSection, SECTION_APPEARANCE } from '../lib/liveConfig'
 import { AnswerControl, CountryDialPicker, COUNTRIES, useDetectedCountry } from '../components/webchat/AnswerControls'
 import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
+import CompanyEmailSetting from '../components/webchat/CompanyEmailSetting'
+import { isFreeEmail, COMPANY_EMAIL_MESSAGE } from '../lib/emailDomains'
 import LocationMap from '../components/webchat/LocationMap'
 import { PoweredByDemoModal } from '../components/webchat/PoweredByDemoModal'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -2704,6 +2706,10 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                     <TimezoneSelect value={cfg.bookingTimezone} onChange={v=>set('bookingTimezone',v)} className="input"/>
                   </div>
                   <div className="pt-3 border-t border-surface-border">
+                    <p className="text-[11px] font-semibold text-slate-700 mb-2">Email</p>
+                    <CompanyEmailSetting value={cfg.bookingCompanyEmailOnly} onChange={v=>set('bookingCompanyEmailOnly', v)}/>
+                  </div>
+                  <div className="pt-3 border-t border-surface-border">
                     <p className="text-[11px] font-semibold text-slate-700 mb-2">Phone number country</p>
                     <PhoneCountrySettings
                       value={{ allowedCountries: cfg.bookingCountries, defaultCountry: cfg.bookingDefaultCountry, ipDetect: cfg.bookingIpDetect }}
@@ -3080,7 +3086,7 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
   const phoneDigits = info.phone.replace(/\D/g, '')
   const errs = {
     name:  info.name.trim() ? '' : 'Please enter your name',
-    email: !info.email.trim() ? 'Please enter your email' : /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(info.email.trim()) ? '' : "That email doesn't look right",
+    email: !info.email.trim() ? 'Please enter your email' : !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(info.email.trim()) ? "That email doesn't look right" : (cfg?.bookingCompanyEmailOnly && isFreeEmail(info.email)) ? COMPANY_EMAIL_MESSAGE : '',
     phone: !phoneDigits ? 'Please enter your phone number' : (phoneDigits.length < 6 || phoneDigits.length > 15) ? "That number doesn't look right" : '',
   }
   const detailsOk = !errs.name && !errs.email && !errs.phone
@@ -3258,8 +3264,8 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
           {tried && errs.name && <p className="text-[9px] mt-0.5 text-red-500">{errs.name}</p>}
         </div>
         <div>
-          <p className="text-[8.5px] font-bold uppercase tracking-wide mb-1" style={{ color: muted }}>Email *</p>
-          <input value={info.email} type="email" placeholder="you@example.com" autoComplete="email"
+          <p className="text-[8.5px] font-bold uppercase tracking-wide mb-1" style={{ color: muted }}>Email *{cfg?.bookingCompanyEmailOnly && <span className="normal-case font-medium tracking-normal"> · company email only</span>}</p>
+          <input value={info.email} type="email" placeholder={cfg?.bookingCompanyEmailOnly ? 'you@company.com' : 'you@example.com'} autoComplete="email"
             onChange={e => setInfo(p => ({ ...p, email: e.target.value }))}
             className="w-full rounded-lg px-2.5 py-1.5 text-[11.5px] outline-none" style={fieldStyle}/>
           {tried && errs.email && <p className="text-[9px] mt-0.5 text-red-500">{errs.email}</p>}
@@ -3666,7 +3672,7 @@ export default function WebChatAppearance() {
     // Widget tabs — Chat is always on by default
     showHomeTab: false, showChatTab: true, showMessagesTab: false, showFaqTab: false, showBookingTab: false,
     bookingTimezone: 'Asia/Kolkata',
-    bookingCountries: [], bookingDefaultCountry: 'IN', bookingIpDetect: false,
+    bookingCountries: [], bookingDefaultCountry: 'IN', bookingIpDetect: false, bookingCompanyEmailOnly: false,
     faqItems: DEFAULT_FAQS,
     enableVoiceCall: false, enableVideoCall: false,
     googleMapsApiKey: '',
