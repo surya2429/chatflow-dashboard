@@ -581,6 +581,61 @@ async function main() {
   r = await callT('POST', '/payment-method', {}, 'wc1')
   check('no card to change once autopay is off', r.status === 409, r.body)
 
+  console.log('\none-time add-ons on a running plan')
+  fake.state.debit = 'capture'
+  const OA = await activateT('wo1')
+  const dueO = OA.sum.currentEnd as number
+  const AO = [{ id: 'extra-live-agent', qty: 2 }]
+  r = await callT('POST', '/quote', { plan: 'pro', period: 'monthly', addons: AO, addonsOnly: true }, 'wo1')
+  const qo = r.body as RzEntity
+  check('quote is for the add-ons alone (₹2,000 + 18% GST = ₹2,360)', qo.planBase === 0 && qo.charge.base === 2000 && qo.charge.total === 2360, qo)
+  check('autopay customers are told they can buy add-ons', (await statusT('wo1')).canBuyAddons === true)
+  r = await callT('POST', '/addons/checkout', { addons: [] }, 'wo1')
+  check('an empty basket is refused', r.status === 400 && (r.body as RzEntity).error === 'no_addons', r.body)
+  r = await callT('POST', '/addons/checkout', { addons: AO }, 'wo1')
+  const ao = r.body as RzEntity
+  check('checkout is a plain one-off payment (no card saving, no mandate)', r.status === 200 && ao.mode === 'once' && ao.amount === 236000 && !ao.recurring && !ao.customerId && fake.orders.get(ao.orderId)!.amount === 236000, ao)
+  const wrong = fake.pay(ao.orderId, 100000)
+  r = await callT('POST', '/verify', { razorpay_payment_id: wrong, razorpay_order_id: ao.orderId, razorpay_signature: sign(ao.orderId, wrong) }, 'wo1')
+  check('a payment of the wrong amount is refused', r.status === 400 && (r.body as RzEntity).error === 'amount_mismatch', r.body)
+  const aoPay = fake.pay(ao.orderId, 236000)
+  r = await callT('POST', '/verify', { razorpay_payment_id: aoPay, razorpay_order_id: ao.orderId, razorpay_signature: sign(ao.orderId, aoPay) }, 'wo1')
+  const so = r.body as RzEntity
+  check('the add-ons are active until the period ends', r.status === 200 && so.extraAddons.length === 1 && so.extraAddons[0].name === 'Extra Live Agent' && so.extraAddons[0].qty === 2 && so.extraAddons[0].until === dueO, so.extraAddons)
+  check('plan, autopay and card are untouched', so.plan === 'pro' && so.autopay.on && so.autopay.engine === 'token' && so.autopay.card.last4 === '1111' && so.currentEnd === dueO && so.paymentMethod.last4 === '1111', so.autopay)
+  check('the next renewal is still just the plan (₹7,670) — nothing recurring was added', so.autopay.next.total === 7670 && so.addons.length === 0 && so.nextChargeAt === dueO, so.autopay.next)
+  const oInv = ((await callT('GET', '/invoices', undefined, 'wo1')).body as RzEntity).items
+  check('it is invoiced on its own', oInv.length === 2 && oInv[0].amountPaise === 236000 && oInv[0].description.includes('Add-ons'), oInv.map((i: RzEntity) => i.description))
+  const oPage = String((await callT('GET', `/invoices/${oInv[0].id}/view`, undefined, 'wo1')).body)
+  check('invoice shows only the add-on, its validity and that it does not renew', oPage.includes('Add-on: Extra Live Agent') && oPage.includes('Valid until') && oPage.includes('does not renew') && !oPage.includes('Pro Plan —') && oPage.includes('₹2,000.00') && oPage.includes('₹2,360.00'))
+  t = dueO - 48 * HOUR; await tick(); t = dueO; await tick()
+  const afterO = await statusT('wo1')
+  check('the renewal charges the plan only; the one-time add-ons have ended', fake.debits.slice(-1)[0]!.amount === 767000 && afterO.extraAddons.length === 0 && afterO.status === 'active', [fake.debits.slice(-1)[0], afterO.extraAddons])
+  await callT('POST', '/autopay', { enabled: false }, 'wo1')
+
+  const SO = await activateT('wo2', 'standard')
+  r = await callT('POST', '/addons/checkout', { addons: AO }, 'wo2')
+  check('plans without add-ons cannot buy them', r.status === 400 && (SO.sum.canBuyAddons === false) && (r.body as RzEntity).error === 'invalid_addons', r.body)
+  await callT('POST', '/autopay', { enabled: false }, 'wo2')
+
+  fake.state.debit = 'fail'
+  const PD = await activateT('wo3')
+  t = (PD.sum.currentEnd as number) - 48 * HOUR; await tick(); t = PD.sum.currentEnd as number; await tick()
+  r = await callT('POST', '/addons/checkout', { addons: AO }, 'wo3')
+  check('not while a renewal payment is overdue', r.status === 409 && (r.body as RzEntity).error === 'payment_overdue' && (await statusT('wo3')).canBuyAddons === false, r.body)
+  await callT('POST', '/autopay', { enabled: false }, 'wo3')
+  fake.state.debit = 'capture'
+
+  await callT('PUT', '/profile', good, 'wo4')
+  const po = (await callT('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'once' }, 'wo4')).body as RzEntity
+  const poPay = fake.pay(po.orderId, po.amount)
+  await callT('POST', '/verify', { razorpay_payment_id: poPay, razorpay_order_id: po.orderId, razorpay_signature: sign(po.orderId, poPay) }, 'wo4')
+  r = await callT('POST', '/addons/checkout', { addons: AO }, 'wo4')
+  const po2 = r.body as RzEntity
+  const po2Pay = fake.pay(po2.orderId, po2.amount)
+  r = await callT('POST', '/verify', { razorpay_payment_id: po2Pay, razorpay_order_id: po2.orderId, razorpay_signature: sign(po2.orderId, po2Pay) }, 'wo4')
+  check('pay-once customers can add them too, ending with their plan', r.status === 200 && (r.body as RzEntity).mode === 'once' && (r.body as RzEntity).extraAddons[0].until === (r.body as RzEntity).currentEnd, r.body)
+
   console.log('\nthe tax invoice')
   const invPage = String((await callT('GET', `/invoices/${(s1.latestInvoice as RzEntity).id}/view`, undefined, 'wt')).body)
   check('shows the supplier: legal name, product, CIN, GSTIN, address', ['Feso Social Media Private Limited', 'SMATBOT', 'U22222TG2015PTC100809', '36AACCF6679F1ZD', 'Ashoka Hitech Chambers', 'Banjara Hills', 'Telangana'].every((x) => invPage.includes(x)))

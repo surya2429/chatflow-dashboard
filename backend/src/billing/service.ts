@@ -102,8 +102,8 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* The charge for a plan, with GST labelled for the customer's state when known.
      The TOTAL is the same either way; only CGST/SGST vs IGST changes. */
-  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null, addons?: AddonSel[]) =>
-    chargeFor(plan, period, gstPercent, { supplier, customer: rec?.profile?.address.stateCode }, addons)
+  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null, addons?: AddonSel[], addonsOnly = false) =>
+    chargeFor(plan, period, gstPercent, { supplier, customer: rec?.profile?.address.stateCode }, addons, addonsOnly)
 
   /* What goes on the Razorpay order / subscription as notes (visible in their dashboard). */
   const notesFor = (rec: BillingRecord, plan: PlanId, period: Period, addons?: AddonSel[]) => ({
@@ -206,6 +206,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     period: Period
     amountPaise: number
     addons?: AddonSel[]
+    addonsOnly?: boolean
     method?: string
     at?: number
     periodStart: number
@@ -233,7 +234,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       seller, buyer: rec.profile, number: invoiceNumber(seller.prefix, fy, seq), issuedAt,
       paymentId: p.paymentId, orderId: p.orderId, subscriptionId: p.subscriptionId,
       plan: p.plan, period: p.period, periodStart: p.periodStart, periodEnd: p.periodEnd,
-      gstPercent, amountPaise: p.amountPaise, addons: p.addons, method: p.method, kind: p.kind,
+      gstPercent, amountPaise: p.amountPaise, addons: p.addons, addonsOnly: p.addonsOnly, method: p.method, kind: p.kind,
     })
     rec.invoices.unshift(inv)
     return inv
@@ -626,6 +627,11 @@ export function createBillingService(opts: BillingServiceOptions) {
       mode: rec.mode,
       charge: { base: c.base, gst: c.gst, total: c.total, gstPercent, tax: c.tax },
       addons: addonLines(rec.addons, rec.period),
+      extraAddons: (rec.extraAddons ?? []).filter((e) => e.until > now()).map((e) => {
+        const def = ADDON_CATALOG.find((a) => a.id === e.id)
+        return { id: e.id, name: def?.name ?? e.id, unit: def?.unit ?? '', qty: e.qty, until: e.until }
+      }),
+      canBuyAddons: rec.status === 'active' && d?.state !== 'active' && Boolean(rec.currentEnd && rec.currentEnd > now()) && ADDON_CATALOG.some((a) => a.plans.includes(rec.plan!)),
       currentStart: rec.currentStart ?? null,
       currentEnd: rec.currentEnd ?? null,
       nextChargeAt: ending || status === 'past_due' ? null : (token ? (rn?.dueAt ?? null) : (rec.nextChargeAt ?? rec.currentEnd ?? null)),
@@ -762,7 +768,7 @@ export function createBillingService(opts: BillingServiceOptions) {
 
     if (pend.updateCard) return verifyCardUpdate(rec, pend, paymentId)
     const payment = await rz!.request<RzEntity>('GET', `/payments/${paymentId}`).catch(() => null)
-    const c = chargeOf(pend.plan, pend.period, rec, pend.addons)
+    const c = chargeOf(pend.plan, pend.period, rec, pend.addons, pend.addonsOnly)
 
     if (pend.mode === 'once') {
       // A valid signature proves Razorpay issued it; the payment itself must still
@@ -776,6 +782,20 @@ export function createBillingService(opts: BillingServiceOptions) {
       }
       if (p.status !== 'captured') return err(402, 'payment_not_captured', `Payment status is "${p.status}".`)
       if (p.amount !== c.totalPaise) return err(400, 'amount_mismatch', 'The amount paid does not match the plan price.')
+
+      if (pend.addonsOnly) {
+        // Add-ons bought once on the running plan: plan, autopay and saved card are untouched.
+        const until = rec.currentEnd ?? now()
+        rec.extraAddons = [...(rec.extraAddons ?? []), ...(pend.addons ?? []).map((a) => ({ id: a.id, qty: a.qty, at: now(), until, paymentId }))]
+        await recordPayment(rec, {
+          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, addonsOnly: true,
+          method: p.method, periodStart: now(), periodEnd: until, kind: 'addon',
+        })
+        rec.pending = null
+        rec.updatedAt = now()
+        await store.put(rec)
+        return reply(200, await summarize(rec))
+      }
 
       const start = now()
       rec.plan = pend.plan; rec.period = pend.period; rec.mode = 'once'; rec.status = 'active'
@@ -921,6 +941,32 @@ export function createBillingService(opts: BillingServiceOptions) {
     return reply(200, { ...(await summarize(rec) as object), appliedNow: upgrade })
   }
 
+  /* ── add-ons bought once, on top of the running plan ─────────────────────
+     Works the same for autopay and pay-once customers: a single Orders payment, no change to the
+     plan, the autopay or the saved card. The add-ons run until the current period ends. */
+  async function addonCheckout(req: BillingRequest): Promise<BillingResponse> {
+    const rec = await store.get(req.workspaceId)
+    if (!rec || !rec.plan || !rec.period) return err(409, 'no_plan', 'Add-ons can be bought once you have a plan.')
+    if (!rec.profile) return err(409, 'billing_details_required', 'Add your billing details before paying.')
+    if (rec.dunning?.state === 'active') return err(409, 'payment_overdue', 'Fix the overdue renewal payment first, then add extras.')
+    if (rec.status !== 'active' || !rec.currentEnd || rec.currentEnd <= now()) return err(409, 'plan_not_active', 'Add-ons need an active plan.')
+    const sel = normalizeAddons((req.body ?? {}).addons, rec.plan)
+    if (!sel.ok) return err(400, 'invalid_addons', sel.message)
+    if (!sel.addons.length) return err(400, 'no_addons', 'Choose at least one add-on.')
+    const c = chargeOf(rec.plan, rec.period, rec, sel.addons, true)
+    const order = await rz!.request<RzEntity>('POST', '/orders', {
+      amount: c.totalPaise, currency: 'INR', receipt: `${req.workspaceId}-a${now()}`.slice(0, 40),
+      notes: { ...notesFor(rec, rec.plan, rec.period, sel.addons), purpose: 'one-time add-ons' },
+    })
+    rec.pending = { mode: 'once', addonsOnly: true, plan: rec.plan, period: rec.period, addons: sel.addons, orderId: order.id, createdAt: now() }
+    rec.updatedAt = now()
+    await store.put(rec)
+    return reply(200, {
+      keyId, amount: c.totalPaise, currency: 'INR', description: `SmatBot add-ons · one-time (incl. ${gstPercent}% GST)`,
+      plan: rec.plan, period: rec.period, mode: 'once', orderId: order.id,
+    })
+  }
+
   /* ── replace the saved card ───────────────────────────────────────────── */
   async function cardUpdateCheckout(req: BillingRequest): Promise<BillingResponse> {
     const rec = await store.get(req.workspaceId)
@@ -1025,7 +1071,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     if (reissueDrafts(rec) || filled) { rec.updatedAt = now(); await store.put(rec) }
     const items = (rec.invoices ?? []).map((i) => ({
       id: i.id, number: i.number, date: i.issuedAt, amountPaise: i.amountPaise, status: 'paid',
-      description: `${PLAN_CATALOG[i.plan].name} plan · ${i.period}${i.kind === 'renewal' ? ' · renewal' : i.kind === 'dunning_recovery' ? ' · renewal (recovered)' : ''}`,
+      description: i.kind === 'addon' ? 'Add-ons · one-time purchase' : `${PLAN_CATALOG[i.plan].name} plan · ${i.period}${i.kind === 'renewal' ? ' · renewal' : i.kind === 'dunning_recovery' ? ' · renewal (recovered)' : ''}`,
       url: `/api/billing/invoices/${i.id}/view`, paymentId: i.paymentId,
     }))
     return reply(200, { items })
@@ -1147,13 +1193,14 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* What a plan will cost THIS customer, with GST labelled for their state. */
   async function quote(req: BillingRequest): Promise<BillingResponse> {
-    const { plan, period, addons: addonsIn } = (req.body ?? {}) as Record<string, unknown>
+    const { plan, period, addons: addonsIn, addonsOnly } = (req.body ?? {}) as Record<string, unknown>
     if (!isPlanId(plan) || !isPeriod(period)) return err(400, 'invalid_request', 'plan and period are required.')
     const sel = normalizeAddons(addonsIn, plan)
     if (!sel.ok) return err(400, 'invalid_addons', sel.message)
     const rec = await store.get(req.workspaceId)
-    const c = chargeOf(plan, period, rec, sel.addons)
-    return reply(200, { plan, planName: PLAN_CATALOG[plan].name, period, charge: c, planBase: PLAN_CATALOG[plan][period], addons: addonLines(sel.addons, period), requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES })
+    const only = addonsOnly === true
+    const c = chargeOf(plan, period, rec, sel.addons, only)
+    return reply(200, { plan, planName: PLAN_CATALOG[plan].name, period, charge: c, planBase: only ? 0 : PLAN_CATALOG[plan][period], addons: addonLines(sel.addons, period), requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES })
   }
 
   /* ── router ────────────────────────────────────────────────────────────── */
@@ -1188,6 +1235,7 @@ export function createBillingService(opts: BillingServiceOptions) {
         case 'POST /change-plan':   return await changePlan(req)
         case 'POST /autopay':       return await setAutopay(req)
         case 'POST /payment-method': return await cardUpdateCheckout(req)
+        case 'POST /addons/checkout': return await addonCheckout(req)
         case 'GET /invoices':       return await invoices(req)
         case 'POST /webhook':       return await webhook(req)
         default:                    return err(404, 'not_found')

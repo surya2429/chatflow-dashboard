@@ -184,9 +184,9 @@ export default function BillingSection() {
   useEffect(() => {
     if (!dialog?.plan) { setQuote(null); return }
     let off = false
-    billing.quote({ plan: dialog.plan, period: dialog.period, addons: dialog.addons || [] }).then(q => !off && setQuote(q)).catch(() => !off && setQuote(null))
+    billing.quote({ plan: dialog.plan, period: dialog.period, addons: dialog.addons || [], addonsOnly: dialog.kind === 'addons-once' }).then(q => !off && setQuote(q)).catch(() => !off && setQuote(null))
     return () => { off = true }
-  }, [dialog?.plan, dialog?.period, JSON.stringify(dialog?.addons || []), profile?.address?.stateCode])
+  }, [dialog?.plan, dialog?.period, dialog?.kind, JSON.stringify(dialog?.addons || []), profile?.address?.stateCode])
 
   async function saveProfile(values) {
     const saved = await billing.saveProfile(values)
@@ -248,6 +248,26 @@ export default function BillingSection() {
     finally { if (mounted.current) setBusy(false) }
   }
 
+  async function runAddonsOnce(d) {
+    setBusy(true); setDlgError(null)
+    try {
+      const session = await billing.addonsCheckout(d.addons || [])
+      const response = await payWithRazorpay(session, profile
+        ? { name: profile.contactName, email: profile.email, contact: `+91${profile.phone}` }
+        : { name: currentUser?.name, email: currentUser?.email })
+      const result = await billing.verify(response)
+      setSubscription(result)
+      setDialog(null)
+      flash('Add-ons added until ' + fmtSec(result.currentEnd) + '. They are one-time, so they won\'t renew.')
+    } catch (e) {
+      if (e.code === 'dismissed') flash('Checkout closed — nothing was charged.', 'info')
+      else if (e.code === 'payment_failed') flash(e.message, 'error')
+      else setDlgError(e)
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }
+
   async function runUpdateCard() {
     setBusy(true); setDlgError(null)
     try {
@@ -278,7 +298,7 @@ export default function BillingSection() {
     finally { if (mounted.current) setBusy(false) }
   }
 
-  const confirm = (extras) => (dialog.kind === 'autopay-off' ? runAutopayOff() : dialog.kind === 'update-card' ? runUpdateCard() : dialog.kind === 'change' ? runChange(dialog) : runCheckout({ ...dialog, consent: !!extras?.consent }))
+  const confirm = (extras) => (dialog.kind === 'autopay-off' ? runAutopayOff() : dialog.kind === 'update-card' ? runUpdateCard() : dialog.kind === 'addons-once' ? runAddonsOnce(dialog) : dialog.kind === 'change' ? runChange(dialog) : runCheckout({ ...dialog, consent: !!extras?.consent }))
 
   /* What a plan card's button does, given where the customer is today. */
   function actionFor(plan, i, period) {
@@ -307,6 +327,13 @@ export default function BillingSection() {
   const featureAddons = FEATURE_ADDONS.filter(a => !(web && a.wa))
   const usageAddons = USAGE_ADDONS.filter(a => !(web && a.wa))
   const usageEligible = live && curIdx >= 2
+  /* Extras bought once on the running plan — autopay or not. */
+  const canBuyAddons = configured && !!sub?.canBuyAddons
+  const openAddons = (name) => {
+    const def = name ? config?.addons?.find(x => x.name === name) : null
+    setDlgError(null)
+    setDialog({ kind: 'addons-once', plan: sub.plan, period: sub.period, mode: 'once', addons: def ? [{ id: def.id, qty: 1 }] : [] })
+  }
 
   const span = pooled ? 12 : 1
   const per = pooled ? 'yr' : 'mo'
@@ -439,9 +466,10 @@ export default function BillingSection() {
                     <span className="text-lg font-bold text-white">{inr(pooled ? current.yearly : current.monthly)}</span> / {pooled ? 'year' : 'month'} <span className="text-white/50">+ GST</span>
                     <span className="text-white/50"> · {money(sub.charge.total)} incl. {sub.charge.gstPercent}% GST{sub.addons?.length ? ' with add-ons' : ''}</span>
                   </p>
-                  {sub.addons?.length > 0 && (
+                  {(sub.addons?.length > 0 || sub.extraAddons?.length > 0) && (
                     <div className="mt-2.5 flex flex-wrap gap-1.5">
-                      {sub.addons.map(a => <span key={a.id} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/15 text-white/90">{a.name}{a.qty > 1 ? ` × ${a.qty}` : ''}</span>)}
+                      {sub.addons?.map(a => <span key={a.id} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/15 text-white/90">{a.name}{a.qty > 1 ? ` × ${a.qty}` : ''}</span>)}
+                      {sub.extraAddons?.map((a, i) => <span key={'x' + i} title="One-time — does not renew" className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-white/30 text-white/80">{a.name}{a.qty > 1 ? ` × ${a.qty}` : ''} · once, until {fmtSec(a.until)}</span>)}
                     </div>
                   )}
                 </div>
@@ -841,6 +869,23 @@ export default function BillingSection() {
               </div>
               <BillingSwitch value={view} onChange={setView}/>
             </div>
+            {canBuyAddons && (
+              <div className="flex items-start gap-3 p-3.5 rounded-xl bg-primary/[0.04] border border-primary/20 mb-2">
+                <Puzzle size={15} className="text-primary flex-shrink-0 mt-0.5"/>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-slate-800">Buy add-ons once</p>
+                  <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
+                    One payment, valid until <b>{fmtSec(sub.currentEnd)}</b>, no renewal. {sub.autopay?.on ? 'Your autopay and plan are not changed.' : ''}
+                  </p>
+                  {sub.extraAddons?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {sub.extraAddons.map((a, i) => <span key={i} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white border border-primary/20 text-slate-600">{a.name}{a.qty > 1 ? ` × ${a.qty}` : ''} · until {fmtSec(a.until)}</span>)}
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => openAddons()} className="px-3 py-1.5 rounded-lg bg-primary text-white text-[11px] font-bold hover:bg-primary-hover flex-shrink-0">Choose add-ons</button>
+              </div>
+            )}
             {!usageEligible && (
               <div className="flex items-start gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200 mb-2">
                 <Lock size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
@@ -856,11 +901,11 @@ export default function BillingSection() {
                       <p className="text-xs font-semibold text-slate-800">{a.name}</p>
                       <p className="text-[10.5px] text-slate-400">{a.unit}</p>
                     </div>
-                    <span className="text-xs font-bold text-slate-900 tabular-nums whitespace-nowrap">{view === 'yearly' ? `${inr(a.y)} / yr` : `${inr(a.m)} / mo`}</span>
-                    <button disabled={!usageEligible || requested[key]} onClick={() => setRequested(r => ({ ...r, [key]: true }))}
+                    <span className="text-xs font-bold text-slate-900 tabular-nums whitespace-nowrap">{(canBuyAddons ? sub.period : view) === 'yearly' ? `${inr(a.y)} / yr` : `${inr(a.m)} / mo`}</span>
+                    <button disabled={!usageEligible || (!canBuyAddons && requested[key])} onClick={() => (canBuyAddons ? openAddons(a.name) : setRequested(r => ({ ...r, [key]: true })))}
                       className={clsx('w-[84px] py-1.5 rounded-lg text-[11px] font-bold transition-colors flex-shrink-0',
-                        requested[key] ? 'bg-emerald-50 text-emerald-700' : usageEligible ? 'border border-primary text-primary hover:bg-primary/5' : 'bg-slate-100 text-slate-300 cursor-not-allowed')}>
-                      {requested[key] ? '✓ Added' : 'Add'}
+                        !canBuyAddons && requested[key] ? 'bg-emerald-50 text-emerald-700' : usageEligible ? 'border border-primary text-primary hover:bg-primary/5' : 'bg-slate-100 text-slate-300 cursor-not-allowed')}>
+                      {!canBuyAddons && requested[key] ? '✓ Added' : canBuyAddons ? 'Buy once' : 'Add'}
                     </button>
                   </div>
                 )

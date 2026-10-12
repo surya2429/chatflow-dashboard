@@ -81,6 +81,8 @@ export interface PendingCheckout {
   authOnly?: boolean
   /** replacing the saved card (₹1 verification, refunded) — nothing else changes */
   updateCard?: boolean
+  /** a one-time add-on purchase on the current plan: no plan change, nothing recurring */
+  addonsOnly?: boolean
   plan: PlanId
   period: Period
   addons?: AddonSel[]
@@ -144,7 +146,7 @@ export interface Invoice {
   total: number
   amountPaise: number
   method?: string
-  kind: 'purchase' | 'renewal' | 'dunning_recovery'
+  kind: 'purchase' | 'renewal' | 'dunning_recovery' | 'addon'
 }
 
 /* ── dunning (failed-renewal recovery) ─────────────────────────────────── */
@@ -184,6 +186,15 @@ export interface Dunning {
   resolution?: 'paid_via_link' | 'razorpay_retry' | 'auto_retry' | 'window_elapsed'
 }
 
+/** An add-on bought once: it runs until the plan period it was bought in ends, and does not renew. */
+export interface ExtraAddon {
+  id: string
+  qty: number
+  at: number
+  until: number
+  paymentId: string
+}
+
 export interface BillingRecord {
   workspaceId: string
   plan: PlanId | null
@@ -198,6 +209,8 @@ export interface BillingRecord {
   renewal?: Renewal | null
   /** add-ons bought with the current plan; they renew with it */
   addons?: AddonSel[]
+  /** one-time add-ons — they do not renew */
+  extraAddons?: ExtraAddon[]
   currentStart?: number | null
   currentEnd?: number | null
   nextChargeAt?: number | null

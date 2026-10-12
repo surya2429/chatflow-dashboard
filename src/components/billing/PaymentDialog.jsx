@@ -8,7 +8,7 @@
 //         cancel any time).
 // Nothing is charged until they confirm here and then finish Razorpay Checkout.
 //
-// kinds: new · change (switch plan on an autopay subscription) · autopay-off · update-card
+// kinds: new · change (switch plan on an autopay subscription) · autopay-off · update-card · addons-once (extras bought once on the running plan)
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { X, ShieldCheck, Info, AlertCircle, Loader2, Repeat, CreditCard, Pencil, BellRing, Ban, Plus, Minus, Puzzle } from 'lucide-react'
@@ -102,13 +102,15 @@ export default function PaymentDialog({
   const quoteOk = !!quote && quote.plan === plan && quote.period === period && sigOf(quote.addons) === sigOf(selected)
   const planBase = quoteOk ? quote.planBase : fallback?.base
   const lines = selected.map((a) => { const d = defs.find((x) => x.id === a.id); return d ? { id: d.id, name: d.name, unit: d.unit, qty: a.qty, amount: d[period] * a.qty } : null }).filter(Boolean)
-  let charge = quoteOk ? quote.charge : fallback
-  if (!quoteOk && fallback && lines.length) {
-    const sum = fallback.base + lines.reduce((n, l) => n + l.amount, 0)
-    const total = Math.round(sum * (1 + fallback.gstPercent / 100) * 100) / 100
-    charge = { base: sum, gst: Math.round((total - sum) * 100) / 100, total, gstPercent: fallback.gstPercent, tax: { kind: 'unknown' } }
+  const addonsOnly = kind === 'addons-once'
+  let charge = quoteOk ? quote.charge : addonsOnly ? null : fallback
+  if (!quoteOk && lines.length && (fallback || addonsOnly)) {
+    const gstPct = fallback?.gstPercent ?? config?.gstPercent ?? 18
+    const sum = (addonsOnly ? 0 : fallback.base) + lines.reduce((n, l) => n + l.amount, 0)
+    const total = Math.round(sum * (1 + gstPct / 100) * 100) / 100
+    charge = { base: sum, gst: Math.round((total - sum) * 100) / 100, total, gstPercent: gstPct, tax: { kind: 'unknown' } }
   }
-  const showAddons = kind === 'new' && !!config?.addons
+  const showAddons = (kind === 'new' || addonsOnly) && !!config?.addons
   const testMode = (config?.keyId || '').startsWith('rzp_test_')
   const perWord = period === 'yearly' ? 'year' : 'month'
   const approvalLimit = config?.approvalLimit ?? 15000
@@ -123,11 +125,12 @@ export default function PaymentDialog({
   if (step === 'details') { title = profile ? 'Edit billing details' : 'Billing details'; cta = '' }
   else if (kind === 'autopay-off') { title = 'Turn off autopay?'; cta = 'Turn off autopay'; tone = 'danger' }
   else if (kind === 'update-card') { title = 'Change payment card'; cta = 'Add new card' }
+  else if (addonsOnly) { title = 'Buy add-ons'; cta = `Pay ${money(charge?.total ?? 0)}` }
   else if (kind === 'change') { title = `${upgrade && !cardChange ? 'Upgrade' : 'Switch'} to ${p.name}`; cta = upgrade && !cardChange ? 'Upgrade now' : 'Schedule change' }
   else if (startAtCycleEnd) { title = `Continue ${p.name} with autopay`; cta = 'Authorise autopay' }
   else { title = mode === 'autopay' ? `Subscribe to ${p.name}` : `Pay for ${p.name}`; cta = mode === 'autopay' ? 'Authorise & continue' : `Pay ${money(charge?.total ?? 0)}` }
 
-  const canConfirm = !busy && (!isAutopayNew || consent) && (kind !== 'update-card' || consent)
+  const canConfirm = !busy && (!isAutopayNew || consent) && (kind !== 'update-card' || consent) && (!addonsOnly || selected.length > 0)
 
   return (
     <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4 overflow-y-auto" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
@@ -176,7 +179,7 @@ export default function PaymentDialog({
                 </p>
               ) : (
                 <>
-                  {profile && kind === 'new' && (
+                  {profile && (kind === 'new' || addonsOnly) && (
                     <div className="rounded-xl border border-surface-border px-4 py-3 flex items-start gap-3">
                       <div className="flex-1 min-w-0 [overflow-wrap:anywhere]">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Billed to</p>
@@ -199,7 +202,7 @@ export default function PaymentDialog({
                         <AddonPicker defs={defs} period={period} selected={selected} onChange={(a) => onAddonsChange?.(a)} disabled={busy}/>
                       ) : (
                         <p className="text-[11px] text-slate-500 leading-relaxed rounded-xl border border-dashed border-slate-200 px-3 py-2.5">
-                          Extra capacity is sold with Pro and AI. Feature add-ons for {p.name} (CRM, Live Agents, Cart &amp; Catalog…) are priced on request — see the Add-ons tab.
+                          Extra capacity is sold with Pro and AI. Feature add-ons for {p.name} (CRM, Live Agents, Cart &amp; Catalog…) are priced on request.
                         </p>
                       )}
                     </div>
@@ -207,14 +210,23 @@ export default function PaymentDialog({
 
                   {charge && (
                     <div className="rounded-xl border border-surface-border bg-slate-50/60 px-4 py-2.5 divide-y divide-slate-100">
-                      <Row k={`${p.name} plan (${period})`} v={money(planBase ?? charge.base)} />
+                      {!addonsOnly && <Row k={`${p.name} plan (${period})`} v={money(planBase ?? charge.base)} />}
                       {lines.map((l) => <Row key={l.id} k={`${l.name}${l.qty > 1 ? ` × ${l.qty}` : ''}`} v={money(l.amount)} sub={l.unit} />)}
                       <TaxRows charge={charge}/>
                       <Row k={mode === 'autopay' ? `Charged every ${perWord}` : 'Total today'} v={money(charge.total)} strong />
                     </div>
                   )}
 
-                  {kind === 'change' ? (
+                  {addonsOnly ? (
+                    <p className="flex items-start gap-2 text-xs text-slate-600 leading-relaxed">
+                      <Info size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
+                      <span>
+                        A <b>one-time</b> purchase: these add-ons run until <b>{endDate || 'the end of your current period'}</b> and <b>don't renew</b>.
+                        {sub?.autopay?.on ? ' Your plan and autopay stay exactly as they are — the next renewal is charged as usual.' : ''}
+                        {' '}Pick them again next period if you still need them, or add them to your plan when you subscribe.
+                      </span>
+                    </p>
+                  ) : kind === 'change' ? (
                     <p className="flex items-start gap-2 text-xs text-slate-600 leading-relaxed">
                       <Info size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
                       {cardChange

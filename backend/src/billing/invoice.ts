@@ -62,6 +62,8 @@ export interface BuildInvoiceInput {
   /** what was actually paid, in paise — wins over today's catalog price if they differ */
   amountPaise?: number
   addons?: AddonSel[]
+  /** invoice only the add-ons (a one-time purchase) */
+  addonsOnly?: boolean
   method?: string
   kind: Invoice['kind']
 }
@@ -77,7 +79,7 @@ export function allowanceNote(plan: PlanId, period: Period): string {
 }
 
 export function buildInvoice(i: BuildInvoiceInput): Invoice {
-  const c = chargeFor(i.plan, i.period, i.gstPercent, { supplier: i.seller.stateCode, customer: i.buyer.address.stateCode }, i.addons)
+  const c = chargeFor(i.plan, i.period, i.gstPercent, { supplier: i.seller.stateCode, customer: i.buyer.address.stateCode }, i.addons, i.addonsOnly)
   const taxKind = c.tax.kind === 'intra' ? 'intra' : 'inter'
   // If the price has changed since this was paid, the invoice must show what was actually charged.
   const repriced = Boolean(i.amountPaise && i.amountPaise !== c.totalPaise)
@@ -93,7 +95,7 @@ export function buildInvoice(i: BuildInvoiceInput): Invoice {
   const lines = addonLines(i.addons, i.period)
   // One row for the plan and one per add-on — unless the amount was re-derived, when the rows wouldn't add up.
   const items: InvoiceItem[] | undefined = repriced ? undefined : [
-    { description: `SmatBot ${planName} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription`, qty: 1, unit, rate: PLAN_CATALOG[i.plan][i.period], taxable: PLAN_CATALOG[i.plan][i.period] },
+    ...(i.addonsOnly ? [] : [{ description: `SmatBot ${planName} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription`, qty: 1, unit, rate: PLAN_CATALOG[i.plan][i.period], taxable: PLAN_CATALOG[i.plan][i.period] }]),
     ...lines.map((l) => ({ description: `Add-on: ${l.name} (${l.unit})`, qty: l.qty, unit: l.unit, rate: l.rate, taxable: l.amount })),
   ]
   return {
@@ -107,7 +109,7 @@ export function buildInvoice(i: BuildInvoiceInput): Invoice {
     period: i.period,
     periodStart: i.periodStart,
     periodEnd: i.periodEnd,
-    description: `SmatBot ${planName} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription${lines.length ? ' + add-ons' : ''}`,
+    description: i.addonsOnly ? 'SmatBot add-ons — one-time purchase' : `SmatBot ${planName} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription${lines.length ? ' + add-ons' : ''}`,
     qty: 1,
     rate: c.base,
     items,
@@ -138,7 +140,7 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   const b = inv.buyer
   const addr = [b.address.line1, b.address.line2, `${b.address.city}, ${stateName(b.address.stateCode)} ${b.address.pincode}`, 'India'].filter(Boolean).map(esc).join('<br>')
   const half = inv.gstPercent / 2
-  const dates = `<div class="small muted" style="margin-top:4px">Plan start date: <b>${day(inv.periodStart)}</b></div><div class="small muted">Plan end date: <b>${day(inv.periodEnd)}</b></div>`
+  const dates = `<div class="small muted" style="margin-top:4px">${inv.kind === 'addon' ? 'Valid from' : 'Plan start date'}: <b>${day(inv.periodStart)}</b></div><div class="small muted">${inv.kind === 'addon' ? 'Valid until' : 'Plan end date'}: <b>${day(inv.periodEnd)}</b></div>`
   const qty = inv.qty ?? 1
   const rate = inv.rate ?? inv.taxable / qty
   const unit = inv.period === 'yearly' ? 'year' : 'month'
@@ -149,7 +151,9 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   const rows = (inv.items?.length ? inv.items : [{ description: inv.description, qty: inv.qty ?? 1, unit: inv.period === 'yearly' ? 'year' : 'month', rate: inv.rate ?? inv.taxable, taxable: inv.taxable }])
     .map((it, n) => `<tr><td>${n + 1}</td><td><b>${esc(it.description)}</b>${n === 0 ? dates : ''}</td><td class="n">${esc(inv.sac)}</td><td class="r">${it.qty}${n === 0 ? ' ' + esc(it.unit) : ''}</td><td class="r">${inr(it.rate)}</td><td class="r">${inr(it.taxable)}</td></tr>`).join('')
   const contact = [emails.length ? `Email: ${emails.map(esc).join(' or ')}` : '', seller?.phone ? `Phone: ${esc(seller.phone)}` : ''].filter(Boolean).join(' &nbsp;·&nbsp; ')
-  const allNotes = [...notes, allowanceNote(inv.plan, inv.period)]
+  const allNotes = inv.kind === 'addon'
+    ? [...notes, 'One-time add-on purchase: it does not renew, and ends when your current plan period ends.']
+    : [...notes, allowanceNote(inv.plan, inv.period)]
   const taxRows = inv.taxKind === 'intra'
     ? `<tr><td>CGST @ ${half}%</td><td class="r">${inr(inv.cgst)}</td></tr><tr><td>SGST @ ${half}%</td><td class="r">${inr(inv.sgst)}</td></tr>`
     : `<tr><td>IGST @ ${inv.gstPercent}%</td><td class="r">${inr(inv.igst)}</td></tr>`

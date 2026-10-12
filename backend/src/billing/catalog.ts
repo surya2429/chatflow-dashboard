@@ -153,8 +153,9 @@ export interface Charge {
 /** supplier = the state we are registered in; customer = place of supply. */
 export interface PlaceOfSupply { supplier: string; customer?: string }
 
-export function chargeFor(plan: PlanId, period: Period, gstPercent: number, place?: PlaceOfSupply, addons?: AddonSel[]): Charge {
-  const base = PLAN_CATALOG[plan][period] + addonsBase(addons, period)
+export function chargeFor(plan: PlanId, period: Period, gstPercent: number, place?: PlaceOfSupply, addons?: AddonSel[], addonsOnly = false): Charge {
+  // addonsOnly: a one-time add-on purchase on top of a plan that is already paid for
+  const base = (addonsOnly ? 0 : PLAN_CATALOG[plan][period]) + addonsBase(addons, period)
   const totalPaise = Math.round(base * (1 + gstPercent / 100) * 100)
   const total = totalPaise / 100
   const gst = Math.round((total - base) * 100) / 100

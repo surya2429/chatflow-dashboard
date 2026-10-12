@@ -43,6 +43,7 @@ export const billing = {
   changePlan:   (body) => call('POST', '/change-plan', body),
   setAutopay:   (enabled) => call('POST', '/autopay', { enabled }),
   updateCard:   ()     => call('POST', '/payment-method', {}),
+  addonsCheckout: (addons) => call('POST', '/addons/checkout', { addons }),
 }
 
 /* ── Razorpay Checkout ─────────────────────────────────────────────────── */
