@@ -1210,7 +1210,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
           </div>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto wc-scroll p-2.5 space-y-1.5">
+      <div className="flex-1 overflow-y-auto wc-scroll px-4 py-3 space-y-2">
         {MOCK_CONVERSATIONS.map((c,i)=>(
           <button key={c.id}
             onClick={()=>{ setOpenConvo(c.id==='ended' ? 'ended' : null); setActiveTab('chat') }}
@@ -1238,7 +1238,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
           </button>
         ))}
       </div>
-      <div className="flex-shrink-0 p-3">
+      <div className="flex-shrink-0 px-4 pt-1 pb-3">
         <button onClick={()=>{ setOpenConvo(null); setActiveTab('chat') }}
           className="wc-chip w-full flex items-center justify-center gap-1.5 font-bold"
           style={{ fontSize: fs(11), padding:'10px 0', borderRadius: cfg.quickReplyStyle==='square' ? cornerR*0.5 : 999,
@@ -1334,7 +1334,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
             </div>
           </div>
         </div>
-        <div className={clsx('flex-1 overflow-y-auto p-3 space-y-2', dark ? 'bg-slate-900' : 'bg-white')} style={{fontFamily: fontFamilyCss}}>
+        <div className={clsx('flex-1 overflow-y-auto px-4 py-3 space-y-2', dark ? 'bg-slate-900' : 'bg-white')} style={{fontFamily: fontFamilyCss}}>
           {FAQ_ITEMS.map((item,i)=>(
             <div key={item.q} className={clsx('border rounded-xl overflow-hidden', dark ? 'border-slate-700' : 'border-slate-200')}>
               <button onClick={()=>setOpenIdx(openIdx===i?-1:i)}
@@ -1431,7 +1431,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
           </div>
         </div>
       </div>
-      <div className={clsx('flex-1 overflow-y-auto p-3', dark ? 'bg-slate-900' : 'bg-white')} style={{fontFamily: fontFamilyCss}}>
+      <div className={clsx('flex-1 overflow-y-auto px-4 py-3', dark ? 'bg-slate-900' : 'bg-white')} style={{fontFamily: fontFamilyCss}}>
         <AppointmentPicker cfg={cfg} accent={accent} dark={dark}/>
       </div>
     </div>
