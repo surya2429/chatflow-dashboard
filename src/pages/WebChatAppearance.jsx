@@ -2183,6 +2183,7 @@ const THEME_GROUPS = [
 ]
 
 function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qCat, setQCat }) {
+  const [editor, setEditor] = useState(null)        // 'faq' | 'booking' — the dialogs opened from the pencil icons
   /* Mirrors WidgetPreview's own headerBaseColor calc, so the "sync with header"
      swatch previews the real color instead of guessing. */
   const headerPreviewColor = cfg.headerMode === 'custom' ? (cfg.headerColor || cfg.color)
@@ -2671,22 +2672,38 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                       <p className="text-[10px] text-slate-400">{item.sub}</p>
                     </div>
                   </div>
-                  <Toggle checked={cfg[item.k]} onChange={item.always ? ()=>{} : v=>set(item.k,v)} disabled={item.always}/>
+                  <div className="flex items-center gap-2">
+                    {cfg[item.k] && TAB_EDITORS[item.k] && (
+                      <button type="button" onClick={()=>setEditor(TAB_EDITORS[item.k])} title={`Edit ${item.l.toLowerCase()} settings`} aria-label={`Edit ${item.l}`}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-primary hover:bg-primary/5 transition-colors"><Pencil size={13}/></button>
+                    )}
+                    <Toggle checked={cfg[item.k]} onChange={item.always ? ()=>{} : v=>set(item.k,v)} disabled={item.always}/>
+                  </div>
                 </div>
               ))}
             </div>
-            {cfg.showFaqTab && <FaqEditor items={Array.isArray(cfg.faqItems) ? cfg.faqItems : DEFAULT_FAQS} onChange={v => set('faqItems', v)}/>}
-            {cfg.showBookingTab && (
-              <div className="p-4 border-t border-surface-border space-y-1.5">
-                <label className="label flex items-center gap-1.5"><CalendarCheck2 size={11}/>Booking</label>
-                <p className="text-[10px] text-slate-400 leading-snug">
-                  Visitors must give their <b className="text-slate-600">name, email and phone number</b> before they can confirm a booking,
-                  so the confirmation email can be sent. These three fields are always required.
-                </p>
-                <label className="label mt-2">Your time zone</label>
-                <p className="text-[10px] text-slate-400 mb-1">Slot times are set in this zone. Visitors choose their own and see every slot converted.</p>
-                <TimezoneSelect value={cfg.bookingTimezone} onChange={v=>set('bookingTimezone',v)} className="input"/>
-              </div>
+            {editor === 'faq' && (
+              <SettingsModal title="Help articles" subtitle="What visitors see on the widget's Help tab" wide onClose={()=>setEditor(null)}>
+                <FaqEditor items={Array.isArray(cfg.faqItems) ? cfg.faqItems : DEFAULT_FAQS} onChange={v => set('faqItems', v)}/>
+              </SettingsModal>
+            )}
+            {editor === 'booking' && (
+              <SettingsModal title="Booking" subtitle="How the Book tab works" overflowVisible onClose={()=>setEditor(null)}>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[11px] font-semibold text-slate-700 mb-1.5">Visitors must give</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['Name', 'Email', 'Phone number'].map(x => <span key={x} className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-slate-100 rounded-full px-2.5 py-1"><Check size={10} className="text-emerald-500"/>{x}</span>)}
+                    </div>
+                    <p className="text-[10.5px] text-slate-400 mt-1.5 leading-snug">All three are required before a booking can be confirmed, so the confirmation email can be sent.</p>
+                  </div>
+                  <div>
+                    <label className="label">Your time zone</label>
+                    <p className="text-[10.5px] text-slate-400 mb-1.5">Slot times are set in this zone. Visitors choose their own and see every slot converted.</p>
+                    <TimezoneSelect value={cfg.bookingTimezone} onChange={v=>set('bookingTimezone',v)} className="input"/>
+                  </div>
+                </div>
+              </SettingsModal>
             )}
             <div className="p-4 border-t border-surface-border space-y-1">
               <label className="label">Calling</label>
@@ -2977,18 +2994,44 @@ const DEFAULT_FAQS = [
 ]
 const newFaqId = () => `faq${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
 
+/* A small centred dialog for the settings that are too big to live inline (Help articles, Booking). */
+const TAB_EDITORS = { showFaqTab: 'faq', showBookingTab: 'booking' }
+
+function SettingsModal({ title, subtitle, onClose, children, wide, overflowVisible }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-label={title} className={clsx('bg-white rounded-2xl shadow-modal w-full flex flex-col max-h-[calc(100vh-2rem)] animate-fade-in', wide ? 'max-w-xl' : 'max-w-md')}>
+        <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3 border-b border-surface-border">
+          <div>
+            <h3 className="text-[15px] font-bold text-slate-900">{title}</h3>
+            {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+          </div>
+          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={15}/></button>
+        </div>
+        <div className={clsx('px-5 py-4 min-h-0', overflowVisible ? 'overflow-visible' : 'overflow-y-auto')}>{children}</div>
+        <div className="flex justify-end px-5 py-3 border-t border-surface-border bg-slate-50/60 rounded-b-2xl">
+          <button onClick={onClose} className="px-5 py-2 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary-hover">Done</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function FaqEditor({ items, onChange }) {
   const update = (id, patch) => onChange(items.map(f => f.id === id ? { ...f, ...patch } : f))
   const remove = (id) => onChange(items.filter(f => f.id !== id))
   const move = (i, d) => { const j = i + d; if (j < 0 || j >= items.length) return; const next = [...items]; [next[i], next[j]] = [next[j], next[i]]; onChange(next) }
   const add = () => onChange([...items, { id: newFaqId(), q: '', a: '' }])
   return (
-    <div className="p-4 border-t border-surface-border space-y-2">
-      <div className="flex items-center justify-between">
-        <label className="label flex items-center gap-1.5"><HelpCircle size={11}/>Help articles</label>
-        <span className="text-[10px] text-slate-400">{items.filter(f => f.q.trim()).length} shown in the widget</span>
-      </div>
-      <p className="text-[10px] text-slate-400">The questions on the Help tab. Visitors can search them. Articles with no question are hidden.</p>
+    <div className="space-y-2">
+      <p className="text-[11px] text-slate-500">
+        {items.filter(f => f.q.trim()).length} shown in the widget. Visitors can search them; articles with no question are hidden.
+      </p>
       {items.length === 0 && <p className="text-[11px] text-slate-400 border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">No articles yet — add your first one.</p>}
       {items.map((f, i) => (
         <div key={f.id} className="rounded-xl border border-surface-border p-2.5 space-y-1.5 bg-slate-50/50">
