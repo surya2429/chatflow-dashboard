@@ -31,7 +31,7 @@ function Row({ k, v, strong, muted, sub }) {
 const sigOf = (list) => (list || []).map((a) => `${a.id}x${a.qty}`).join(',')
 
 /* Optional extras bought together with the plan. The server re-prices them; this only picks ids and quantities. */
-function AddonPicker({ defs, period, selected, onChange, disabled }) {
+function AddonPicker({ defs, period, selected, onChange, disabled, grid }) {
   const qtyOf = (id) => selected.find((a) => a.id === id)?.qty || 0
   const set = (def, qty) => {
     let next = selected.filter((a) => a.id !== def.id)
@@ -40,6 +40,35 @@ function AddonPicker({ defs, period, selected, onChange, disabled }) {
     onChange(next)
   }
   const per = period === 'yearly' ? 'yr' : 'mo'
+  if (grid) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {defs.map((def) => {
+          const q = qtyOf(def.id)
+          return (
+            <div key={def.id} className={clsx('flex items-center gap-2 rounded-lg border pl-2.5 pr-1.5 py-1.5 transition-colors', q > 0 ? 'border-primary/40 bg-primary/[0.04]' : 'border-surface-border')}>
+              <div className="flex-1 min-w-0" title={`${def.name} — ${def.unit}`}>
+                <p className="text-[11.5px] font-semibold text-slate-800 truncate leading-tight">{def.name}</p>
+                <p className="text-[10px] text-slate-400 truncate leading-tight">{def.unit} · {money(def[period])}/{per}</p>
+              </div>
+              {def.maxQty === 1 ? (
+                <button type="button" disabled={disabled} onClick={() => set(def, q ? 0 : 1)}
+                  className={clsx('px-2.5 py-1 rounded-md text-[10.5px] font-bold border transition-colors disabled:opacity-50 flex-shrink-0', q ? 'bg-primary text-white border-primary' : 'text-primary border-primary/30 hover:bg-primary/5')}>
+                  {q ? 'Added' : 'Add'}
+                </button>
+              ) : (
+                <div className="inline-flex items-center rounded-md border border-slate-200 overflow-hidden flex-shrink-0">
+                  <button type="button" disabled={disabled || q === 0} onClick={() => set(def, q - 1)} aria-label={`Fewer ${def.name}`} className="w-5 h-6 flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><Minus size={10}/></button>
+                  <span className="w-5 text-center text-[11px] font-bold tabular-nums text-slate-800">{q}</span>
+                  <button type="button" disabled={disabled || q >= def.maxQty} onClick={() => set(def, q + 1)} aria-label={`More ${def.name}`} className="w-5 h-6 flex items-center justify-center text-slate-500 hover:bg-slate-100 disabled:opacity-30"><Plus size={10}/></button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
   return (
     <div className="rounded-xl border border-surface-border divide-y divide-slate-100 max-h-56 overflow-y-auto">
       {defs.map((def) => {
@@ -134,12 +163,19 @@ export default function PaymentDialog({
   else if (startAtCycleEnd) { title = `Continue ${p.name} with autopay`; cta = 'Authorise autopay' }
   else { title = mode === 'autopay' ? `Subscribe to ${p.name}` : `Pay for ${p.name}`; cta = mode === 'autopay' ? 'Authorise & continue' : `Pay ${money(charge?.total ?? 0)}` }
 
+  /* Buying a plan (or add-ons) is ONE screen: add-ons on the left, the order and the consent on the right,
+     so nothing has to be scrolled to be read. Narrow screens stack the two halves. */
+  const wide = step === 'review' && (kind === 'new' || addonsOnly) && showAddons && defs.length > 0
+  const shortLines = lines.length > 3
+  const lineRows = shortLines
+    ? [{ id: 'many', name: `Add-ons × ${lines.reduce((n, l) => n + l.qty, 0)}`, amount: lines.reduce((n, l) => n + l.amount, 0), unit: lines.map((l) => l.name).join(', ') }]
+    : lines.map((l) => ({ ...l, name: `${l.name}${l.qty > 1 ? ` × ${l.qty}` : ''}` }))
   const canConfirm = !busy && (!isAutopayNew || consent) && (kind !== 'update-card' || consent) && (!addonsOnly || selected.length > 0)
 
   return (
     <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4 overflow-y-auto" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div className="bg-white rounded-2xl shadow-modal w-full max-w-md animate-fade-in my-auto overflow-hidden">
-        <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
+      <div className={clsx('bg-white rounded-2xl shadow-modal w-full animate-fade-in my-auto overflow-hidden', wide ? 'max-w-4xl' : 'max-w-md')}>
+        <div className={clsx('flex items-start justify-between gap-3 px-5 pb-3', wide ? 'pt-4 border-b border-surface-border' : 'pt-5')}>
           <div>
             <h3 className="text-[15px] font-bold text-slate-900">{title}</h3>
             {step === 'details'
@@ -153,6 +189,111 @@ export default function PaymentDialog({
           <div className="px-5 pb-5">
             <BillingDetailsForm initial={profile} defaults={defaults} states={states} submitLabel={profile ? 'Save changes' : 'Save & continue'} onCancel={profile ? () => setStep('review') : onClose}
               onSubmit={async (values) => { await onSaveProfile(values); setStep('review') }}/>
+          </div>
+        ) : wide ? (
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_22rem]">
+            {/* left: what to add */}
+            <div className="p-5 space-y-3 min-w-0">
+              {termChoice && (
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    ['monthly', '1 month', 'Monthly price'],
+                    ['plan', endDate ? `Until ${endDate}` : 'Until plan ends', 'Yearly price'],
+                  ].map(([k, label, sub2]) => (
+                    <button key={k} type="button" disabled={busy} onClick={() => onTermChange?.(k)}
+                      className={clsx('text-left rounded-lg border px-3 py-1.5 transition-colors', term === k ? 'border-primary bg-primary/5' : 'border-surface-border hover:bg-slate-50')}>
+                      <p className="text-xs font-bold text-slate-800 leading-tight">{label}</p>
+                      <p className="text-[10px] text-slate-400 leading-tight">{sub2}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5"><Puzzle size={11}/> Add-ons <span className="normal-case font-medium tracking-normal">(optional · {termChoice && term === 'monthly' ? 'monthly price' : `per ${perWord}`})</span></p>
+                  {selected.length > 0 && <button type="button" onClick={() => onAddonsChange?.([])} disabled={busy} className="text-[10.5px] font-semibold text-slate-400 hover:text-slate-600">Clear all</button>}
+                </div>
+                <AddonPicker grid defs={defs} period={pricePeriod} selected={selected} onChange={(a) => onAddonsChange?.(a)} disabled={busy}/>
+              </div>
+              {profile && (
+                <div className="rounded-lg border border-surface-border px-3 py-2 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Billed to</p>
+                    <p className="text-[11.5px] text-slate-700 truncate"><b className="font-semibold">{profile.legalName}</b> · {addressLine(profile, states)}</p>
+                    <p className="text-[10.5px] text-slate-400 truncate">{profile.email} · +91 {profile.phone} · {profile.gstin ? `GSTIN ${profile.gstin}` : 'No GSTIN'}</p>
+                  </div>
+                  <button onClick={() => setStep('details')} disabled={busy} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline flex-shrink-0"><Pencil size={11}/> Edit</button>
+                </div>
+              )}
+            </div>
+
+            {/* right: the order, the terms, the button */}
+            <div className="p-5 bg-slate-50/70 border-t lg:border-t-0 lg:border-l border-surface-border flex flex-col gap-3 min-w-0">
+              {charge ? (
+                <div className="rounded-xl bg-white border border-surface-border px-3.5 py-2 divide-y divide-slate-100">
+                  <div className="flex items-center justify-between pb-1.5">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Order summary</p>
+                    <p className="text-[10.5px] text-slate-400">{p.name} · {addonsOnly ? (termChoice && term === 'monthly' ? '1 month' : 'one-time') : period}</p>
+                  </div>
+                  {!addonsOnly && <Row k={`${p.name} plan`} v={money(planBase ?? charge.base)} />}
+                  {lineRows.map((l) => <Row key={l.id} k={l.name} v={money(l.amount)} sub={shortLines ? undefined : l.unit} />)}
+                  <TaxRows charge={charge}/>
+                  <Row k={mode === 'autopay' ? `Charged every ${perWord}` : 'Total today'} v={money(charge.total)} strong />
+                </div>
+              ) : (
+                <p className="text-[11.5px] text-slate-400 rounded-xl border border-dashed border-slate-200 px-3.5 py-6 text-center">Pick an add-on to see the price.</p>
+              )}
+
+              {addonsOnly ? (
+                <p className="flex items-start gap-2 text-[11px] text-slate-600 leading-snug">
+                  <Info size={12} className="text-slate-400 flex-shrink-0 mt-0.5"/>
+                  <span>One-time: runs {termChoice && term === 'monthly' ? <b>for one month</b> : <>until <b>{endDate || 'the end of this period'}</b></>}, doesn't renew.{sub?.autopay?.on ? ' Your plan and autopay are unchanged.' : ''}</span>
+                </p>
+              ) : isAutopayNew ? (
+                <div className="rounded-xl border border-violet-200 bg-violet-50/60 px-3.5 py-2.5 space-y-1.5">
+                  <p className="text-[10px] font-bold text-violet-700 uppercase tracking-wider flex items-center gap-1.5"><Repeat size={11}/> Autopay mandate</p>
+                  <ul className="text-[10.5px] text-slate-600 leading-snug space-y-1">
+                    <li>• <b>{money(charge?.total ?? 0)}</b> incl. GST every <b>{perWord}</b>{startAtCycleEnd ? <>, first on <b>{endDate}</b></> : ', starting today'}.</li>
+                    {cardAutopay && <li>• Card only: tick <i>"Save this card as per RBI guidelines"</i> at checkout{startAtCycleEnd ? ' (₹1 is charged to verify it, then refunded)' : ''}. Your bank's ceiling is {money(approvalLimit)}; we only charge your plan price.</li>}
+                    <li>• We email {profile?.email || 'you'} {cardAutopay ? <b>2 days before</b> : 'before'} each debit.{cardAutopay && ' A failed debit is retried up to 3 more times in 9 days (48–72 h apart); the plan stays on meanwhile.'}</li>
+                    <li>• Cancel any time in Settings → Billing.{approval && ` Above ${money(approvalLimit)} your bank asks you to approve each debit.`}</li>
+                  </ul>
+                  <label className="flex items-start gap-2 pt-0.5 cursor-pointer select-none">
+                    <input type="checkbox" className="mt-0.5 accent-primary" checked={consent} onChange={(e) => setConsent(e.target.checked)}/>
+                    <span className="text-[11px] text-slate-700 leading-snug">
+                      I authorise SmatBot to charge <b>{money(charge?.total ?? 0)}</b> every {perWord} to my {cardAutopay ? 'saved card' : 'selected payment method'} until I turn autopay off.
+                    </span>
+                  </label>
+                </div>
+              ) : (
+                <p className="flex items-start gap-2 text-[11px] text-slate-600 leading-snug">
+                  <CreditCard size={12} className="text-slate-400 flex-shrink-0 mt-0.5"/>
+                  <span>One payment for one {perWord}; it <b>doesn't renew</b>. You can turn on autopay later.{sub?.status === 'active' && !startAtCycleEnd && ' Unused time on your current plan is not credited.'}</span>
+                </p>
+              )}
+
+              {error && (
+                <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-2.5 space-y-1.5">
+                  <p className="flex items-start gap-2"><AlertCircle size={13} className="flex-shrink-0 mt-0.5"/> <span>{error.message}</span></p>
+                  {error.code === 'razorpay_unauthorized' && onPayOnceInstead && (
+                    <button onClick={onPayOnceInstead} className="font-semibold text-red-800 underline">Pay once instead (no autopay)</button>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-auto space-y-2">
+                <div className="flex items-center gap-2">
+                  <button onClick={onClose} disabled={busy} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200/60 disabled:opacity-40">Cancel</button>
+                  <button onClick={() => onConfirm({ consent })} disabled={!canConfirm}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg text-xs font-bold text-white bg-primary hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    {busy && <Loader2 size={13} className="animate-spin"/>} {busy ? 'Working…' : cta}
+                  </button>
+                </div>
+                {testMode && (
+                  <p className="text-[9.5px] text-sky-800/80 leading-snug flex items-start gap-1.5"><ShieldCheck size={10} className="flex-shrink-0 mt-px"/> <span>Test mode: card <span className="font-mono">5267 3181 8797 5449</span>, any future date &amp; CVV, OTP any 6 digits.</span></p>
+                )}
+              </div>
+            </div>
           </div>
         ) : (
           <>
