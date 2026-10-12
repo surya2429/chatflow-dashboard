@@ -1432,7 +1432,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         </div>
       </div>
       <div className={clsx('flex-1 overflow-y-auto p-3', dark ? 'bg-slate-900' : 'bg-white')} style={{fontFamily: fontFamilyCss}}>
-        <AppointmentPicker/>
+        <AppointmentPicker cfg={cfg} accent={accent} dark={dark}/>
       </div>
     </div>
   )
@@ -2661,6 +2661,28 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                 </div>
               ))}
             </div>
+            {cfg.showBookingTab && (
+              <div className="p-4 border-t border-surface-border space-y-1">
+                <label className="label flex items-center gap-1.5"><CalendarCheck2 size={11}/>Booking</label>
+                <p className="text-[10px] text-slate-400 mb-2">What the Book tab asks for once a visitor has picked a time.</p>
+                <div className="flex items-center justify-between py-1.5">
+                  <div>
+                    <p className="text-xs font-medium text-slate-800">Collect visitor details</p>
+                    <p className="text-[10px] text-slate-400">Name and email, so the calendar invitation can be sent</p>
+                  </div>
+                  <Toggle checked={cfg.bookingCollectDetails} onChange={v=>set('bookingCollectDetails',v)}/>
+                </div>
+                {cfg.bookingCollectDetails && (
+                  <div className="flex items-center justify-between py-1.5">
+                    <div>
+                      <p className="text-xs font-medium text-slate-800">Phone number required</p>
+                      <p className="text-[10px] text-slate-400">Visitors are asked for it; turn on to make it mandatory</p>
+                    </div>
+                    <Toggle checked={cfg.bookingPhoneRequired} onChange={v=>set('bookingPhoneRequired',v)}/>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="p-4 border-t border-surface-border space-y-1">
               <label className="label">Calling</label>
               <p className="text-[10px] text-slate-400 mb-2">Let visitors start a real voice or video call with your team, right from the widget.</p>
@@ -2802,12 +2824,28 @@ function sameDay(a, b) {
   return a && b && a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate()
 }
 
-function AppointmentPicker() {
+function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
   const today = new Date(); today.setHours(0,0,0,0)
   const [viewDate, setViewDate] = useState(new Date(today))
   const [selectedDate, setSelectedDate] = useState(today)
   const [selectedSlot, setSelectedSlot] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+
+  /* After a slot is chosen the visitor says who they are — the invitation has to go somewhere. */
+  const collect = cfg?.bookingCollectDetails !== false
+  const phoneRequired = !!cfg?.bookingPhoneRequired
+  const [step, setStep] = useState('pick')            // pick → details → done
+  const [info, setInfo] = useState({ name: '', email: '', phone: '' })
+  const [tried, setTried] = useState(false)
+  const phoneDigits = info.phone.replace(/\D/g, '')
+  const errs = {
+    name:  info.name.trim() ? '' : 'Please enter your name',
+    email: !info.email.trim() ? 'Please enter your email' : /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(info.email.trim()) ? '' : "That email doesn't look right",
+    phone: !phoneDigits ? (phoneRequired ? 'Please enter your phone number' : '') : (phoneDigits.length < 6 || phoneDigits.length > 15) ? "That number doesn't look right" : '',
+  }
+  const detailsOk = !errs.name && !errs.email && !errs.phone
+  const ink = dark ? '#e2e8f0' : '#1e293b', muted = dark ? '#94a3b8' : '#64748b'
+  const fieldStyle = { background: dark ? '#111c30' : '#f4f6f9', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}`, color: ink }
 
   const year = viewDate.getFullYear(), month = viewDate.getMonth()
   const firstOfMonth = new Date(year, month, 1)
@@ -2835,6 +2873,59 @@ function AppointmentPicker() {
 
   const slots = slotsForDate(selectedDate)
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+  const dateLabel = selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  const reset = () => { setStep('pick'); setSelectedSlot(null); setInfo({ name: '', email: '', phone: '' }); setTried(false) }
+
+  if (step === 'done') {
+    return (
+      <div className="mt-6 text-center px-2">
+        <div className="w-11 h-11 rounded-full mx-auto flex items-center justify-center" style={{ background: `${accent}1a`, color: accent }}><Check size={20} strokeWidth={2.6}/></div>
+        <p className="text-[13px] font-bold mt-3" style={{ color: ink }}>You're booked</p>
+        <p className="text-[11px] mt-1" style={{ color: muted }}>{dateLabel} at {selectedSlot}</p>
+        {collect && info.email.trim() && (
+          <p className="text-[10.5px] mt-3 leading-relaxed" style={{ color: muted }}>
+            A calendar invitation is on its way to <b style={{ color: ink }}>{info.email.trim()}</b>.
+          </p>
+        )}
+        <button onClick={reset} className="mt-4 text-[11px] font-bold" style={{ color: accent }}>Book another time</button>
+      </div>
+    )
+  }
+
+  if (step === 'details') {
+    const field = (k, label, type, placeholder, required) => (
+      <div key={k}>
+        <p className="text-[8.5px] font-bold uppercase tracking-wide mb-1" style={{ color: muted }}>{label}{required ? ' *' : ' (optional)'}</p>
+        <input value={info[k]} type={type} placeholder={placeholder}
+          onChange={e => setInfo(p => ({ ...p, [k]: k === 'phone' ? e.target.value.replace(/[^\d\s+-]/g, '') : e.target.value }))}
+          className="w-full rounded-lg px-2.5 py-1.5 text-[11.5px] outline-none" style={fieldStyle}/>
+        {tried && errs[k] && <p className="text-[9px] mt-0.5 text-red-500">{errs[k]}</p>}
+      </div>
+    )
+    return (
+      <div className="mt-2 space-y-3">
+        <button onClick={() => setStep('pick')} className="flex items-center gap-1 text-[10.5px] font-semibold" style={{ color: muted }}><ChevronLeft size={12}/> Change time</button>
+        <div className="rounded-xl px-3 py-2.5" style={{ background: `${accent}12` }}>
+          <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: muted }}>Your appointment</p>
+          <p className="text-[12px] font-bold mt-0.5" style={{ color: ink }}>{dateLabel} · {selectedSlot}</p>
+        </div>
+        <div>
+          <p className="text-[12px] font-bold" style={{ color: ink }}>Your details</p>
+          <p className="text-[10.5px] mt-0.5" style={{ color: muted }}>We'll send the calendar invitation to your email.</p>
+        </div>
+        <div className="space-y-2">
+          {field('name', 'Name', 'text', 'Your name', true)}
+          {field('email', 'Email', 'email', 'you@example.com', true)}
+          {field('phone', 'Phone', 'tel', '+91 98765 43210', phoneRequired)}
+        </div>
+        <button onClick={() => { setTried(true); if (detailsOk) setStep('done') }}
+          className="w-full text-white text-[11px] font-bold py-2 rounded-lg" style={{ background: accent, opacity: tried && !detailsOk ? 0.6 : 1 }}>
+          Confirm booking
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="mt-2">
@@ -2941,8 +3032,8 @@ function AppointmentPicker() {
       </div>
 
       {selectedSlot && (
-        <button className="w-full mt-3 bg-primary text-white text-[11px] font-bold py-2 rounded-lg">
-          Confirm {selectedDate.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric'})} at {selectedSlot}
+        <button onClick={() => (collect ? setStep('details') : setStep('done'))} className="w-full mt-3 bg-primary text-white text-[11px] font-bold py-2 rounded-lg">
+          {collect ? 'Continue' : 'Confirm'} · {dateLabel} at {selectedSlot}
         </button>
       )}
     </div>
@@ -2963,7 +3054,7 @@ const SAMPLE_QUESTIONS = {
   time: 'Pick a convenient time', appt: 'Book a slot that works for you',
   file: 'Upload your document', image: 'Upload a photo', signature: 'Please sign to confirm',
   location: 'Where should we deliver?', payment: 'Complete your payment',
-  otp: 'Enter the code we just sent you', form: 'Fill in your details',
+  otp: 'Enter the code we just sent you', prechat: 'Before we start, may we have your details?', form: 'Fill in your details',
   carousel: 'Check out our top picks', carousel_buttons: 'Choose an option below',
   catalog: 'Browse our products',
 }
@@ -3328,6 +3419,8 @@ export default function WebChatAppearance() {
     gifPicker: true, voiceInput: true, saveChat: true,
     // Widget tabs — Chat is always on by default
     showHomeTab: false, showChatTab: true, showMessagesTab: false, showFaqTab: false, showBookingTab: false,
+    // Book tab: collect who is booking so the invitation can be sent
+    bookingCollectDetails: true, bookingPhoneRequired: false,
     enableVoiceCall: false, enableVideoCall: false,
     googleMapsApiKey: '',
       // Lead capture

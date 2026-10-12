@@ -361,6 +361,7 @@ const QUESTION_PROMPTS = {
   daterange:         'What date range works for your trial?',
   time:              'What time works best for a callback?',
   appt:              'Pick a slot for your demo',
+  prechat:           'Before we start, may we have your details?',
   file:              'Could you upload your latest invoice?',
   image:             'Share a screenshot of the issue you\'re seeing',
   signature:         'Please sign below to confirm',
@@ -1062,6 +1063,40 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
                   <p className="text-[10px] text-slate-400 leading-snug">
                     There is no AI backend wired up yet, so the preview shows the sample answer
                     (or the fallback). Connect the knowledge base to answer for real.
+                  </p>
+                </>
+              )}
+
+              {def.questionType === 'prechat' && (
+                <>
+                  <div className="flex items-start justify-between gap-3 p-2.5 rounded-lg border border-surface-border">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold text-slate-700">Mandatory</p>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        {d.required !== false
+                          ? 'Name, email and phone must all be filled in before the chat continues.'
+                          : 'Visitors can skip it. Anything they do type is still checked.'}
+                      </p>
+                    </div>
+                    <button type="button" role="switch" aria-checked={d.required !== false} aria-label="Mandatory"
+                      onClick={() => set('required', d.required === false)}
+                      className="relative flex-shrink-0 mt-0.5 rounded-full transition-colors"
+                      style={{ width: 34, height: 18, background: d.required !== false ? '#0066ff' : '#d1d5db' }}>
+                      <span className="absolute rounded-full bg-white shadow transition-all" style={{ top: 2, left: d.required !== false ? 18 : 2, width: 14, height: 14 }}/>
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1"><label className="label">Submit button</label>
+                      <input className="input" value={d.submitLabel || ''} onChange={e => set('submitLabel', e.target.value)} placeholder="Start chat"/>
+                    </div>
+                    {d.required === false && (
+                      <div className="space-y-1"><label className="label">Skip button</label>
+                        <input className="input" value={d.skipLabel || ''} onChange={e => set('skipLabel', e.target.value)} placeholder="Skip for now"/>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-snug">
+                    The answer is stored as labelled lines (Name / Email / Phone), so it reads clearly in the Inbox.
                   </p>
                 </>
               )}

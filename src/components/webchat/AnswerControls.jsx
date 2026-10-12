@@ -1811,6 +1811,80 @@ function VerifyDocAnswer({ accent, dark, onSubmit, data = {} }) {
   )
 }
 
+/* ── pre-chat form: name, email and phone as ONE question ───────────────
+   "Mandatory" is a single switch on the node (data.required, on unless turned
+   off). Mandatory: all three are needed and there is no way past it. Optional:
+   blanks are fine and there is a Skip button — but whatever IS typed must still
+   be valid, so a half-typed email never reaches the Inbox. The answer is
+   labelled lines, like the multi-field form, so an agent can tell which is which. */
+const PRECHAT_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+function PrechatAnswer({ accent, dark, onSubmit, data = {} }) {
+  const mandatory = data.required !== false
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [num, setNum] = useState('')
+  const [country, setCountry] = useDetectedCountry()
+  const [tried, setTried] = useState(false)
+
+  const digits = num.replace(/\D/g, '')
+  const problem = {
+    name:  name.trim() ? '' : (mandatory ? 'Please enter your name' : ''),
+    email: !email.trim() ? (mandatory ? 'Please enter your email' : '') : PRECHAT_EMAIL_RE.test(email.trim()) ? '' : "That email doesn't look right",
+    phone: !digits ? (mandatory ? 'Please enter your phone number' : '') : (digits.length < 6 || digits.length > 15) ? "That number doesn't look right" : '',
+  }
+  const valid = !problem.name && !problem.email && !problem.phone
+
+  const submit = () => {
+    setTried(true)
+    if (!valid) return
+    const lines = [
+      name.trim() && `Name: ${name.trim()}`,
+      email.trim() && `Email: ${email.trim()}`,
+      digits && `Phone: ${country.dial} ${num.trim()}`,
+    ].filter(Boolean)
+    onSubmit?.(lines.join('\n'))
+  }
+
+  const fieldStyle = { background: dark ? '#111c30' : '#f4f6f9', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}`, color: dark ? '#e2e8f0' : '#1e293b' }
+  const inputCls = clsx('w-full bg-transparent outline-none text-[11.5px]', dark ? 'text-slate-100 placeholder-slate-500' : 'text-slate-800 placeholder-slate-400')
+  const Err = ({ k }) => (tried && problem[k]) ? <p className="text-[9px] mt-0.5 text-red-500">{problem[k]}</p> : null
+  const star = mandatory ? ' *' : ''
+
+  return (
+    <div className="w-full rounded-2xl p-3 space-y-2" style={{ background: dark ? '#0b1424' : '#fff', border: `1.5px solid ${dark ? '#22304a' : '#e3e8f0'}` }}>
+      <FormField label={`Name${star}`} dark={dark}>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" autoComplete="name"
+          className={clsx(inputCls, 'rounded-lg px-2.5 py-1.5')} style={fieldStyle}/>
+        <Err k="name"/>
+      </FormField>
+      <FormField label={`Email${star}`} dark={dark}>
+        <input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" type="email" autoComplete="email"
+          className={clsx(inputCls, 'rounded-lg px-2.5 py-1.5')} style={fieldStyle}/>
+        <Err k="email"/>
+      </FormField>
+      <FormField label={`Phone${star}`} dark={dark}>
+        <div className="flex items-center gap-1 rounded-lg pl-1 pr-2 py-1" style={fieldStyle}>
+          <CountryDialPicker country={country} setCountry={setCountry} dark={dark} dropDirection="down"/>
+          <input value={num} onChange={e => setNum(e.target.value.replace(/[^\d\s-]/g, ''))} placeholder="Phone number" type="tel" autoComplete="tel-national"
+            className={clsx(inputCls, 'flex-1 min-w-0 px-1 py-1')}/>
+        </div>
+        <Err k="phone"/>
+      </FormField>
+      <button type="button" onClick={submit}
+        className="w-full py-2 rounded-lg text-[11px] font-bold transition-opacity"
+        style={{ background: accent, color: '#fff', opacity: tried && !valid ? 0.6 : 1 }}>
+        {data.submitLabel || 'Start chat'}
+      </button>
+      {!mandatory && (
+        <button type="button" onClick={() => onSubmit?.('')}
+          className="w-full text-[10.5px] font-semibold py-0.5" style={{ color: dark ? '#94a3b8' : '#64748b' }}>
+          {data.skipLabel || 'Skip for now'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function AnswerControl({ questionType, accent = '#0066ff', dark = false, onSubmit, interactive = true, formFields, otpConfig, googleMapsApiKey, nodeData }) {
   useAnswerControlStyles()
   const submit = interactive ? onSubmit : undefined
@@ -1863,6 +1937,8 @@ export function AnswerControl({ questionType, accent = '#0066ff', dark = false, 
       return <FaqAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'ai_answer':
       return <AiAnswerAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
+    case 'prechat':
+      return <PrechatAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'consent':
       return <ConsentAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'verify_doc':
