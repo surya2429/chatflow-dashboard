@@ -18,7 +18,8 @@ import { QUESTION_TYPES as WEBCHAT_QUESTION_TYPES } from '../constants/webchatQu
 import { WIDGET_CFG_STORAGE_KEY, useWidgetTheme, WidgetPreview, getLandingBotId, slugifyBotName } from './WebChatAppearance'
 import { usePublishSection, useLoadSection, SECTION_FLOWS } from '../lib/liveConfig'
 import { useBotId } from '../constants/webchat'
-import { AnswerControl, COUNTRIES, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES, CHOICE_DIRECTIONS, CHOICE_DEFAULT_DIRECTION } from '../components/webchat/AnswerControls'
+import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
+import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES, CHOICE_DIRECTIONS, CHOICE_DEFAULT_DIRECTION } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
 
 /* ─── one draggable palette block per question type — "ask_<id>" — instead ──
@@ -594,112 +595,6 @@ const DEFAULT_FORM_FIELD_IDS = new Set(DEFAULT_FORM_FIELDS.map(f => f.id))
    all). Defaults (timer on, resend on, 30s) match OtpAnswer's own defaults
    in AnswerControls.jsx, used whenever a node hasn't set `otpConfig` yet. */
 const DEFAULT_OTP_CONFIG = { showTimer: true, showResend: true, seconds: 30 }
-/* ─── Phone question settings ───────────────────────────────────────────
-   Countries offered, the default one, and whether to pick the visitor's country from their IP.
-   `CountryPicker` is a small searchable dropdown (single or multi). */
-function CountryPicker({ multi, value, onChange, options, placeholder }) {
-  const [open, setOpen] = useState(false)
-  const [q, setQ] = useState('')
-  const ref = useRef(null)
-  useEffect(() => {
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [])
-  const sel = multi ? value : [value]
-  const shown = options.filter(c => !q.trim() || c.name.toLowerCase().includes(q.toLowerCase()) || c.code.toLowerCase() === q.trim().toLowerCase() || c.dial.includes(q.trim()))
-  const toggle = (c) => {
-    if (multi) onChange(value.includes(c.code) ? value.filter(x => x !== c.code) : [...value, c.code])
-    else { onChange(c.code); setOpen(false); setQ('') }
-  }
-  const one = !multi ? options.find(c => c.code === value) : null
-  return (
-    <div className="relative" ref={ref}>
-      <div role="button" tabIndex={0} onClick={() => setOpen(o => !o)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setOpen(o => !o))}
-        className="input flex items-center gap-1.5 flex-wrap min-h-[38px] cursor-pointer pr-8 relative">
-        {multi ? (
-          value.length === 0
-            ? <span className="text-slate-400">{placeholder}</span>
-            : value.map(code => {
-                const c = COUNTRIES.find(x => x.code === code)
-                return c && (
-                  <span key={code} className="inline-flex items-center gap-1 text-[10.5px] font-semibold bg-slate-100 text-slate-700 rounded-md pl-1.5 pr-1 py-0.5">
-                    {c.flag} {c.code}
-                    <button type="button" aria-label={`Remove ${c.name}`} onClick={(e) => { e.stopPropagation(); onChange(value.filter(x => x !== code)) }} className="text-slate-400 hover:text-slate-700"><X size={10}/></button>
-                  </span>
-                )
-              })
-        ) : (
-          <span className="truncate">{one ? `${one.flag} ${one.name} - ${one.code}` : placeholder}</span>
-        )}
-        <ChevronDown size={14} className={clsx('absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 transition-transform', open && 'rotate-180')}/>
-      </div>
-      {open && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-xl border border-surface-border shadow-xl overflow-hidden">
-          <div className="flex items-center gap-1.5 px-2.5 py-2 border-b border-surface-border">
-            <Search size={12} className="text-slate-400"/>
-            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search country or code…" className="flex-1 bg-transparent outline-none text-[11px] text-slate-700 placeholder-slate-400"/>
-          </div>
-          {multi && (
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-surface-border text-[10px] font-semibold">
-              <span className="text-slate-400">{value.length ? `${value.length} selected` : 'All countries allowed'}</span>
-              <span className="flex gap-3">
-                <button type="button" onClick={() => onChange(options.map(c => c.code))} className="text-primary hover:underline">Select all</button>
-                <button type="button" onClick={() => onChange([])} className="text-slate-500 hover:underline">Clear</button>
-              </span>
-            </div>
-          )}
-          <div className="max-h-52 overflow-y-auto py-1">
-            {shown.length === 0 && <p className="text-[10.5px] text-slate-400 text-center py-3">No match</p>}
-            {shown.map(c => {
-              const on = sel.includes(c.code)
-              return (
-                <button key={c.code} type="button" onClick={() => toggle(c)} className={clsx('w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] hover:bg-slate-50', on && 'bg-primary/[0.04]')}>
-                  <span className={clsx('w-3.5 h-3.5 flex items-center justify-center flex-shrink-0', multi ? 'rounded border' : '', on ? 'bg-primary border-primary text-white' : 'border-slate-300', !multi && 'w-3')}>
-                    {on && <Check size={multi ? 10 : 12} className={multi ? '' : 'text-primary'}/>}
-                  </span>
-                  <span>{c.flag}</span><span className="flex-1 truncate text-slate-700">{c.name}</span><span className="text-slate-400">{c.dial}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function PhoneConfigEditor({ d, set }) {
-  const allowed = Array.isArray(d.allowedCountries) ? d.allowedCountries : []
-  const pool = allowed.length ? COUNTRIES.filter(c => allowed.includes(c.code)) : COUNTRIES
-  const wanted = d.defaultCountry || 'IN'
-  const def = pool.some(c => c.code === wanted) ? wanted : pool[0]?.code
-  const ip = d.ipDetect === true
-  return (
-    <>
-      <div className="space-y-1">
-        <label className="label">Countries list</label>
-        <CountryPicker multi value={allowed} onChange={v => set('allowedCountries', v)} options={COUNTRIES} placeholder="All countries"/>
-        <p className="text-[10px] text-slate-400 leading-snug">Only these appear in the visitor's country picker. Leave empty to allow every country.</p>
-      </div>
-      <div className="space-y-1">
-        <label className="label">Default country</label>
-        <CountryPicker value={def} onChange={v => set('defaultCountry', v)} options={pool} placeholder="Select a country"/>
-      </div>
-      <div className="space-y-1">
-        <label className="label">Show country based on IP address</label>
-        <div className="flex items-center gap-2.5 p-2.5 rounded-lg border border-surface-border">
-          <button type="button" role="switch" aria-checked={ip} aria-label="Show country based on IP address" onClick={() => set('ipDetect', !ip)}
-            className="relative flex-shrink-0 rounded-full transition-colors" style={{ width: 34, height: 18, background: ip ? '#0066ff' : '#d1d5db' }}>
-            <span className="absolute rounded-full bg-white shadow transition-all" style={{ top: 2, left: ip ? 18 : 2, width: 14, height: 14 }}/>
-          </button>
-          <p className="text-[11px] text-slate-500 leading-snug">{ip ? "Preselect the visitor's country from their IP address (if it's in the list)." : 'Do not select country based on IP address — the default country is used.'}</p>
-        </div>
-      </div>
-    </>
-  )
-}
-
 function OtpConfigEditor({ config, onChange }) {
   const cfg = { ...DEFAULT_OTP_CONFIG, ...config }
   const set = (k, v) => onChange({ ...cfg, [k]: v })
@@ -1119,7 +1014,7 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
               <div className="space-y-1"><label className="label">Save answer as</label>
                 <input className="input" placeholder="e.g. email" value={d.saveAs || ''} onChange={e => set('saveAs', e.target.value)}/>
               </div>
-              {def.questionType === 'phone' && <PhoneConfigEditor d={d} set={set}/>}
+              {def.questionType === 'phone' && <PhoneCountrySettings value={d} set={set}/>}
               {def.questionType === 'form' && (
                 <FormFieldsEditor fields={d.formFields || DEFAULT_FORM_FIELDS} onChange={v => set('formFields', v)}/>
               )}

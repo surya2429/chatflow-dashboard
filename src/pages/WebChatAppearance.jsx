@@ -22,7 +22,8 @@ import { QUESTION_TYPES, QUESTION_CATS } from '../constants/webchatQuestionTypes
 import { GOOGLE_FONTS, FONT_CATEGORIES, fontStack } from '../constants/googleFonts'
 import { getBotId, useBotId } from '../constants/webchat'
 import { usePublishSection, useLoadSection, SECTION_APPEARANCE } from '../lib/liveConfig'
-import { AnswerControl, CountryDialPicker, useDetectedCountry } from '../components/webchat/AnswerControls'
+import { AnswerControl, CountryDialPicker, COUNTRIES, useDetectedCountry } from '../components/webchat/AnswerControls'
+import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
 import LocationMap from '../components/webchat/LocationMap'
 import { PoweredByDemoModal } from '../components/webchat/PoweredByDemoModal'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -2688,7 +2689,7 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
               </SettingsModal>
             )}
             {editor === 'booking' && (
-              <SettingsModal title="Booking" subtitle="How the Book tab works" overflowVisible onClose={()=>setEditor(null)}>
+              <SettingsModal title="Booking" subtitle="How the Book tab works" wide overflowVisible onClose={()=>setEditor(null)}>
                 <div className="space-y-4">
                   <div>
                     <p className="text-[11px] font-semibold text-slate-700 mb-1.5">Visitors must give</p>
@@ -2701,6 +2702,12 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                     <label className="label">Your time zone</label>
                     <p className="text-[10.5px] text-slate-400 mb-1.5">Slot times are set in this zone. Visitors choose their own and see every slot converted.</p>
                     <TimezoneSelect value={cfg.bookingTimezone} onChange={v=>set('bookingTimezone',v)} className="input"/>
+                  </div>
+                  <div className="pt-3 border-t border-surface-border">
+                    <p className="text-[11px] font-semibold text-slate-700 mb-2">Phone number country</p>
+                    <PhoneCountrySettings
+                      value={{ allowedCountries: cfg.bookingCountries, defaultCountry: cfg.bookingDefaultCountry, ipDetect: cfg.bookingIpDetect }}
+                      set={(k, v) => set({ allowedCountries: 'bookingCountries', defaultCountry: 'bookingDefaultCountry', ipDetect: 'bookingIpDetect' }[k], v)}/>
                   </div>
                 </div>
               </SettingsModal>
@@ -3065,7 +3072,10 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
   const bizTz = cfg?.bookingTimezone || 'Asia/Kolkata'
   const [tz, setTz] = useState(browserTimezone)          // the visitor's zone: starts as their browser's
   const [info, setInfo] = useState({ name: '', email: '', phone: '' })
-  const [country, setCountry] = useDetectedCountry()   // dial code for the phone number: starts from the visitor's location
+  // The phone field follows the Booking settings: which countries, which default, and whether to use the visitor's IP.
+  const allowedCountries = Array.isArray(cfg?.bookingCountries) && cfg.bookingCountries.length ? cfg.bookingCountries : null
+  const offeredCountries = allowedCountries ? COUNTRIES.filter(c => allowedCountries.includes(c.code)) : COUNTRIES
+  const [country, setCountry] = useDetectedCountry({ defaultCode: cfg?.bookingDefaultCountry || 'IN', ip: cfg?.bookingIpDetect === true, allowed: allowedCountries })
   const [tried, setTried] = useState(false)
   const phoneDigits = info.phone.replace(/\D/g, '')
   const errs = {
@@ -3257,7 +3267,7 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
         <div>
           <p className="text-[8.5px] font-bold uppercase tracking-wide mb-1" style={{ color: muted }}>Phone *</p>
           <div className="flex items-center gap-1 rounded-lg pl-1 pr-2 py-1" style={fieldStyle}>
-            <CountryDialPicker country={country} setCountry={setCountry} dark={dark} dropDirection="up"/>
+            <CountryDialPicker country={country} setCountry={setCountry} dark={dark} dropDirection="up" countries={offeredCountries}/>
             <input value={info.phone} type="tel" placeholder="Phone number" autoComplete="tel-national"
               onChange={e => setInfo(p => ({ ...p, phone: e.target.value.replace(/[^\d\s-]/g, '') }))}
               className="flex-1 min-w-0 bg-transparent outline-none text-[11.5px] px-1 py-1" style={{ color: ink }}/>
@@ -3656,6 +3666,7 @@ export default function WebChatAppearance() {
     // Widget tabs — Chat is always on by default
     showHomeTab: false, showChatTab: true, showMessagesTab: false, showFaqTab: false, showBookingTab: false,
     bookingTimezone: 'Asia/Kolkata',
+    bookingCountries: [], bookingDefaultCountry: 'IN', bookingIpDetect: false,
     faqItems: DEFAULT_FAQS,
     enableVoiceCall: false, enableVideoCall: false,
     googleMapsApiKey: '',
