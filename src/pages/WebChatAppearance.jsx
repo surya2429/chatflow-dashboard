@@ -350,6 +350,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
      nested inside a plain function call like that would violate the Rules
      of Hooks, so it has to live up here unconditionally instead. */
   const [openIdx, setOpenIdx] = useState(0)
+  const [faqQuery, setFaqQuery] = useState('')
   const [draft, setDraft] = useState('')
   const draftRef = useRef(null)
   const moreRef = useRef(null)
@@ -1133,7 +1134,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
     { id: 'support1', name: 'Priya · Support', preview: "I've gone ahead and processed that for you.", time: '1w', unread: 1, resolved: true, kind: 'agent' },
   ]
   const MessagesScreen = () => (
-    <div className="flex flex-col h-full" style={{ fontFamily: fontFamilyCss, background: dark ? '#0b1220' : '#f7f8fb' }}>
+    <div className={clsx('flex flex-col h-full', dark ? 'bg-slate-900' : 'bg-white')} style={{ fontFamily: fontFamilyCss }}>
       <div className="flex-shrink-0 relative z-20"
         style={{
           background: headerBg,
@@ -1250,11 +1251,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
   )
 
   /* ── FAQ screen (optional tab) ── */
-  const FAQ_ITEMS = [
-    { q:'What are your business hours?', a:"We're online Mon–Fri, 9am–6pm. Outside those hours the bot still answers common questions." },
-    { q:'How do I get a refund?', a:'Go to Orders → select the order → Request Refund. Refunds land back in 5–7 business days.' },
-    { q:'Do you ship internationally?', a:'Yes — we ship to 40+ countries. Shipping cost is calculated at checkout.' },
-  ]
+  const FAQ_ITEMS = (Array.isArray(cfg.faqItems) ? cfg.faqItems : DEFAULT_FAQS).filter(f => (f.q || '').trim())
   const FaqScreen = () => {
     return (
       <div className="flex flex-col h-full">
@@ -1334,19 +1331,36 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
             </div>
           </div>
         </div>
-        <div className={clsx('flex-1 overflow-y-auto px-4 py-3 space-y-2', dark ? 'bg-slate-900' : 'bg-white')} style={{fontFamily: fontFamilyCss}}>
-          {FAQ_ITEMS.map((item,i)=>(
-            <div key={item.q} className={clsx('border rounded-xl overflow-hidden', dark ? 'border-slate-700' : 'border-slate-200')}>
-              <button onClick={()=>setOpenIdx(openIdx===i?-1:i)}
-                className={clsx('w-full flex items-center justify-between px-3 py-2.5 text-left', dark ? 'bg-slate-800' : 'bg-slate-50')}>
-                <span style={{fontSize: fs(11.5)}} className={clsx('font-semibold pr-2', dark ? 'text-slate-100' : 'text-slate-700')}>{item.q}</span>
-                <ChevronDown size={13} className={clsx('flex-shrink-0 transition-transform', dark ? 'text-slate-500' : 'text-slate-400', openIdx===i && 'rotate-180')}/>
-              </button>
-              {openIdx===i && (
-                <p style={{fontSize: fs(11)}} className={clsx('px-3 py-2.5 leading-relaxed', dark ? 'text-slate-400' : 'text-slate-500')}>{item.a}</p>
-              )}
+        <div className={clsx('flex-1 min-h-0 flex flex-col', dark ? 'bg-slate-900' : 'bg-white')} style={{fontFamily: fontFamilyCss}}>
+          <div className="flex-shrink-0 px-4 pt-3">
+            <div className={clsx('flex items-center gap-2 rounded-xl px-3 py-2 border transition-colors focus-within:border-primary', dark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200')}>
+              <Search size={13} className={dark ? 'text-slate-500' : 'text-slate-400'}/>
+              <input value={faqQuery} onChange={e=>setFaqQuery(e.target.value)} onKeyDown={e=>{ if (e.key==='Escape') setFaqQuery('') }}
+                placeholder="Search help articles…" aria-label="Search help articles"
+                style={{fontSize: fs(11.5)}} className={clsx('flex-1 min-w-0 bg-transparent outline-none', dark ? 'text-slate-100 placeholder-slate-500' : 'text-slate-700 placeholder-slate-400')}/>
+              {faqQuery && <button onClick={()=>setFaqQuery('')} aria-label="Clear search" className={dark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'}><X size={12}/></button>}
             </div>
-          ))}
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+            {(() => {
+              const q = faqQuery.trim().toLowerCase()
+              const shown = FAQ_ITEMS.map((item,i)=>({ item, i })).filter(({ item }) => !q || item.q.toLowerCase().includes(q) || (item.a || '').toLowerCase().includes(q))
+              if (FAQ_ITEMS.length === 0) return <p style={{fontSize: fs(11)}} className={clsx('text-center py-8', dark ? 'text-slate-500' : 'text-slate-400')}>No help articles yet.</p>
+              if (shown.length === 0) return <p style={{fontSize: fs(11)}} className={clsx('text-center py-8', dark ? 'text-slate-500' : 'text-slate-400')}>No articles match “{faqQuery.trim()}”.</p>
+              return shown.map(({ item, i }) => (
+                <div key={item.id || item.q} className={clsx('border rounded-xl overflow-hidden', dark ? 'border-slate-700' : 'border-slate-200')}>
+                  <button onClick={()=>setOpenIdx(openIdx===i?-1:i)}
+                    className={clsx('w-full flex items-center justify-between px-3 py-2.5 text-left', dark ? 'bg-slate-800' : 'bg-slate-50')}>
+                    <span style={{fontSize: fs(11.5)}} className={clsx('font-semibold pr-2', dark ? 'text-slate-100' : 'text-slate-700')}>{item.q}</span>
+                    <ChevronDown size={13} className={clsx('flex-shrink-0 transition-transform', dark ? 'text-slate-500' : 'text-slate-400', (openIdx===i || !!q) && 'rotate-180')}/>
+                  </button>
+                  {(openIdx===i || !!q) && (
+                    <p style={{fontSize: fs(11)}} className={clsx('px-3 py-2.5 leading-relaxed', dark ? 'text-slate-400' : 'text-slate-500')}>{item.a}</p>
+                  )}
+                </div>
+              ))
+            })()}
+          </div>
         </div>
       </div>
     )
@@ -2661,6 +2675,7 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                 </div>
               ))}
             </div>
+            {cfg.showFaqTab && <FaqEditor items={Array.isArray(cfg.faqItems) ? cfg.faqItems : DEFAULT_FAQS} onChange={v => set('faqItems', v)}/>}
             {cfg.showBookingTab && (
               <div className="p-4 border-t border-surface-border space-y-1.5">
                 <label className="label flex items-center gap-1.5"><CalendarCheck2 size={11}/>Booking</label>
@@ -2949,6 +2964,46 @@ function TimezoneSelect({ value: rawValue, onChange, dark, className, style, sug
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/* ─── Help articles ──────────────────────────────────────────────────────
+   The questions the widget's Help tab lists (and searches). Edited in Behavior → Help articles. */
+const DEFAULT_FAQS = [
+  { id: 'faq1', q: 'What are your business hours?', a: "We're online Mon–Fri, 9am–6pm. Outside those hours the bot still answers common questions." },
+  { id: 'faq2', q: 'How do I get a refund?', a: 'Go to Orders → select the order → Request Refund. Refunds land back in 5–7 business days.' },
+  { id: 'faq3', q: 'Do you ship internationally?', a: 'Yes — we ship to 40+ countries. Shipping cost is calculated at checkout.' },
+]
+const newFaqId = () => `faq${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
+
+function FaqEditor({ items, onChange }) {
+  const update = (id, patch) => onChange(items.map(f => f.id === id ? { ...f, ...patch } : f))
+  const remove = (id) => onChange(items.filter(f => f.id !== id))
+  const move = (i, d) => { const j = i + d; if (j < 0 || j >= items.length) return; const next = [...items]; [next[i], next[j]] = [next[j], next[i]]; onChange(next) }
+  const add = () => onChange([...items, { id: newFaqId(), q: '', a: '' }])
+  return (
+    <div className="p-4 border-t border-surface-border space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="label flex items-center gap-1.5"><HelpCircle size={11}/>Help articles</label>
+        <span className="text-[10px] text-slate-400">{items.filter(f => f.q.trim()).length} shown in the widget</span>
+      </div>
+      <p className="text-[10px] text-slate-400">The questions on the Help tab. Visitors can search them. Articles with no question are hidden.</p>
+      {items.length === 0 && <p className="text-[11px] text-slate-400 border border-dashed border-slate-200 rounded-xl px-3 py-4 text-center">No articles yet — add your first one.</p>}
+      {items.map((f, i) => (
+        <div key={f.id} className="rounded-xl border border-surface-border p-2.5 space-y-1.5 bg-slate-50/50">
+          <div className="flex items-center gap-1.5">
+            <input className="input flex-1 !py-1.5 text-xs font-semibold" placeholder="Question, e.g. How do I track my order?" value={f.q} onChange={e => update(f.id, { q: e.target.value })}/>
+            <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up" className="p-1 rounded-md text-slate-400 hover:bg-slate-100 disabled:opacity-30"><ChevronUp size={13}/></button>
+            <button type="button" onClick={() => move(i, 1)} disabled={i === items.length - 1} aria-label="Move down" className="p-1 rounded-md text-slate-400 hover:bg-slate-100 disabled:opacity-30"><ChevronDown size={13}/></button>
+            <button type="button" onClick={() => remove(f.id)} aria-label="Delete article" className="p-1 rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500"><Trash2 size={13}/></button>
+          </div>
+          <textarea className="textarea !text-xs" rows={2} placeholder="Answer" value={f.a} onChange={e => update(f.id, { a: e.target.value })}/>
+        </div>
+      ))}
+      <button type="button" onClick={add} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 text-primary text-[11px] font-bold hover:bg-primary/5">
+        <Plus size={12}/> Add article
+      </button>
     </div>
   )
 }
@@ -3558,6 +3613,7 @@ export default function WebChatAppearance() {
     // Widget tabs — Chat is always on by default
     showHomeTab: false, showChatTab: true, showMessagesTab: false, showFaqTab: false, showBookingTab: false,
     bookingTimezone: 'Asia/Kolkata',
+    faqItems: DEFAULT_FAQS,
     enableVoiceCall: false, enableVideoCall: false,
     googleMapsApiKey: '',
       // Lead capture
