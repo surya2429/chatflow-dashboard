@@ -37,3 +37,6 @@ logs/
 
 # Local dev billing state (Razorpay subscription ids etc.)
 .dev-billing.json
+
+# Backups / archives (never commit)
+*.zip
