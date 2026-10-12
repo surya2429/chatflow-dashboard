@@ -22,7 +22,7 @@ import { QUESTION_TYPES, QUESTION_CATS } from '../constants/webchatQuestionTypes
 import { GOOGLE_FONTS, FONT_CATEGORIES, fontStack } from '../constants/googleFonts'
 import { getBotId, useBotId } from '../constants/webchat'
 import { usePublishSection, useLoadSection, SECTION_APPEARANCE } from '../lib/liveConfig'
-import { AnswerControl } from '../components/webchat/AnswerControls'
+import { AnswerControl, CountryDialPicker, useDetectedCountry } from '../components/webchat/AnswerControls'
 import LocationMap from '../components/webchat/LocationMap'
 import { PoweredByDemoModal } from '../components/webchat/PoweredByDemoModal'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -2856,19 +2856,100 @@ function slotInZone(date, label, from, to) {
   } catch { return { time: label, abbr: '', shift: 0, date } }
 }
 
-function TimezoneSelect({ value, onChange, dark, className, style }) {
+/* A searchable time-zone dropdown (type "kol", "new york", "+5:30", "gmt-8", "europe"…). The browser's own
+   <select> can't search 400+ entries; this one filters as you type, supports the arrow keys / Enter / Esc,
+   and pins the zones you most likely want (the visitor's own, the business's) to the top. */
+/* Chrome lists India as Asia/Calcutta, other engines as Asia/Kolkata — treat them as the same zone. */
+function canonicalTz(tz) {
+  if (tz !== 'Asia/Kolkata' && tz !== 'Asia/Calcutta') return tz
+  try { return Intl.supportedValuesOf('timeZone').includes('Asia/Calcutta') ? 'Asia/Calcutta' : 'Asia/Kolkata' } catch { return tz }
+}
+
+function TimezoneSelect({ value: rawValue, onChange, dark, className, style, suggested = [] }) {
+  const value = canonicalTz(rawValue || 'Asia/Kolkata')
   const zones = useMemo(() => {
     let list
     try { list = Intl.supportedValuesOf('timeZone') } catch { list = null }
     list = list?.length ? [...list] : [...FALLBACK_TIMEZONES]
     if (value && !list.includes(value)) list.push(value)
-    const withOff = list.map(tz => { let o = 0; try { o = tzOffsetMs(Date.now(), tz) } catch { /* unknown zone */ } return { tz, o } })
-    return withOff.sort((a, b) => a.o - b.o || a.tz.localeCompare(b.tz)).map(x => x.tz)
+    return list.map(tz => {
+      let o = 0; try { o = tzOffsetMs(Date.now(), tz) } catch { /* unknown zone */ }
+      const gmt = tzGmtLabel(tz)
+      const parts = tz.split('/')
+      // Browsers still report some zones under their old names — show (and match) the names people use today.
+      const NEW_NAME = { 'Asia/Calcutta': 'Kolkata', 'Asia/Katmandu': 'Kathmandu', 'Asia/Saigon': 'Ho Chi Minh City', 'Asia/Rangoon': 'Yangon', 'Europe/Kiev': 'Kyiv' }
+      const city = NEW_NAME[tz] || parts[parts.length - 1].replace(/_/g, ' ')
+      return { tz, o, gmt, city, region: parts.length > 1 ? parts.slice(0, -1).join(' / ').replace(/_/g, ' ') : '', hay: `${tz.replace(/[_/]/g, ' ')} ${city} ${gmt}`.toLowerCase() }
+    }).sort((x, y) => x.o - y.o || x.tz.localeCompare(y.tz))
   }, [value])
+
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const [active, setActive] = useState(0)
+  const ref = useRef(null)
+  const listRef = useRef(null)
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  const query = q.trim().toLowerCase().replace(/-/g, '−')
+  const norm = query.replace(/[_/]/g, ' ')
+  const filtered = query ? zones.filter(z => z.hay.includes(norm)) : zones
+  const pinned = query ? [] : suggested.map(canonicalTz).filter((t, i, a) => a.indexOf(t) === i).map(t => zones.find(z => z.tz === t)).filter(Boolean)
+  const flat = [...pinned.map(z => ({ ...z, key: 's:' + z.tz })), ...filtered.map(z => ({ ...z, key: z.tz }))]
+  const current = zones.find(z => z.tz === value)
+
+  useEffect(() => { setActive(0) }, [q, open])
+  useEffect(() => { listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' }) }, [active])
+
+  const pick = (z) => { onChange(z.tz); setOpen(false); setQ('') }
+  const onKey = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(i => Math.min(i + 1, flat.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(i => Math.max(i - 1, 0)) }
+    else if (e.key === 'Enter') { e.preventDefault(); if (flat[active]) pick(flat[active]) }
+    else if (e.key === 'Escape') { e.preventDefault(); setOpen(false) }
+  }
+  const ink = dark ? '#e2e8f0' : '#334155', mute = dark ? '#64748b' : '#94a3b8'
+  const panel = { background: dark ? '#1e293b' : '#fff', border: `1px solid ${dark ? '#334155' : '#e2e8f0'}` }
+
   return (
-    <select value={value} onChange={e => onChange(e.target.value)} className={className} style={style} aria-label="Time zone">
-      {zones.map(tz => <option key={tz} value={tz}>{tz.replace(/_/g, ' ')} ({tzGmtLabel(tz)})</option>)}
-    </select>
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen(o => !o)} aria-label="Time zone" aria-haspopup="listbox" aria-expanded={open}
+        className={clsx(className, 'flex items-center gap-2 text-left')} style={style}>
+        <Globe size={13} style={{ color: mute, flexShrink: 0 }}/>
+        <span className="flex-1 min-w-0 truncate">{current ? `${current.city}${current.region ? ` · ${current.region}` : ''}` : value}</span>
+        <span className="text-[10px] flex-shrink-0" style={{ color: mute }}>{current?.gmt}</span>
+        <ChevronDown size={12} className={clsx('flex-shrink-0 transition-transform', open && 'rotate-180')} style={{ color: mute }}/>
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl overflow-hidden shadow-xl" style={{ ...panel, animation: 'wcMenuIn 0.16s cubic-bezier(0.16,1,0.3,1) both' }}>
+          <div className="flex items-center gap-1.5 px-2.5 py-2 border-b" style={{ borderColor: dark ? '#334155' : '#eef1f6' }}>
+            <Search size={12} style={{ color: mute }}/>
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey} placeholder="Search city, country or GMT+5:30…"
+              className="flex-1 bg-transparent outline-none text-[11px]" style={{ color: ink }}/>
+            {q && <button type="button" onClick={() => setQ('')} aria-label="Clear search" style={{ color: mute }}><X size={11}/></button>}
+          </div>
+          <div ref={listRef} role="listbox" className="max-h-52 overflow-y-auto py-1">
+            {flat.length === 0 && <p className="text-[10.5px] px-3 py-3 text-center" style={{ color: mute }}>No time zone matches “{q}”</p>}
+            {flat.map((z, i) => (
+              <div key={z.key}>
+                {i === 0 && pinned.length > 0 && <p className="px-3 pt-1 pb-0.5 text-[9px] font-bold uppercase tracking-wide" style={{ color: mute }}>Suggested</p>}
+                {i === pinned.length && pinned.length > 0 && <p className="px-3 pt-2 pb-0.5 text-[9px] font-bold uppercase tracking-wide border-t mt-1" style={{ color: mute, borderColor: dark ? '#334155' : '#eef1f6' }}>All time zones</p>}
+                <button type="button" role="option" aria-selected={z.tz === value} data-active={i === active} onMouseEnter={() => setActive(i)} onClick={() => pick(z)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] transition-colors"
+                  style={{ background: i === active ? (dark ? '#334155' : '#f1f5f9') : 'transparent', color: ink }}>
+                  <span className="w-3 flex-shrink-0">{z.tz === value && <Check size={11} style={{ color: '#0066ff' }}/>}</span>
+                  <span className="flex-1 min-w-0 truncate"><span className="font-semibold">{z.city}</span>{z.region && <span style={{ color: mute }}> · {z.region}</span>}</span>
+                  <span className="text-[10px] flex-shrink-0 tabular-nums" style={{ color: mute }}>{z.gmt}</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -2886,6 +2967,7 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
   const bizTz = cfg?.bookingTimezone || 'Asia/Kolkata'
   const [tz, setTz] = useState(browserTimezone)          // the visitor's zone: starts as their browser's
   const [info, setInfo] = useState({ name: '', email: '', phone: '' })
+  const [country, setCountry] = useDetectedCountry()   // dial code for the phone number: starts from the visitor's location
   const [tried, setTried] = useState(false)
   const phoneDigits = info.phone.replace(/\D/g, '')
   const errs = {
@@ -3035,8 +3117,10 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
           card around either the calendar or the slot buttons. */}
       <div className="mt-4">
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Your time zone</p>
-        <TimezoneSelect value={tz} onChange={(v) => { setTz(v); setSelectedSlot(null) }} dark={dark}
-          className="w-full rounded-lg px-2 py-1.5 text-[11px] outline-none mb-3" style={fieldStyle}/>
+        <div className="mb-3">
+          <TimezoneSelect value={tz} onChange={(v) => { setTz(v); setSelectedSlot(null) }} dark={dark} suggested={[browserTimezone(), bizTz]}
+            className="w-full rounded-lg px-2.5 py-1.5 text-[11px] outline-none" style={fieldStyle}/>
+        </div>
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">
           Available times — {fmtDay(selectedDate)}
         </p>
@@ -3058,19 +3142,30 @@ function AppointmentPicker({ cfg, accent = '#0066ff', dark = false }) {
       {/* Who is booking — all three are required */}
       <div className="mt-4 space-y-2">
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Your details <span className="normal-case font-medium">· all required</span></p>
-        {[
-          ['name',  'Name',  'text',  'Your name',          'name'],
-          ['email', 'Email', 'email', 'you@example.com',    'email'],
-          ['phone', 'Phone', 'tel',   '+91 98765 43210',    'tel'],
-        ].map(([k, label, type, placeholder, ac]) => (
-          <div key={k}>
-            <p className="text-[8.5px] font-bold uppercase tracking-wide mb-1" style={{ color: muted }}>{label} *</p>
-            <input value={info[k]} type={type} placeholder={placeholder} autoComplete={ac}
-              onChange={e => setInfo(p => ({ ...p, [k]: k === 'phone' ? e.target.value.replace(/[^\d\s+-]/g, '') : e.target.value }))}
-              className="w-full rounded-lg px-2.5 py-1.5 text-[11.5px] outline-none" style={fieldStyle}/>
-            {tried && errs[k] && <p className="text-[9px] mt-0.5 text-red-500">{errs[k]}</p>}
+        <div>
+          <p className="text-[8.5px] font-bold uppercase tracking-wide mb-1" style={{ color: muted }}>Name *</p>
+          <input value={info.name} type="text" placeholder="Your name" autoComplete="name"
+            onChange={e => setInfo(p => ({ ...p, name: e.target.value }))}
+            className="w-full rounded-lg px-2.5 py-1.5 text-[11.5px] outline-none" style={fieldStyle}/>
+          {tried && errs.name && <p className="text-[9px] mt-0.5 text-red-500">{errs.name}</p>}
+        </div>
+        <div>
+          <p className="text-[8.5px] font-bold uppercase tracking-wide mb-1" style={{ color: muted }}>Email *</p>
+          <input value={info.email} type="email" placeholder="you@example.com" autoComplete="email"
+            onChange={e => setInfo(p => ({ ...p, email: e.target.value }))}
+            className="w-full rounded-lg px-2.5 py-1.5 text-[11.5px] outline-none" style={fieldStyle}/>
+          {tried && errs.email && <p className="text-[9px] mt-0.5 text-red-500">{errs.email}</p>}
+        </div>
+        <div>
+          <p className="text-[8.5px] font-bold uppercase tracking-wide mb-1" style={{ color: muted }}>Phone *</p>
+          <div className="flex items-center gap-1 rounded-lg pl-1 pr-2 py-1" style={fieldStyle}>
+            <CountryDialPicker country={country} setCountry={setCountry} dark={dark} dropDirection="up"/>
+            <input value={info.phone} type="tel" placeholder="Phone number" autoComplete="tel-national"
+              onChange={e => setInfo(p => ({ ...p, phone: e.target.value.replace(/[^\d\s-]/g, '') }))}
+              className="flex-1 min-w-0 bg-transparent outline-none text-[11.5px] px-1 py-1" style={{ color: ink }}/>
           </div>
-        ))}
+          {tried && errs.phone && <p className="text-[9px] mt-0.5 text-red-500">{errs.phone}</p>}
+        </div>
       </div>
 
       <button disabled={!selectedSlot}

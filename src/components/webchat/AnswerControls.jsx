@@ -67,7 +67,15 @@ const COUNTRIES = [
    own country for the phone control. Times out fast and falls back silently
    — this may run in a sandboxed/offline environment. */
 export function useDetectedCountry() {
-  const [country, setCountry] = useState(() => COUNTRIES.find(c => c.code === 'US'))
+  /* Best offline guess first — the browser's time zone, then its language region — so a visitor in
+     India sees +91 straight away instead of a US default while (or if) the IP lookup runs. */
+  const [country, setCountry] = useState(() => {
+    const TZ_COUNTRY = { 'Asia/Kolkata': 'IN', 'Asia/Calcutta': 'IN', 'Asia/Dubai': 'AE', 'Asia/Karachi': 'PK', 'Asia/Dhaka': 'BD', 'Asia/Singapore': 'SG', 'Asia/Tokyo': 'JP', 'Asia/Seoul': 'KR', 'Asia/Manila': 'PH', 'Asia/Jakarta': 'ID', 'Asia/Bangkok': 'TH', 'Asia/Riyadh': 'SA', 'Europe/London': 'GB', 'Europe/Berlin': 'DE', 'Europe/Paris': 'FR', 'Australia/Sydney': 'AU', 'Australia/Melbourne': 'AU', 'America/Toronto': 'CA', 'America/Sao_Paulo': 'BR', 'Africa/Lagos': 'NG', 'Africa/Johannesburg': 'ZA' }
+    let guess
+    try { guess = TZ_COUNTRY[Intl.DateTimeFormat().resolvedOptions().timeZone] } catch { /* no Intl */ }
+    if (!guess) { try { guess = (navigator.language || '').split('-')[1]?.toUpperCase() } catch { /* no navigator */ } }
+    return COUNTRIES.find(c => c.code === guess) || COUNTRIES.find(c => c.code === 'US')
+  })
   const [status, setStatus] = useState('detecting') // detecting | detected | fallback
   useEffect(() => {
     let cancelled = false
