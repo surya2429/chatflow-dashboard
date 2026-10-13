@@ -217,8 +217,14 @@ export interface AdminGrant {
   by?: string
 }
 
+/** How SmatBot sells to this customer (set in the admin console). Unset = direct. */
+export type CustomerType = 'direct' | 'reseller' | 'reseller_client' | 'white_label' | 'white_label_client'
+
 export interface BillingRecord {
   workspaceId: string
+  customerType?: CustomerType
+  /** for reseller / white-label clients: the partner's workspaceId */
+  partner?: string | null
   plan: PlanId | null
   period: Period | null
   mode: 'once' | 'autopay' | null

@@ -39,7 +39,7 @@ import { buildInvoice, financialYear, invoiceNumber, renderInvoiceHtml, type Sel
 import { DEFAULT_LOGO } from './logo.js'
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import {
-  checkPassword, couponDiscount, couponProblem, hashPassword, isStaffRole, parseCoupon, readSession, signSession,
+  PARTNER_TYPE, checkPassword, couponDiscount, couponProblem, hashPassword, isCustomerType, isStaffRole, parseCoupon, readSession, signSession,
   type Coupon, type StaffMember, type StaffRole,
 } from './admin.js'
 import type {
@@ -1398,6 +1398,8 @@ export function createBillingService(opts: BillingServiceOptions) {
     const paid = r.payments.filter((x) => x.status === 'paid')
     return {
       workspaceId: r.workspaceId,
+      customerType: r.customerType ?? 'direct',
+      partner: r.partner ?? null,
       customer: p?.legalName ?? null,
       contactName: p?.contactName ?? null,
       email: p?.email ?? null,
@@ -1414,6 +1416,8 @@ export function createBillingService(opts: BillingServiceOptions) {
         : r.status === 'active' && r.currentEnd && r.currentEnd < now() && !autopayRunning(r) ? 'expired' : r.status,
       currentStart: r.currentStart ?? null,
       currentEnd: r.currentEnd ?? null,
+      /** plan + add-ons for one period, ₹ before GST */
+      planValue: r.plan && r.period ? chargeOf(r.plan, r.period, r, r.addons).base : null,
       autopay: autopayRunning(r),
       card: r.mandate ? { last4: r.mandate.last4 ?? null, network: r.mandate.network ?? null } : null,
       renewal: renewalOf(r),
@@ -1442,6 +1446,25 @@ export function createBillingService(opts: BillingServiceOptions) {
       grants: r.grants ?? [],
       dunning: d?.state === 'active' ? { attempts: d.attempts.length, maxAttempts: policy.maxAttempts, deadline: d.deadline, nextAttemptAt: d.nextAttemptAt, amountPaise: d.amountPaise } : null,
     })
+  }
+
+  async function setCustomerType(req: BillingRequest): Promise<BillingResponse> {
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const rec = await store.get(String(b.workspaceId ?? ''))
+    if (!rec) return err(404, 'not_found', 'No such customer.')
+    if (!isCustomerType(b.type)) return err(400, 'invalid_type', 'Choose a customer type.')
+    const partnerType = PARTNER_TYPE[b.type]
+    let partner: string | null = null
+    if (partnerType && b.partner) {
+      const p = await store.get(String(b.partner))
+      if (!p || p.workspaceId === rec.workspaceId || (p.customerType ?? 'direct') !== partnerType) {
+        return err(400, 'invalid_partner', `Pick a ${partnerType === 'reseller' ? 'reseller' : 'white label partner'}.`)
+      }
+      partner = p.workspaceId
+    }
+    rec.customerType = b.type; rec.partner = partner; rec.updatedAt = now()
+    await store.put(rec)
+    return reply(200, adminRow(rec))
   }
 
   async function adminInvoice(ws: string, id: string): Promise<BillingResponse> {
@@ -1495,6 +1518,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     if (me.role === 'support') return err(403, 'forbidden', 'Only admins can do that.')
     switch (route) {
       case 'POST /admin/assign':         return await adminAssign(req, me)
+      case 'POST /admin/customers/type': return await setCustomerType(req)
       case 'POST /admin/coupons':        return await createCoupon(req, me)
       case 'POST /admin/coupons/update': return await updateCoupon(req)
       case 'GET /admin/staff':           return reply(200, { owner: { email: owner.email }, items: (await staffList()).map(staffView) })

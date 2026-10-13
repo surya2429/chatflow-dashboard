@@ -31,6 +31,17 @@ const STATUS = {
   cancelled:     ['Cancelled', 'bg-slate-100 text-slate-600 border-slate-200'],
   none:          ['No plan', 'bg-slate-50 text-slate-500 border-slate-200'],
 }
+/* How SmatBot sells to the client. A reseller / white-label client belongs to a partner of the matching type. */
+export const CUSTOMER_TYPES = [
+  ['direct', 'Direct client'],
+  ['reseller', 'Reseller'],
+  ['reseller_client', 'Reseller client'],
+  ['white_label', 'White label partner'],
+  ['white_label_client', 'White label partner client'],
+]
+export const customerTypeLabel = (t) => (CUSTOMER_TYPES.find(([v]) => v === t) || CUSTOMER_TYPES[0])[1]
+export const PARTNER_TYPE = { reseller_client: 'reseller', white_label_client: 'white_label' }
+
 export const STATUS_OPTIONS = [['active', 'Active'], ['past_due', 'Past due'], ['expired', 'Expired'], ['suspended', 'Suspended'], ['none', 'No plan']]
 
 export function StatusPill({ status }) {

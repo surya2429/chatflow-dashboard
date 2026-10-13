@@ -1,15 +1,25 @@
-// ClientsTab.jsx — every customer at a glance: who they are, what they're on, what they've paid.
+// ClientsTab.jsx — every customer at a glance: who they are, what they're on, what it's worth,
+// and how SmatBot sells to them (direct, reseller, white label …).
 import { useMemo, useState } from 'react'
-import { Search, LogIn, Plus } from 'lucide-react'
+import { Search, LogIn, Eye, Plus } from 'lucide-react'
 import { PLANS } from '../../constants/pricing'
 import Select from '../Select'
-import { Kpi, Chips, StatusPill, STATUS_OPTIONS, fmtDate, fmtRel, rupees, num, btnPrimary, downloadCsv, btnGhost, daysFromNow } from './ui'
+import {
+  Kpi, Chips, StatusPill, STATUS_OPTIONS, CUSTOMER_TYPES, customerTypeLabel, fmtDate, fmtRel, rupees, num,
+  btnPrimary, downloadCsv, btnGhost, daysFromNow,
+} from './ui'
+
+const th = 'px-3 py-2.5 font-semibold whitespace-nowrap'
+const td = 'px-3 py-3'
 
 export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLoginAs }) {
   const [query, setQuery] = useState('')
   const [plan, setPlan] = useState('all')
+  const [type, setType] = useState('all')
   const [status, setStatus] = useState('all')
   const [autopay, setAutopay] = useState('all')
+
+  const nameOf = useMemo(() => Object.fromEntries(customers.map((c) => [c.workspaceId, c.customer || c.workspaceId])), [customers])
 
   const kpi = useMemo(() => {
     const live = customers.filter((c) => c.status === 'active' || c.status === 'past_due')
@@ -28,15 +38,16 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
     return customers.filter((c) =>
       (!q || [c.workspaceId, c.customer, c.contactName, c.email, c.phone, c.gstin, c.city].some((v) => v?.toLowerCase().includes(q)))
       && (plan === 'all' || (plan === 'none' ? !c.plan : c.plan === plan))
+      && (type === 'all' || c.customerType === type)
       && (status === 'all' || c.status === status)
       && (autopay === 'all' || (autopay === 'on') === c.autopay))
-  }, [customers, query, plan, status, autopay])
+  }, [customers, query, plan, type, status, autopay])
 
   function exportCsv() {
     downloadCsv('smatbot-clients.csv', [
-      ['Workspace', 'Company', 'Contact', 'Email', 'Phone', 'GSTIN', 'City', 'State', 'Plan', 'Billing', 'Status', 'Autopay', 'Started', 'Ends / renews', 'Paid to date (₹)', 'Payments'],
-      ...shown.map((c) => [c.workspaceId, c.customer, c.contactName, c.email, c.phone, c.gstin, c.city, c.state, c.planName, c.period, c.status, c.autopay ? 'on' : 'off',
-        fmtDate(c.currentStart), fmtDate(c.renewal?.at ?? c.currentEnd), c.paidTotal, c.paymentsCount]),
+      ['Client name', 'Contact', 'Email', 'Phone', 'Plan name', 'Plan type', 'Start date', 'End date', 'Plan value excl. GST (₹)', 'Customer type', 'Partner', 'Status', 'Autopay', 'Workspace', 'GSTIN', 'Paid to date (₹)'],
+      ...shown.map((c) => [c.customer || c.workspaceId, c.contactName, c.email, c.phone, c.planName, c.period, fmtDate(c.currentStart), fmtDate(c.currentEnd),
+        c.planValue ?? '', customerTypeLabel(c.customerType), c.partner ? nameOf[c.partner] : '', c.status, c.autopay ? 'on' : 'off', c.workspaceId, c.gstin, c.paidTotal]),
     ])
   }
 
@@ -58,9 +69,13 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
               <input aria-label="Search clients" placeholder="Search name, email, phone, GSTIN, workspace…" value={query} onChange={(e) => setQuery(e.target.value)}
                 className="w-full border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-primary"/>
             </div>
-            <div className="w-40">
+            <div className="w-36">
               <Select size="sm" value={plan} onChange={setPlan}
                 options={[{ value: 'all', label: 'All plans' }, ...PLANS.map((p) => ({ value: p.id, label: p.name })), { value: 'none', label: 'No plan' }]}/>
+            </div>
+            <div className="w-52">
+              <Select size="sm" value={type} onChange={setType}
+                options={[{ value: 'all', label: 'All customer types' }, ...CUSTOMER_TYPES.map(([value, label]) => ({ value, label }))]}/>
             </div>
             <button type="button" onClick={exportCsv} className={btnGhost}>Export CSV</button>
             {canEdit && <button type="button" onClick={() => onAssign(null)} className={btnPrimary}><Plus size={14}/> New customer</button>}
@@ -72,52 +87,73 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[760px]">
+          <table className="w-full text-sm min-w-[1150px]">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 bg-slate-50">
-                <th className="px-4 py-2.5 font-semibold">Client</th>
-                <th className="px-3 py-2.5 font-semibold">Plan</th>
-                <th className="px-3 py-2.5 font-semibold">Status</th>
-                <th className="px-3 py-2.5 font-semibold">Renews / ends</th>
-                <th className="px-3 py-2.5 font-semibold text-right">Paid to date</th>
-                <th className="px-4 py-2.5"><span className="sr-only">Actions</span></th>
+                <th className={`${th} pl-4`}>Client name</th>
+                <th className={th}>Email</th>
+                <th className={th}>Phone</th>
+                <th className={th}>Plan name</th>
+                <th className={th}>Plan type</th>
+                <th className={th}>Start date</th>
+                <th className={th}>End date</th>
+                <th className={`${th} text-right`}>Plan value</th>
+                <th className={th}>Customer type</th>
+                <th className={`${th} pr-4 text-right`}>Action</th>
               </tr>
             </thead>
             <tbody>
               {shown.map((c) => (
                 <tr key={c.workspaceId} className="border-t border-slate-100 hover:bg-slate-50/60">
-                  <td className="px-4 py-3 max-w-[260px]">
-                    <button type="button" onClick={() => onOpen(c.workspaceId)} className="text-left font-semibold text-slate-800 hover:text-primary truncate block max-w-full">
-                      {c.customer || c.workspaceId}
+                  <td className={`${td} pl-4 max-w-[220px]`}>
+                    <div className="font-semibold text-slate-800 truncate">{c.customer || c.workspaceId}</div>
+                    <div className="text-xs text-slate-400 truncate">{c.contactName || (c.customer ? c.workspaceId : 'No billing details yet')}</div>
+                  </td>
+                  <td className={`${td} max-w-[200px] truncate text-slate-600`}>
+                    {c.email ? <a href={`mailto:${c.email}`} className="hover:text-primary">{c.email}</a> : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className={`${td} whitespace-nowrap text-slate-600`}>
+                    {c.phone ? <a href={`tel:+91${c.phone}`} className="hover:text-primary">+91 {c.phone}</a> : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className={`${td} whitespace-nowrap`}>
+                    <div className="text-slate-800 font-medium">{c.planName || <span className="text-slate-300 font-normal">—</span>}</div>
+                    <div className="mt-0.5"><StatusPill status={c.status}/></div>
+                  </td>
+                  <td className={`${td} whitespace-nowrap`}>
+                    <div className="text-slate-700 capitalize">{c.period || <span className="text-slate-300">—</span>}</div>
+                    {c.plan && <div className="text-[11px] text-slate-400">{c.autopay ? 'Autopay' : 'Manual'}</div>}
+                  </td>
+                  <td className={`${td} whitespace-nowrap text-slate-600`}>{fmtDate(c.currentStart)}</td>
+                  <td className={`${td} whitespace-nowrap`}>
+                    <div className="text-slate-600">{fmtDate(c.currentEnd)}</div>
+                    {c.currentEnd && <div className="text-[11px] text-slate-400">{fmtRel(c.currentEnd)}</div>}
+                  </td>
+                  <td className={`${td} text-right whitespace-nowrap`}>
+                    {c.planValue != null ? (
+                      <>
+                        <div className="tabular-nums font-semibold text-slate-800">{rupees(c.planValue)}</div>
+                        <div className="text-[11px] text-slate-400">+ GST / {c.period === 'yearly' ? 'yr' : 'mo'}</div>
+                      </>
+                    ) : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className={`${td} max-w-[190px]`}>
+                    <div className="text-slate-700 text-xs font-semibold">{customerTypeLabel(c.customerType)}</div>
+                    {c.partner && <div className="text-[11px] text-slate-400 truncate">under {nameOf[c.partner] || c.partner}</div>}
+                  </td>
+                  <td className={`${td} pr-4 text-right whitespace-nowrap`}>
+                    <button type="button" onClick={() => onLoginAs(c)} aria-label={`Log in as ${c.customer || c.workspaceId}`}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary hover:bg-primary-hover mr-1.5">
+                      <LogIn size={12}/> Login
                     </button>
-                    <div className="text-xs text-slate-400 truncate">{[c.contactName, c.email, c.customer ? c.workspaceId : 'No billing details yet'].filter(Boolean).join(' · ')}</div>
-                  </td>
-                  <td className="px-3 py-3 text-slate-700 whitespace-nowrap">
-                    {c.planName ? <>{c.planName} <span className="text-slate-400">· {c.period}</span></> : <span className="text-slate-400">—</span>}
-                    {c.addons.length > 0 && <div className="text-xs text-slate-400">+ {c.addons.length} add-on{c.addons.length > 1 ? 's' : ''}</div>}
-                  </td>
-                  <td className="px-3 py-3">
-                    <StatusPill status={c.status}/>
-                    <div className="text-[11px] text-slate-400 mt-0.5">{c.autopay ? 'Autopay' : c.plan ? 'Manual' : ''}</div>
-                  </td>
-                  <td className="px-3 py-3 whitespace-nowrap">
-                    <div className="text-slate-700">{fmtDate(c.renewal?.at ?? c.currentEnd)}</div>
-                    {c.renewal && <div className="text-[11px] text-slate-400">{fmtRel(c.renewal.at)}</div>}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-slate-700">
-                    {rupees(c.paidTotal)}
-                    <div className="text-[11px] text-slate-400">{c.paymentsCount} payment{c.paymentsCount === 1 ? '' : 's'}</div>
-                  </td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <button type="button" onClick={() => onOpen(c.workspaceId)} className="text-xs font-semibold text-primary hover:underline mr-3">View</button>
-                    <button type="button" onClick={() => onLoginAs(c)} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-primary">
-                      <LogIn size={12}/> Log in
+                    <button type="button" onClick={() => onOpen(c.workspaceId)} aria-label={`View ${c.customer || c.workspaceId}`}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50">
+                      <Eye size={12}/> View
                     </button>
                   </td>
                 </tr>
               ))}
               {!shown.length && (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
+                <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-slate-400">
                   {customers.length ? 'No client matches these filters.' : 'No clients yet. A client appears once they add billing details or you assign them a plan.'}
                 </td></tr>
               )}

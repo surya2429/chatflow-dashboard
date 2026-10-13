@@ -3,6 +3,7 @@
 import { createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import { isPeriod, isPlanId, type Period, type PlanId } from './catalog.js'
+import type { CustomerType } from './types.js'
 
 /* ── staff accounts ──────────────────────────────────────────────────────
    admin    everything: plans, coupons, the team
@@ -35,6 +36,12 @@ export async function checkPassword(pw: string, stored: string): Promise<boolean
   const want = Buffer.from(hash, 'base64')
   return got.length === want.length && timingSafeEqual(got, want)
 }
+
+/* ── customer types ──────────────────────────────────────────────────────
+   A reseller / white-label client belongs to a partner of the matching type. */
+export const CUSTOMER_TYPES: CustomerType[] = ['direct', 'reseller', 'reseller_client', 'white_label', 'white_label_client']
+export const isCustomerType = (v: unknown): v is CustomerType => CUSTOMER_TYPES.includes(v as CustomerType)
+export const PARTNER_TYPE: Partial<Record<CustomerType, CustomerType>> = { reseller_client: 'reseller', white_label_client: 'white_label' }
 
 /* ── sign-in tokens: "<payload>.<signature>", good for 12 hours ─────────── */
 export const SESSION_TTL = 12 * 3600

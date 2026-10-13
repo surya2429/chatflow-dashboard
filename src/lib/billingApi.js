@@ -61,6 +61,7 @@ export const billingAdmin = {
   customers:    (t)       => call('GET', '/admin/customers', undefined, as(t)),
   customer:     (t, ws)   => call('GET', wsPath(ws), undefined, as(t)),
   assign:       (t, body) => call('POST', '/admin/assign', body, as(t)),
+  setCustomerType: (t, body) => call('POST', '/admin/customers/type', body, as(t)),
   coupons:      (t)       => call('GET', '/admin/coupons', undefined, as(t)),
   createCoupon: (t, body) => call('POST', '/admin/coupons', body, as(t)),
   updateCoupon: (t, body) => call('POST', '/admin/coupons/update', body, as(t)),

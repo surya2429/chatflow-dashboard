@@ -775,6 +775,19 @@ async function main() {
   q = (await call('POST', '/quote', { plan: 'broadcast', period: 'monthly', coupon: 'bigflat' }, 'cpn2')).body as RzEntity
   check('a switched-off coupon is not valid', q.couponError === 'That coupon code is not valid.', q.couponError)
 
+  console.log('\nadmin console: customer types')
+  const cpn1 = (await adm('GET', '/admin/customers/cpn1')).body as RzEntity
+  check('a client with no type set is a direct client; plan value is before GST', cpn1.customerType === 'direct' && cpn1.planValue === 72000, [cpn1.customerType, cpn1.planValue])
+  r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn1', type: 'reseller' })
+  check('admin marks a client as a reseller', r.status === 200 && (r.body as RzEntity).customerType === 'reseller', r.body)
+  r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: 'reseller_client', partner: 'cpn1' })
+  check('a reseller client is linked to its reseller', r.status === 200 && (r.body as RzEntity).partner === 'cpn1', r.body)
+  r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: 'white_label_client', partner: 'cpn1' })
+  check('a white-label client cannot be put under a reseller', r.status === 400 && (r.body as RzEntity).error === 'invalid_partner', r.body)
+  check('an unknown type is refused', (await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: 'partner' })).status === 400)
+  r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: 'direct', partner: 'cpn1' })
+  check('a direct client has no partner', r.status === 200 && (r.body as RzEntity).partner === null, r.body)
+
   t = ga.currentEnd + 1
   check('after the end date the plan has ended', ((await call('GET', '/subscription', undefined, 'wa1')).body as RzEntity).status === 'expired')
 

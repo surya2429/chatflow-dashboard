@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Loader2, LogIn, FileText, AlertCircle, Printer } from 'lucide-react'
 import { billingAdmin } from '../../lib/billingApi'
-import { Modal, StatusPill, ErrorNote, fmtDate, fmtRel, rupees, num, btnPrimary, btnGhost, allowancesOf } from './ui'
+import Select from '../Select'
+import {
+  Modal, StatusPill, ErrorNote, fmtDate, fmtRel, rupees, num, btnPrimary, btnGhost, allowancesOf, CUSTOMER_TYPES, customerTypeLabel, PARTNER_TYPE,
+} from './ui'
 
 function Section({ title, children, note }) {
   return (
@@ -35,7 +38,55 @@ function InvoiceViewer({ invoice, onClose }) {
   )
 }
 
-export default function ClientDrawer({ token, workspaceId, canEdit, onClose, onAssign, onLoginAs }) {
+/* Direct / reseller / white label … and, for a partner's client, which partner. */
+function CustomerType({ token, c, customers, canEdit, onSaved }) {
+  const [type, setType] = useState(c.customerType)
+  const [partner, setPartner] = useState(c.partner || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const partnerType = PARTNER_TYPE[type]
+  const partners = customers.filter((x) => x.customerType === partnerType && x.workspaceId !== c.workspaceId)
+  const nameOf = (ws) => customers.find((x) => x.workspaceId === ws)?.customer || ws
+  const theirClients = customers.filter((x) => x.partner === c.workspaceId)
+  const dirty = type !== c.customerType || (partnerType ? partner : '') !== (c.partner || '')
+
+  async function save() {
+    setSaving(true); setError('')
+    try {
+      await billingAdmin.setCustomerType(token, { workspaceId: c.workspaceId, type, partner: partnerType ? partner || null : null })
+      onSaved()
+    } catch (e) { setError(e.message); setSaving(false) }
+  }
+
+  return (
+    <Section title="Customer type">
+      {canEdit ? (
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-60">
+            <Select size="sm" value={type} onChange={(v) => { setType(v); setPartner('') }} options={CUSTOMER_TYPES.map(([value, label]) => ({ value, label }))}/>
+          </div>
+          {partnerType && (
+            <div className="w-60">
+              <Select size="sm" value={partner} onChange={setPartner} placeholder={partners.length ? `Under which ${partnerType === 'reseller' ? 'reseller' : 'partner'}?` : `No ${partnerType === 'reseller' ? 'resellers' : 'white label partners'} yet`}
+                disabled={!partners.length} options={partners.map((x) => ({ value: x.workspaceId, label: x.customer || x.workspaceId }))}/>
+            </div>
+          )}
+          {dirty && <button type="button" onClick={save} disabled={saving} className={btnPrimary}>{saving && <Loader2 size={14} className="animate-spin"/>} Save</button>}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-800">{customerTypeLabel(c.customerType)}{c.partner && <span className="text-slate-500"> · under {nameOf(c.partner)}</span>}</p>
+      )}
+      {error && <div className="mt-2"><ErrorNote>{error}</ErrorNote></div>}
+      {(c.customerType === 'reseller' || c.customerType === 'white_label') && (
+        <p className="text-xs text-slate-500 mt-2">
+          Their clients ({theirClients.length}){theirClients.length ? `: ${theirClients.map((x) => x.customer || x.workspaceId).join(', ')}` : ' — set a client\'s type to link it here.'}
+        </p>
+      )}
+    </Section>
+  )
+}
+
+export default function ClientDrawer({ token, workspaceId, customers, canEdit, onClose, onAssign, onLoginAs, onChanged }) {
   const [c, setC] = useState(null)
   const [error, setError] = useState('')
   const [invoice, setInvoice] = useState(null)
@@ -71,6 +122,8 @@ export default function ClientDrawer({ token, workspaceId, canEdit, onClose, onA
                 {c.dunning.nextAttemptAt ? ` next try ${fmtDate(c.dunning.nextAttemptAt)};` : ''} suspended on {fmtDate(c.dunning.deadline)} if unpaid.</span>
             </div>
           )}
+
+          <CustomerType token={token} c={c} customers={customers} canEdit={canEdit} onSaved={onChanged}/>
 
           <Section title="Contact & billing details">
             {p ? (

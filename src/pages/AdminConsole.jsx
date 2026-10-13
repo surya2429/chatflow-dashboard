@@ -165,8 +165,8 @@ export default function AdminConsole() {
       </main>
 
       {openWs && (
-        <ClientDrawer key={`${openWs}:${rev}`} token={token} workspaceId={openWs} canEdit={canEdit}
-          onClose={() => setOpenWs(null)} onAssign={setAssigning} onLoginAs={loginAsCustomer}/>
+        <ClientDrawer key={`${openWs}:${rev}`} token={token} workspaceId={openWs} customers={customers} canEdit={canEdit}
+          onClose={() => setOpenWs(null)} onAssign={setAssigning} onLoginAs={loginAsCustomer} onChanged={reload}/>
       )}
       {assigning !== undefined && (
         <AssignPlanDialog token={token} initial={assigning} addonDefs={addonDefs} onClose={() => setAssigning(undefined)}
