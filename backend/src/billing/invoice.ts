@@ -77,7 +77,7 @@ export function allowanceNote(plan: PlanId, period: Period): string {
   const p = PLAN_CATALOG[plan]
   const k = period === 'yearly' ? 12 : 1
   const when = period === 'yearly' ? 'for the year, credited upfront as one pool' : 'per month'
-  return `Included in the ${p.name} plan: ${num(p.serviceMsgs * k)} WhatsApp service messages and ${num(p.biMsgs * k)} WhatsApp BI messages ${when}; Website and Instagram messages are unlimited.`
+  return `Included in the ${p.name} plan: ${num(p.serviceMsgs * k)} WhatsApp service messages and ${num(p.biMsgs * k)} WhatsApp BI messages ${when}${plan === 'broadcast' ? '.' : '; Website and Instagram messages are unlimited.'}`
 }
 
 export function buildInvoice(i: BuildInvoiceInput): Invoice {

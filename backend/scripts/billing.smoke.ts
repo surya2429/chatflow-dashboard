@@ -511,8 +511,8 @@ async function main() {
   r = await callT('POST', '/quote', { plan: 'pro', period: 'monthly', addons: AD }, 'wa1')
   const qa = r.body as RzEntity
   check('quote prices the plan plus add-ons (₹6,500 + 2×₹1,000 + ₹1,900 + 18% GST)', qa.charge.base === 10400 && qa.charge.total === 12272 && qa.planBase === 6500 && qa.addons.length === 2 && qa.addons[0].amount === 2000, qa)
-  r = await callT('POST', '/quote', { plan: 'standard', period: 'monthly', addons: AD }, 'wa1')
-  check('add-ons not offered on a plan are refused', r.status === 400 && (r.body as RzEntity).error === 'invalid_addons', r.body)
+  r = await callT('POST', '/quote', { plan: 'pro', period: 'monthly', addons: [{ id: 'crm', qty: 1 }] }, 'wa1')
+  check('add-ons not offered on a plan are refused (CRM is for Broadcast / Standard — Pro includes it)', r.status === 400 && (r.body as RzEntity).error === 'invalid_addons', r.body)
   r = await callT('POST', '/quote', { plan: 'pro', period: 'monthly', addons: [{ id: 'extra-live-agent', qty: 999 }] }, 'wa1')
   check('absurd quantities are refused', r.status === 400, r.body)
   r = await callT('POST', '/quote', { plan: 'pro', period: 'monthly', addons: [{ id: 'basic-support', qty: 1 }, { id: 'premium-support', qty: 1 }] }, 'wa1')
@@ -523,16 +523,20 @@ async function main() {
   check('plan + add-ons over ₹15,000 cannot use card autopay (falls to Subscriptions)', (r.body as RzEntity).engine !== 'token', r.body)
   const WA = await activateT('wa2', 'pro', 'monthly', AD)
   check('plan and add-ons are charged together in one payment', WA.co.amount === 1227200 && fake.orders.get(WA.co.orderId)!.amount === 1227200, WA.co.amount)
-  check('add-ons are active with the plan, listed with their prices', WA.sum.status === 'active' && WA.sum.addons.length === 2 && WA.sum.addons[0].name === 'Extra Live Agent' && WA.sum.addons[0].qty === 2 && WA.sum.charge.total === 12272, WA.sum.addons)
+  check('add-ons are active with the plan, listed with their prices', WA.sum.status === 'active' && WA.sum.addons.length === 2 && WA.sum.addons[0].name === 'Live Agent' && WA.sum.addons[0].qty === 2 && WA.sum.charge.total === 12272, WA.sum.addons)
   const waInv = ((await callT('GET', '/invoices', undefined, 'wa2')).body as RzEntity).items[0]
   const waPage = String((await callT('GET', `/invoices/${waInv.id}/view`, undefined, 'wa2')).body)
-  check('the invoice has a row for the plan and one per add-on, totalling the payment', waInv.amountPaise === 1227200 && waPage.includes('Add-on: Extra Live Agent') && waPage.includes('Add-on: Remove Branding') && waPage.includes('₹10,400.00') && waPage.includes('₹12,272.00') && waPage.includes('₹2,000.00'))
+  check('the invoice has a row for the plan and one per add-on, totalling the payment', waInv.amountPaise === 1227200 && waPage.includes('Add-on: Live Agent') && waPage.includes('Add-on: Remove Branding') && waPage.includes('₹10,400.00') && waPage.includes('₹12,272.00') && waPage.includes('₹2,000.00'))
   const dueA = WA.sum.currentEnd as number
   t = dueA - 48 * HOUR; await tick(); t = dueA; await tick()
   check('the renewal debits the plan AND its add-ons', fake.debits.slice(-1)[0]!.amount === 1227200, fake.debits.slice(-1)[0])
   r = await callT('POST', '/change-plan', { plan: 'standard', period: 'monthly' }, 'wa2')
-  check('switching to a plan without those add-ons drops them and says so', r.status === 200 && (r.body as RzEntity).droppedAddons === 2 && (r.body as RzEntity).autopay.next.total === 4130, r.body)
+  check('add-ons offered on both plans carry over to the new plan (₹3,500 + ₹3,900 + GST = ₹8,732)', r.status === 200 && (r.body as RzEntity).droppedAddons === 0 && (r.body as RzEntity).autopay.next.total === 8732, r.body)
   await callT('POST', '/autopay', { enabled: false }, 'wa2')
+  await activateT('wa3', 'standard', 'monthly', [{ id: 'crm', qty: 1 }, { id: 'extra-live-agent', qty: 1 }])
+  r = await callT('POST', '/change-plan', { plan: 'pro', period: 'monthly' }, 'wa3')
+  check('moving up to Pro drops CRM (it is included there), keeps the Live Agent, and says so', r.status === 200 && (r.body as RzEntity).droppedAddons === 1 && (r.body as RzEntity).autopay.next.addons.length === 1 && (r.body as RzEntity).autopay.next.total === 8850, r.body)
+  await callT('POST', '/autopay', { enabled: false }, 'wa3')
   const once = (await callT('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'once', addons: [{ id: 'extra-chatbots', qty: 1 }] }, 'wa1')).body as RzEntity
   check('pay-once includes add-ons too (₹72,000 + ₹9,600 + 18% = ₹96,288)', once.amount === 9628800, once.amount)
 
@@ -601,21 +605,23 @@ async function main() {
   const aoPay = fake.pay(ao.orderId, 236000)
   r = await callT('POST', '/verify', { razorpay_payment_id: aoPay, razorpay_order_id: ao.orderId, razorpay_signature: sign(ao.orderId, aoPay) }, 'wo1')
   const so = r.body as RzEntity
-  check('the add-ons are active until the period ends', r.status === 200 && so.extraAddons.length === 1 && so.extraAddons[0].name === 'Extra Live Agent' && so.extraAddons[0].qty === 2 && so.extraAddons[0].until === dueO, so.extraAddons)
+  check('the add-ons are active until the period ends', r.status === 200 && so.extraAddons.length === 1 && so.extraAddons[0].name === 'Live Agent' && so.extraAddons[0].qty === 2 && so.extraAddons[0].until === dueO, so.extraAddons)
   check('plan, autopay and card are untouched', so.plan === 'pro' && so.autopay.on && so.autopay.engine === 'token' && so.autopay.card.last4 === '1111' && so.currentEnd === dueO && so.paymentMethod.last4 === '1111', so.autopay)
   check('the next renewal is still just the plan (₹7,670) — nothing recurring was added', so.autopay.next.total === 7670 && so.addons.length === 0 && so.nextChargeAt === dueO, so.autopay.next)
   const oInv = ((await callT('GET', '/invoices', undefined, 'wo1')).body as RzEntity).items
   check('it is invoiced on its own', oInv.length === 2 && oInv[0].amountPaise === 236000 && oInv[0].description.includes('Add-ons'), oInv.map((i: RzEntity) => i.description))
   const oPage = String((await callT('GET', `/invoices/${oInv[0].id}/view`, undefined, 'wo1')).body)
-  check('invoice shows only the add-on, its validity and that it does not renew', oPage.includes('Add-on: Extra Live Agent') && oPage.includes('Valid until') && oPage.includes('does not renew') && !oPage.includes('Pro Plan —') && oPage.includes('₹2,000.00') && oPage.includes('₹2,360.00'))
+  check('invoice shows only the add-on, its validity and that it does not renew', oPage.includes('Add-on: Live Agent') && oPage.includes('Valid until') && oPage.includes('does not renew') && !oPage.includes('Pro Plan —') && oPage.includes('₹2,000.00') && oPage.includes('₹2,360.00'))
   t = dueO - 48 * HOUR; await tick(); t = dueO; await tick()
   const afterO = await statusT('wo1')
   check('the renewal charges the plan only; the one-time add-ons have ended', fake.debits.slice(-1)[0]!.amount === 767000 && afterO.extraAddons.length === 0 && afterO.status === 'active', [fake.debits.slice(-1)[0], afterO.extraAddons])
   await callT('POST', '/autopay', { enabled: false }, 'wo1')
 
   const SO = await activateT('wo2', 'standard')
-  r = await callT('POST', '/addons/checkout', { addons: AO }, 'wo2')
-  check('plans without add-ons cannot buy them', r.status === 400 && (SO.sum.canBuyAddons === false) && (r.body as RzEntity).error === 'invalid_addons', r.body)
+  r = await callT('POST', '/addons/checkout', { addons: [{ id: 'crm', qty: 1 }] }, 'wo2')
+  check('Standard can buy one-time add-ons too (CRM ₹1,000 + GST = ₹1,180)', r.status === 200 && (r.body as RzEntity).amount === 118000 && SO.sum.canBuyAddons === true, r.body)
+  r = await callT('POST', '/addons/checkout', { addons: [{ id: 'email-otp', qty: 1 }, { id: 'ai-integration', qty: 1 }] }, 'wo2')
+  check('…and add-ons priced per the sheet (Email OTP ₹500 + AI Integration ₹2,000 + GST = ₹2,950)', (r.body as RzEntity).amount === 295000, r.body)
   await callT('POST', '/autopay', { enabled: false }, 'wo2')
 
   fake.state.debit = 'fail'

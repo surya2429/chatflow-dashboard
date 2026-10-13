@@ -20,7 +20,7 @@ import {
 import { useApp } from '../../context/AppContext'
 import { useAuth } from '../../context/AuthContext'
 import {
-  PLANS, PLAN_HIGHLIGHTS, FEATURE_GROUPS, FEATURE_ADDONS, USAGE_ADDONS, getPlan, planTier, planMath, inr, money, num, DEMO_USAGE,
+  PLANS, PLAN_HIGHLIGHTS, FEATURE_GROUPS, ADDONS, getPlan, planTier, planMath, inr, money, num, DEMO_USAGE,
 } from '../../constants/pricing'
 import { billing, payWithRazorpay } from '../../lib/billingApi'
 import { useSubscription, setSubscription, setProfile, refreshSubscription, isLive } from '../../lib/subscriptionStore'
@@ -144,7 +144,6 @@ export default function BillingSection() {
   const [dlgError, setDlgError] = useState(null)
   const [toast, setToast] = useState(null)
   const [invoices, setInvoices] = useState(null)
-  const [requested, setRequested] = useState({})
   const [editingDetails, setEditingDetails] = useState(false)
   // What we already know about this customer from their account — used to pre-fill the form.
   const accountDefaults = {
@@ -343,13 +342,11 @@ export default function BillingSection() {
   }
 
   const groups = FEATURE_GROUPS.filter(g => !(web && g.wa)).map(g => ({ ...g, rows: g.rows.filter(r => !(web && r.wa)) })).filter(g => g.rows.length)
-  const featureAddons = FEATURE_ADDONS.filter(a => !(web && a.wa))
-  const usageAddons = USAGE_ADDONS.filter(a => !(web && a.wa))
-  const usageEligible = live && curIdx >= 2
+  const addonList = ADDONS.filter(a => !(web && a.wa))
   /* Extras bought once on the running plan — autopay or not. */
   const canBuyAddons = configured && !!sub?.canBuyAddons
-  const openAddons = (name) => {
-    const def = name ? config?.addons?.find(x => x.name === name) : null
+  const openAddons = (id) => {
+    const def = id ? config?.addons?.find(x => x.id === id) : null
     setDlgError(null)
     setDialog({ kind: 'addons-once', plan: sub.plan, period: sub.period, mode: 'once', addons: def ? [{ id: def.id, qty: 1 }] : [], term: sub.period === 'yearly' ? 'monthly' : 'plan' })
   }
@@ -362,7 +359,9 @@ export default function BillingSection() {
 
   const meters = !hasSub ? [] : web
     ? [
-        { key: 'web', icon: Globe, label: 'Website messages', used: '8,412', of: 'Unlimited', pct: 0, color: '#0066ff', unlimited: true },
+        current?.id === 'broadcast'
+          ? { key: 'web', icon: Globe, label: 'Website messages', used: '—', of: 'Not in Broadcast', pct: 0, color: '#94a3b8' }
+          : { key: 'web', icon: Globe, label: 'Website messages', used: '8,412', of: 'Unlimited', pct: 0, color: '#0066ff', unlimited: true },
         { key: 'agents', icon: Users, label: 'Live agents', used: '3', of: '3 included', pct: 100, color: '#8b5cf6' },
         { key: 'lang', icon: Languages, label: 'Languages', used: '2', of: '2 included', pct: 100, color: '#0ea5e9' },
       ]
@@ -818,8 +817,10 @@ export default function BillingSection() {
               )}
             </>
           ) : (
-            <Card title="Website chat" desc="Website and Instagram messages are unlimited on every plan.">
-              <p className="text-2xl font-extrabold text-slate-900 tabular-nums">8,412 <span className="text-sm font-medium text-slate-400">messages this month</span></p>
+            <Card title="Website chat" desc={current?.id === 'broadcast' ? 'Website chat is not part of the Broadcast plan — Standard, Pro and AI include unlimited Website and Instagram messages.' : 'Website and Instagram messages are unlimited on Standard, Pro and AI.'}>
+              {current?.id === 'broadcast'
+                ? <button onClick={() => setTab('plans')} className="text-xs font-bold text-primary hover:underline">See plans with website chat →</button>
+                : <p className="text-2xl font-extrabold text-slate-900 tabular-nums">8,412 <span className="text-sm font-medium text-slate-400">messages this month</span></p>}
             </Card>
           )}
 
@@ -845,92 +846,63 @@ export default function BillingSection() {
 
       {/* ───────────────────────── Add-ons ───────────────────────── */}
       {tab === 'addons' && (
-        <div className="space-y-6">
-          <div>
-            <div className="mb-2">
-              <h3 className="text-[13px] font-bold text-slate-900">Feature add-ons</h3>
-              <p className="text-[11px] text-slate-400">Turn on features your plan doesn't include.</p>
+        <div className="space-y-4">
+          <div className="flex items-end justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="text-[13px] font-bold text-slate-900">Add-ons</h3>
+              <p className="text-[11px] text-slate-400">Extra features and capacity · excl. GST · add them when you subscribe or renew, or buy them once</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {featureAddons.map(a => {
-                const onPlans = a.on.split(', ')
-                const needed = !current || onPlans.includes(current.name)
-                const key = 'f:' + a.name
-                return (
-                  <div key={a.name} className="rounded-2xl border border-surface-border bg-white p-4 flex flex-col">
-                    <p className="text-xs font-bold text-slate-900 leading-snug">{a.name}</p>
-                    {a.note && <p className="text-[10px] text-slate-400">({a.note})</p>}
-                    <p className="text-[10.5px] text-slate-400 mt-1">Add-on on {a.on}</p>
-                    <div className="mt-auto pt-3">
-                      {needed ? (
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] text-slate-500">Price on request</span>
-                          <button onClick={() => setRequested(r => ({ ...r, [key]: true }))} disabled={requested[key]}
-                            className={clsx('px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors', requested[key] ? 'bg-emerald-50 text-emerald-700' : 'bg-primary text-white hover:bg-primary-hover')}>
-                            {requested[key] ? '✓ Requested' : 'Request'}
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700"><Tick/> Included in {current.name}</span>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+            <BillingSwitch value={view} onChange={setView}/>
           </div>
-
-          <div>
-            <div className="flex items-end justify-between gap-3 flex-wrap mb-2">
-              <div>
-                <h3 className="text-[13px] font-bold text-slate-900">Usage add-ons</h3>
-                <p className="text-[11px] text-slate-400">Extra capacity on Pro &amp; AI plans · excl. GST · add them when you subscribe or renew</p>
+          {canBuyAddons && (
+            <div className="flex items-start gap-3 p-3.5 rounded-xl bg-primary/[0.04] border border-primary/20">
+              <Puzzle size={15} className="text-primary flex-shrink-0 mt-0.5"/>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-slate-800">Buy add-ons once</p>
+                <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
+                  One payment, no renewal. {sub.period === 'yearly' ? <>Take them for <b>one month</b> at the monthly price, or until <b>{fmtSec(sub.currentEnd)}</b> at the yearly price.</> : <>Valid until <b>{fmtSec(sub.currentEnd)}</b>.</>} {sub.autopay?.on ? 'Your autopay and plan are not changed.' : ''}
+                </p>
+                {sub.extraAddons?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {sub.extraAddons.map((a, i) => <span key={i} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white border border-primary/20 text-slate-600">{a.name}{a.qty > 1 ? ` × ${a.qty}` : ''} · until {fmtSec(a.until)}</span>)}
+                  </div>
+                )}
               </div>
-              <BillingSwitch value={view} onChange={setView}/>
+              <button onClick={() => openAddons()} className="px-3 py-1.5 rounded-lg bg-primary text-white text-[11px] font-bold hover:bg-primary-hover flex-shrink-0">Choose add-ons</button>
             </div>
-            {canBuyAddons && (
-              <div className="flex items-start gap-3 p-3.5 rounded-xl bg-primary/[0.04] border border-primary/20 mb-2">
-                <Puzzle size={15} className="text-primary flex-shrink-0 mt-0.5"/>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-slate-800">Buy add-ons once</p>
-                  <p className="text-[11px] text-slate-500 leading-relaxed mt-0.5">
-                    One payment, no renewal. {sub.period === 'yearly' ? <>Take them for <b>one month</b> at the monthly price, or until <b>{fmtSec(sub.currentEnd)}</b> at the yearly price.</> : <>Valid until <b>{fmtSec(sub.currentEnd)}</b>.</>} {sub.autopay?.on ? 'Your autopay and plan are not changed.' : ''}
-                  </p>
-                  {sub.extraAddons?.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {sub.extraAddons.map((a, i) => <span key={i} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white border border-primary/20 text-slate-600">{a.name}{a.qty > 1 ? ` × ${a.qty}` : ''} · until {fmtSec(a.until)}</span>)}
-                    </div>
+          )}
+          <div className="rounded-2xl border border-surface-border bg-white overflow-hidden">
+            {addonList.map((a, i) => {
+              const here = !current || a.on.includes(current.id)
+              const included = !!current && !here && a.kind === 'feature'   // a higher plan already has it built in
+              const availableOn = a.on.length === PLANS.length ? 'All plans' : a.on.map(id => PLANS.find(p => p.id === id)?.name).join(', ')
+              const yearlyView = (canBuyAddons ? sub.period : view) === 'yearly'
+              return (
+                <div key={a.id} className={clsx('flex items-center gap-3 px-4 py-3', i > 0 && 'border-t border-slate-100')}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-slate-800">{a.name}{a.note && <span className="text-[10px] font-normal text-slate-400"> ({a.note})</span>}</p>
+                    <p className="text-[10.5px] text-slate-400">{a.unit} · {availableOn}</p>
+                  </div>
+                  <span className="text-xs font-bold text-slate-900 tabular-nums whitespace-nowrap">
+                    {canBuyAddons && sub.period === 'yearly' ? `${inr(a.m)} / mo · ${inr(a.y)} / yr` : yearlyView ? `${inr(a.y)} / yr` : `${inr(a.m)} / mo`}
+                  </span>
+                  {included ? (
+                    <span className="w-[96px] text-center text-[10.5px] font-semibold text-emerald-700 flex-shrink-0">Included in {current.name}</span>
+                  ) : canBuyAddons && here ? (
+                    <button onClick={() => openAddons(a.id)} className="w-[96px] py-1.5 rounded-lg text-[11px] font-bold border border-primary text-primary hover:bg-primary/5 flex-shrink-0">Buy once</button>
+                  ) : (
+                    <span className="w-[96px] text-center text-[10.5px] text-slate-400 flex-shrink-0">{current && !here ? `Not on ${current.name}` : 'With a plan'}</span>
                   )}
                 </div>
-                <button onClick={() => openAddons()} className="px-3 py-1.5 rounded-lg bg-primary text-white text-[11px] font-bold hover:bg-primary-hover flex-shrink-0">Choose add-ons</button>
-              </div>
-            )}
-            {!usageEligible && (
-              <div className="flex items-start gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200 mb-2">
-                <Lock size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
-                <p className="text-xs text-slate-500">Usage add-ons are available on Pro and AI plans. <button onClick={() => setTab('plans')} className="font-semibold text-primary hover:underline">{live ? 'Upgrade' : 'Choose a plan'}</button> to buy extra capacity.</p>
-              </div>
-            )}
-            <div className="rounded-2xl border border-surface-border bg-white overflow-hidden">
-              {usageAddons.map((a, i) => {
-                const key = 'u:' + a.name
-                return (
-                  <div key={a.name} className={clsx('flex items-center gap-3 px-4 py-3', i > 0 && 'border-t border-slate-100')}>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-slate-800">{a.name}</p>
-                      <p className="text-[10.5px] text-slate-400">{a.unit}</p>
-                    </div>
-                    <span className="text-xs font-bold text-slate-900 tabular-nums whitespace-nowrap">{canBuyAddons && sub.period === 'yearly' ? `${inr(a.m)} / mo · ${inr(a.y)} / yr` : (canBuyAddons ? sub.period : view) === 'yearly' ? `${inr(a.y)} / yr` : `${inr(a.m)} / mo`}</span>
-                    <button disabled={!usageEligible || (!canBuyAddons && requested[key])} onClick={() => (canBuyAddons ? openAddons(a.name) : setRequested(r => ({ ...r, [key]: true })))}
-                      className={clsx('w-[84px] py-1.5 rounded-lg text-[11px] font-bold transition-colors flex-shrink-0',
-                        !canBuyAddons && requested[key] ? 'bg-emerald-50 text-emerald-700' : usageEligible ? 'border border-primary text-primary hover:bg-primary/5' : 'bg-slate-100 text-slate-300 cursor-not-allowed')}>
-                      {!canBuyAddons && requested[key] ? '✓ Added' : canBuyAddons ? 'Buy once' : 'Add'}
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
+              )
+            })}
           </div>
+          {!live && (
+            <p className="flex items-start gap-2 text-xs text-slate-500 p-3 rounded-xl bg-slate-50 border border-slate-200">
+              <Lock size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
+              <span>Add-ons are chosen while you subscribe. <button onClick={() => setTab('plans')} className="font-semibold text-primary hover:underline">Choose a plan</button> to add them.</span>
+            </p>
+          )}
         </div>
       )}
 

@@ -23,12 +23,12 @@ export interface PlanInfo {
 
 export const PLAN_CATALOG: Record<PlanId, PlanInfo> = {
   broadcast: {
-    name: 'Broadcast', monthly: 1499, yearly: 14500, serviceMsgs: 10000, biMsgs: 1000,
-    desc: 'WhatsApp template/broadcast messages, plus unlimited Website and Instagram messages and Google Sheets integration. No bot; replies are handled by an agent from the dashboard.',
+    name: 'Broadcast', monthly: 1499, yearly: 14500, serviceMsgs: 1000, biMsgs: 1000,
+    desc: 'WhatsApp template/broadcast messages with Google Sheets integration. No bot; replies are handled by an agent from the dashboard.',
   },
   standard: {
     name: 'Standard', monthly: 3500, yearly: 35000, serviceMsgs: 30000, biMsgs: 2000,
-    desc: 'Flow/menu-driven chatbot with Google Sheets integration. Platforms: WhatsApp, Website, Instagram and Landing Page Chatbot.',
+    desc: 'Flow/menu-driven chatbot with Google Sheets integration. Platforms: WhatsApp, Website, Instagram and Landing Page Chatbot. All add-ons available.',
   },
   pro: {
     name: 'Pro', monthly: 6500, yearly: 72000, serviceMsgs: 100000, biMsgs: 5000,
@@ -36,12 +36,12 @@ export const PLAN_CATALOG: Record<PlanId, PlanInfo> = {
   },
   ai: {
     name: 'AI', monthly: 8999, yearly: 96000, serviceMsgs: 500000, biMsgs: 10000,
-    desc: 'Everything in Pro, plus AI integration with ChatGPT. All add-ons available.',
+    desc: 'Everything in Pro, plus AI integration. All add-ons available.',
   },
 }
 
 /* ── add-ons ───────────────────────────────────────────────────────────────
-   Extra capacity sold on top of a plan. Mirrors USAGE_ADDONS in src/constants/pricing.js
+   Extra capacity sold on top of a plan. Mirrors ADDONS in src/constants/pricing.js (the pricing sheet)
    (keep them in sync). Prices are ₹, excl. GST, for ONE unit per billing period; yearly is
    the sheet's yearly price, not 12× monthly. The browser sends only ids and quantities. */
 export interface AddonDef {
@@ -59,22 +59,28 @@ export interface AddonDef {
   /** can't be bought together with these */
   excludes?: string[]
 }
-const PRO_AI: PlanId[] = ['pro', 'ai']
+const ALL: PlanId[] = ['broadcast', 'standard', 'pro', 'ai']
+const BS: PlanId[] = ['broadcast', 'standard']
 export const ADDON_CATALOG: AddonDef[] = [
-  { id: 'extra-chatbots',      name: 'Extra Chatbots',          unit: 'per 5 chatbots',          monthly: 1000,  yearly: 9600,    maxQty: 20,  plans: PRO_AI },
-  { id: 'extra-live-agent',    name: 'Extra Live Agent',        unit: 'per agent',               monthly: 1000,  yearly: 9600,    maxQty: 50,  plans: PRO_AI },
-  { id: 'extra-language',      name: 'Extra Language',          unit: 'per language beyond 2',   monthly: 1000,  yearly: 9600,    maxQty: 20,  plans: PRO_AI },
-  { id: 'wa-bi-messages',      name: 'WhatsApp BI Messages',    unit: 'per 1,000 messages/mo',   monthly: 200,   yearly: 2400,    maxQty: 100, plans: PRO_AI, whatsapp: true },
-  { id: 'web-chats',           name: 'UI / Website Chats',      unit: 'per 1,000 chats/mo',      monthly: 600,   yearly: 7200,    maxQty: 100, plans: PRO_AI },
-  { id: 'sms-otps',            name: 'SMS OTPs',                unit: 'per 1,000 OTPs',          monthly: 500,   yearly: 6000,    maxQty: 100, plans: PRO_AI },
-  { id: 'wa-otps',             name: 'WhatsApp OTPs',           unit: 'per 1,000 OTPs',          monthly: 500,   yearly: 6000,    maxQty: 100, plans: PRO_AI, whatsapp: true },
-  { id: 'sms-notifications',   name: 'SMS Notifications',       unit: 'per 1,000 notifications', monthly: 500,   yearly: 6000,    maxQty: 100, plans: PRO_AI },
-  { id: 'wa-notifications',    name: 'WhatsApp Notifications',  unit: 'per 1,000 notifications', monthly: 500,   yearly: 6000,    maxQty: 100, plans: PRO_AI, whatsapp: true },
-  { id: 'media-upload',        name: 'Media Upload',            unit: 'per 50 files',            monthly: 800,   yearly: 9600,    maxQty: 50,  plans: PRO_AI },
-  { id: 'text-to-speech',      name: 'Text to Speech',          unit: 'flat rate',               monthly: 800,   yearly: 7200,    maxQty: 1,   plans: PRO_AI },
-  { id: 'remove-branding',     name: 'Remove Branding',         unit: 'flat rate',               monthly: 1900,  yearly: 20280,   maxQty: 1,   plans: PRO_AI },
-  { id: 'basic-support',       name: 'Basic Support',           unit: 'flat rate',               monthly: 6999,  yearly: 71988,   maxQty: 1,   plans: PRO_AI, excludes: ['premium-support'] },
-  { id: 'premium-support',     name: 'Premium Support',         unit: 'flat rate',               monthly: 14999, yearly: 143988,  maxQty: 1,   plans: PRO_AI, excludes: ['basic-support'] },
+  { id: 'template-replies',  name: 'Template Text Replies + Template Button Click Responses', unit: 'flat rate (one add-on)', monthly: 1000,  yearly: 9600,   maxQty: 1,   plans: BS, whatsapp: true },
+  { id: 'crm',               name: 'CRM',                            unit: 'flat rate',               monthly: 1000,  yearly: 9600,    maxQty: 1,   plans: BS },
+  { id: 'cart-catalog',      name: 'WhatsApp Cart & Catalog',        unit: 'flat rate',               monthly: 1000,  yearly: 9600,    maxQty: 1,   plans: BS, whatsapp: true },
+  { id: 'extra-live-agent',  name: 'Live Agent',                     unit: 'per agent',               monthly: 1000,  yearly: 9600,    maxQty: 50,  plans: ALL },
+  { id: 'ai-agent',          name: 'AI Agent (Dialogflow)',          unit: 'flat rate',               monthly: 1000,  yearly: 9600,    maxQty: 1,   plans: BS },
+  { id: 'extra-language',    name: 'Multi-Lingual / Extra Language', unit: 'per language',            monthly: 1000,  yearly: 9600,    maxQty: 20,  plans: ALL },
+  { id: 'ai-integration',    name: 'AI Integration',                 unit: 'flat rate',               monthly: 2000,  yearly: 24000,   maxQty: 1,   plans: ['broadcast', 'standard', 'pro'] },
+  { id: 'email-otp',         name: 'Email OTP Validation',           unit: 'per 1,000 email OTPs',    monthly: 500,   yearly: 6000,    maxQty: 100, plans: ['standard', 'pro', 'ai'] },
+  { id: 'extra-chatbots',    name: 'Extra Chatbots',                 unit: 'per 5 chatbots',          monthly: 1000,  yearly: 9600,    maxQty: 20,  plans: ALL },
+  { id: 'wa-bi-messages',    name: 'WhatsApp BI Messages',           unit: 'per 1,000 messages',      monthly: 200,   yearly: 2400,    maxQty: 100, plans: ALL, whatsapp: true },
+  { id: 'web-chats',         name: 'UI / Website Chats',             unit: 'per 1,000 chats/mo',      monthly: 600,   yearly: 7200,    maxQty: 100, plans: ALL },
+  { id: 'sms-otps',          name: 'SMS OTPs',                       unit: 'per 1,000 OTPs',          monthly: 500,   yearly: 6000,    maxQty: 100, plans: ALL },
+  { id: 'wa-otps',           name: 'WhatsApp OTPs',                  unit: 'per 1,000 OTPs',          monthly: 500,   yearly: 6000,    maxQty: 100, plans: ALL, whatsapp: true },
+  { id: 'sms-notifications', name: 'SMS Notifications',              unit: 'per 1,000 notifications', monthly: 500,   yearly: 6000,    maxQty: 100, plans: ALL },
+  { id: 'wa-notifications',  name: 'WhatsApp Notifications',         unit: 'per 1,000 notifications', monthly: 500,   yearly: 6000,    maxQty: 100, plans: ALL, whatsapp: true },
+  { id: 'text-to-speech',    name: 'Text to Speech',                 unit: 'flat rate',               monthly: 800,   yearly: 7200,    maxQty: 1,   plans: ALL },
+  { id: 'remove-branding',   name: 'Remove Branding',                unit: 'flat rate',               monthly: 1900,  yearly: 20280,   maxQty: 1,   plans: ALL },
+  { id: 'basic-support',     name: 'Basic Support',                  unit: 'flat rate',               monthly: 6999,  yearly: 71988,   maxQty: 1,   plans: ALL, excludes: ['premium-support'] },
+  { id: 'premium-support',   name: 'Premium Support',                unit: 'flat rate',               monthly: 14999, yearly: 143988,  maxQty: 1,   plans: ALL, excludes: ['basic-support'] },
 ]
 const ADDON_BY_ID = new Map(ADDON_CATALOG.map((a) => [a.id, a]))
 
