@@ -11,7 +11,7 @@
 // kinds: new · change (switch plan on an autopay subscription) · autopay-off · update-card · addons-once (extras bought once on the running plan)
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
-import { X, ShieldCheck, Info, AlertCircle, Loader2, Repeat, CreditCard, Pencil, BellRing, Ban, Plus, Minus, Puzzle } from 'lucide-react'
+import { X, ShieldCheck, Info, AlertCircle, Loader2, Repeat, CreditCard, Pencil, BellRing, Ban, Plus, Minus, Puzzle, Tag } from 'lucide-react'
 import { PLANS, money } from '../../constants/pricing'
 import BillingDetailsForm from './BillingDetailsForm'
 import { addressLine } from './billingFormat'
@@ -113,12 +113,13 @@ function TaxRows({ charge }) {
 
 export default function PaymentDialog({
   dialog, config, sub, profile, defaults, quote, busy, error,
-  onSaveProfile, onConfirm, onClose, onPayOnceInstead, onStartAtRenewal, onAddonsChange, onTermChange, web,
+  onSaveProfile, onConfirm, onClose, onPayOnceInstead, onStartAtRenewal, onAddonsChange, onTermChange, onCouponChange, web,
 }) {
   const { kind, plan, period, mode, startAtCycleEnd, upgrade } = dialog || {}
   const needsDetails = kind === 'new' && !profile
   const [step, setStep] = useState(needsDetails ? 'details' : 'review')
   const [consent, setConsent] = useState(false)
+  const [couponInput, setCouponInput] = useState('')
   useEffect(() => { setStep(kind === 'new' && !profile ? 'details' : 'review'); setConsent(false) }, [dialog]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!dialog) return null
@@ -133,6 +134,12 @@ export default function PaymentDialog({
   const term = dialog.term || (termChoice ? 'monthly' : 'plan')
   const pricePeriod = termChoice && term === 'monthly' ? 'monthly' : period
   const quoteOk = !!quote && quote.plan === plan && quote.period === period && sigOf(quote.addons) === sigOf(selected) && (quote.addonPeriod || null) === (pricePeriod !== period ? pricePeriod : null)
+    && (quote.couponCode || null) === (dialog?.coupon || null)
+  /* Coupons take money off one Pay once purchase (the server decides whether a code applies). */
+  const couponAllowed = kind === 'new' && mode === 'once' && !startAtCycleEnd && !!onCouponChange
+  const couponOff = quoteOk && quote.coupon ? quote.coupon.discount : 0
+  const couponErr = quoteOk ? quote.couponError : null
+  const couponPending = !!dialog?.coupon && !quoteOk
   const planBase = quoteOk ? quote.planBase : fallback?.base
   const lines = selected.map((a) => { const d = defs.find((x) => x.id === a.id); return d ? { id: d.id, name: d.name, unit: d.unit, qty: a.qty, amount: d[pricePeriod] * a.qty } : null }).filter(Boolean)
   const addonsOnly = kind === 'addons-once'
@@ -172,6 +179,7 @@ export default function PaymentDialog({
     ? [{ id: 'many', name: `Add-ons × ${lines.reduce((n, l) => n + l.qty, 0)}`, amount: lines.reduce((n, l) => n + l.amount, 0), unit: lines.map((l) => l.name).join(', ') }]
     : lines.map((l) => ({ ...l, name: `${l.name}${l.qty > 1 ? ` × ${l.qty}` : ''}` }))
   const canConfirm = !busy && (!isAutopayNew || consent) && (kind !== 'update-card' || consent) && (!addonsOnly || selected.length > 0)
+    && !(dialog?.coupon && (couponErr || couponPending))
 
   return (
     <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4 overflow-y-auto" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
@@ -247,12 +255,31 @@ export default function PaymentDialog({
                   </div>
                   {!addonsOnly && <Row k={`${p.name} plan`} v={money(planBase ?? charge.base)} />}
                   {lineRows.map((l) => <Row key={l.id} k={l.name} v={money(l.amount)} sub={shortLines ? undefined : l.unit} />)}
+                  {couponOff > 0 && <Row k={`Coupon ${quote.coupon.code}`} v={`−${money(couponOff)}`} />}
                   <TaxRows charge={charge}/>
                   <Row k={mode === 'autopay' ? `Charged every ${perWord}` : 'Total today'} v={money(charge.total)} strong />
                 </div>
               ) : (
                 <p className="text-[11.5px] text-slate-400 rounded-xl border border-dashed border-slate-200 px-3.5 py-6 text-center">Pick an add-on to see the price.</p>
               )}
+
+              {couponAllowed && (dialog.coupon ? (
+                <div className="flex items-center gap-2 text-[11px]">
+                  <Tag size={12} className={clsx('flex-shrink-0', couponErr ? 'text-red-500' : 'text-emerald-600')}/>
+                  <span className="flex-1 min-w-0" role="status">
+                    {couponPending ? 'Checking coupon…'
+                      : couponErr ? <span className="text-red-600">{couponErr}</span>
+                      : <span className="text-emerald-700">Coupon <b>{dialog.coupon}</b> applied — you save {money(couponOff)} before GST.</span>}
+                  </span>
+                  <button type="button" disabled={busy} onClick={() => { onCouponChange(null); setCouponInput('') }} className="font-semibold text-slate-500 hover:text-slate-700">Remove</button>
+                </div>
+              ) : (
+                <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); if (couponInput.trim()) onCouponChange(couponInput.trim().toUpperCase()) }}>
+                  <input aria-label="Coupon code" placeholder="Coupon code" value={couponInput} onChange={(e) => setCouponInput(e.target.value)} disabled={busy}
+                    className="flex-1 min-w-0 border border-surface-border rounded-lg px-2.5 py-1.5 text-xs uppercase placeholder:normal-case outline-none focus:border-primary bg-white"/>
+                  <button type="submit" disabled={busy || !couponInput.trim()} className="px-3 rounded-lg text-[11px] font-bold text-primary border border-primary/30 hover:bg-primary/5 disabled:opacity-40">Apply</button>
+                </form>
+              ))}
 
               {addonsOnly ? (
                 <p className="flex items-start gap-2 text-[11px] text-slate-600 leading-snug">

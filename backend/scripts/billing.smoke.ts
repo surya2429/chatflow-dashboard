@@ -93,6 +93,7 @@ function fakeRazorpay(clock: () => number) {
 
 function memoryStore(): BillingStore {
   const all = new Map<string, BillingRecord>()
+  const docs = new Map<string, unknown>()
   const counters: Record<string, number> = {}
   return {
     async get(w) { return structuredClone(all.get(w) ?? null) },
@@ -101,6 +102,8 @@ function memoryStore(): BillingStore {
     async listActiveDunning() { return [...all.values()].filter((r) => r.dunning?.state === 'active').map((r) => structuredClone(r)) },
     async listTokenAutopay() { return [...all.values()].filter((r) => r.engine === 'token' && r.mandate && r.renewal).map((r) => structuredClone(r)) },
     async list() { return [...all.values()].map((r) => structuredClone(r)) },
+    async getDoc(key) { return structuredClone(docs.get(key) ?? null) as never },
+    async putDoc(key, value) { docs.set(key, structuredClone(value)) },
     async nextSequence(key) { counters[key] = (counters[key] ?? 0) + 1; return counters[key]! },
   }
 }
@@ -709,6 +712,69 @@ async function main() {
   check('refused while the customer is on autopay (they would be charged too)', r.status === 409 && (r.body as RzEntity).error === 'autopay_running', r.body)
   const rows = ((await adm('GET', '/admin/customers')).body as RzEntity).items as RzEntity[]
   check('customer list shows the assigned plan and who is on autopay', rows.some((x) => x.workspaceId === 'wa1' && x.plan === 'standard' && !x.autopay) && rows.some((x) => x.workspaceId === 'wa2' && x.autopay), rows.length)
+
+  console.log('\nadmin console: employees and roles')
+  const staffLogin = (email: string, password: string) => login({ email, password })
+  r = await adm('POST', '/admin/staff', { name: 'Asha', email: 'Asha@smatbot.test', role: 'support', password: 'support-pass-1' })
+  check('owner adds a support employee; the password hash is never sent back', r.status === 200 && (r.body as RzEntity).email === 'asha@smatbot.test' && !JSON.stringify(r.body).includes('scrypt'), r.body)
+  check('the same email twice is refused', (await adm('POST', '/admin/staff', { name: 'A', email: 'asha@smatbot.test', role: 'admin', password: 'another-pass-1' })).status === 409)
+  check('a short password is refused', (await adm('POST', '/admin/staff', { name: 'B', email: 'b@smatbot.test', role: 'admin', password: 'short' })).status === 400)
+  r = await staffLogin('asha@smatbot.test', 'support-pass-1')
+  const SUP = (r.body as RzEntity).token as string
+  check('the employee signs in with their own password', r.status === 200 && (r.body as RzEntity).user.role === 'support', r.body)
+  check('support can see clients', (await adm('GET', '/admin/customers', undefined, SUP)).status === 200)
+  check('support cannot assign plans, make coupons or manage the team',
+    (await adm('POST', '/admin/assign', { workspaceId: 'x1', plan: 'pro', period: 'monthly' }, SUP)).status === 403
+    && (await adm('POST', '/admin/coupons', { code: 'NOPE10', type: 'percent', value: 10 }, SUP)).status === 403
+    && (await adm('GET', '/admin/staff', undefined, SUP)).status === 403)
+  await adm('POST', '/admin/staff', { name: 'Meera', email: 'meera@smatbot.test', role: 'admin', password: 'meera-pass-12' })
+  const MEERA = ((await staffLogin('meera@smatbot.test', 'meera-pass-12')).body as RzEntity).token as string
+  check('an admin employee can manage the team', (await adm('GET', '/admin/staff', undefined, MEERA)).status === 200)
+  check('but cannot remove their own admin access', (await adm('POST', '/admin/staff/update', { email: 'meera@smatbot.test', role: 'support' }, MEERA)).status === 409)
+  for (let i = 0; i < 5; i++) await staffLogin('meera@smatbot.test', 'wrong-pass-00')
+  check('5 wrong passwords lock the account for 10 minutes, even for the right one', (await staffLogin('meera@smatbot.test', 'meera-pass-12')).status === 429)
+  t += 601
+  check('…then it works again', (await staffLogin('meera@smatbot.test', 'meera-pass-12')).status === 200)
+  await adm('POST', '/admin/staff/update', { email: 'asha@smatbot.test', active: false })
+  check('switching an employee off signs them out at once', (await adm('GET', '/admin/me', undefined, SUP)).status === 401 && (await staffLogin('asha@smatbot.test', 'support-pass-1')).status === 401)
+
+  console.log('\nadmin console: coupons')
+  r = await adm('POST', '/admin/coupons', { code: 'launch20', type: 'percent', value: 20, plans: ['pro'], periods: ['yearly'], maxUses: 1, oncePerCustomer: true })
+  check('coupon created, code upper-cased', r.status === 200 && (r.body as RzEntity).code === 'LAUNCH20', r.body)
+  check('duplicate code refused', (await adm('POST', '/admin/coupons', { code: 'LAUNCH20', type: 'flat', value: 100 })).status === 409)
+  check('100% off refused (Razorpay needs at least ₹1)', (await adm('POST', '/admin/coupons', { code: 'FREE100', type: 'percent', value: 100 })).status === 400)
+  await call('PUT', '/profile', good, 'cpn1')
+  q = (await call('POST', '/quote', { plan: 'pro', period: 'yearly', coupon: 'launch20' }, 'cpn1')).body as RzEntity
+  check('quote: 20% off ₹72,000 before GST = ₹57,600 + GST = ₹67,968', q.coupon?.discount === 14400 && q.charge.base === 57600 && q.charge.total === 67968, q)
+  q = (await call('POST', '/quote', { plan: 'standard', period: 'yearly', coupon: 'LAUNCH20' }, 'cpn1')).body as RzEntity
+  check('a coupon for another plan is explained, and the price is quoted without it', q.couponError === 'That coupon is not for this plan.' && q.charge.base === 35000, q)
+  r = await call('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'autopay', consent: true, coupon: 'LAUNCH20' }, 'cpn1')
+  check('coupons are refused on autopay', r.status === 409 && (r.body as RzEntity).error === 'coupon_not_allowed', r.body)
+  r = await call('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'once', coupon: 'LAUNCH20' }, 'cpn1')
+  const cco = r.body as RzEntity
+  check('pay-once order is for the discounted amount', cco.amount === 6_796_800, cco.amount)
+  const cPay = fake.pay(cco.orderId, cco.amount)
+  r = await call('POST', '/verify', { razorpay_payment_id: cPay, razorpay_signature: sign(cco.orderId, cPay) }, 'cpn1')
+  check('the discounted payment activates the plan', r.status === 200 && (r.body as RzEntity).plan === 'pro' && (r.body as RzEntity).status === 'active', r.body)
+  const cust = (await adm('GET', '/admin/customers/cpn1')).body as RzEntity
+  check('client detail: profile, payment with the coupon, one invoice', cust.profile?.legalName === good.legalName && cust.payments[0]?.coupon === 'LAUNCH20' && cust.invoices.length === 1, cust)
+  check('client detail: next renewal is manual, at the full price', cust.renewal?.type === 'manual' && cust.renewal.total === 84960 && cust.paidTotal === 67968, cust.renewal)
+  const cInv = String((await adm('GET', `/admin/customers/cpn1/invoices/${cust.invoices[0].id}`)).body)
+  check('the invoice shows the discount line and GST on the reduced price', cInv.includes('Discount — coupon LAUNCH20') && cInv.includes('−₹14,400.00') && cInv.includes('₹57,600.00'))
+  const cps = ((await adm('GET', '/admin/coupons')).body as RzEntity).items as RzEntity[]
+  check('the use is counted', cps.find((c) => c.code === 'LAUNCH20')?.uses === 1)
+  await call('PUT', '/profile', good, 'cpn2')
+  q = (await call('POST', '/quote', { plan: 'pro', period: 'yearly', coupon: 'LAUNCH20' }, 'cpn2')).body as RzEntity
+  check('after its last use the coupon stops working', q.couponError === 'That coupon has been fully used.' && !q.coupon, q.couponError)
+  r = await call('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'once', coupon: 'LAUNCH20' }, 'cpn2')
+  check('…and checkout refuses it', r.status === 400 && (r.body as RzEntity).error === 'invalid_coupon', r.body)
+  await adm('POST', '/admin/coupons', { code: 'BIGFLAT', type: 'flat', value: 999999 })
+  q = (await call('POST', '/quote', { plan: 'broadcast', period: 'monthly', coupon: 'bigflat' }, 'cpn2')).body as RzEntity
+  check('a flat coupon bigger than the price still leaves ₹1 to pay', q.charge.base === 1, q.charge)
+  await adm('POST', '/admin/coupons/update', { code: 'BIGFLAT', active: false })
+  q = (await call('POST', '/quote', { plan: 'broadcast', period: 'monthly', coupon: 'bigflat' }, 'cpn2')).body as RzEntity
+  check('a switched-off coupon is not valid', q.couponError === 'That coupon code is not valid.', q.couponError)
+
   t = ga.currentEnd + 1
   check('after the end date the plan has ended', ((await call('GET', '/subscription', undefined, 'wa1')).body as RzEntity).status === 'expired')
 

@@ -25,6 +25,8 @@ export interface PaymentLogEntry {
   period: Period
   status: 'paid' | 'failed'
   method?: string
+  /** coupon code used on this payment */
+  coupon?: string
 }
 
 /** Proof that the customer agreed to recurring charges: what, how much, when, from where. */
@@ -94,6 +96,8 @@ export interface PendingCheckout {
   consent?: ConsentEntry
   /** unix seconds the new subscription begins billing (turning autopay back on at renewal) */
   startAt?: number
+  /** pay-once only: the coupon and the ₹ it took off before GST */
+  coupon?: { code: string; discount: number }
   createdAt: number
 }
 
@@ -149,6 +153,8 @@ export interface Invoice {
   amountPaise: number
   method?: string
   kind: 'purchase' | 'renewal' | 'dunning_recovery' | 'addon'
+  /** coupon taken off before GST */
+  discount?: { code: string; amount: number }
 }
 
 /* ── dunning (failed-renewal recovery) ─────────────────────────────────── */
@@ -207,6 +213,8 @@ export interface AdminGrant {
   addons: AddonSel[]
   until: number
   note: string
+  /** staff email that assigned it */
+  by?: string
 }
 
 export interface BillingRecord {
@@ -261,6 +269,9 @@ export interface BillingStore {
   listTokenAutopay(): Promise<BillingRecord[]>
   /** Every record, most recently changed first — the admin panel's customer list. */
   list(): Promise<BillingRecord[]>
+  /** Small shared documents for the admin console: 'staff' and 'coupons'. */
+  getDoc<T>(key: string): Promise<T | null>
+  putDoc(key: string, value: unknown): Promise<void>
   /** Atomic counter (invoice numbers must be gapless and never repeat, across all customers). */
   nextSequence(key: string): Promise<number>
 }

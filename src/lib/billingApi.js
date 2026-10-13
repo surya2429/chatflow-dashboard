@@ -15,12 +15,17 @@ export class BillingError extends Error {
   }
 }
 
+/* Which customer the billing calls are for. The demo login is 'default'; staff who open a
+   customer's dashboard from the admin console switch it to that customer (AuthContext). */
+let workspaceId = 'default'
+export const setBillingWorkspace = (id) => { workspaceId = id || 'default' }
+
 async function call(method, path, body, headers) {
   let res
   try {
     res = await fetch(`${API_BASE_URL}/billing${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...headers },
+      headers: { 'Content-Type': 'application/json', 'x-workspace-id': workspaceId, ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   } catch {
@@ -46,12 +51,28 @@ export const billing = {
   addonsCheckout: (addons, term) => call('POST', '/addons/checkout', { addons, term }),
 }
 
-/* The admin panel (pages/AdminPlans.jsx). The server checks the login (BILLING_ADMIN_EMAIL /
-   BILLING_ADMIN_PASSWORD) and hands back a token that every other admin call carries. */
+/* The admin console (pages/AdminConsole.jsx). Signing in returns a token that every other admin
+   call carries; the server checks it and the employee's role on each request. */
+const as = (token) => ({ 'x-admin-token': token })
+const wsPath = (ws) => `/admin/customers/${encodeURIComponent(ws)}`
 export const billingAdmin = {
-  login:     (email, password) => call('POST', '/admin/login', { email, password }),
-  customers: (token)       => call('GET', '/admin/customers', undefined, { 'x-admin-token': token }),
-  assign:    (token, body) => call('POST', '/admin/assign', body, { 'x-admin-token': token }),
+  login:        (email, password) => call('POST', '/admin/login', { email, password }),
+  me:           (t)       => call('GET', '/admin/me', undefined, as(t)),
+  customers:    (t)       => call('GET', '/admin/customers', undefined, as(t)),
+  customer:     (t, ws)   => call('GET', wsPath(ws), undefined, as(t)),
+  assign:       (t, body) => call('POST', '/admin/assign', body, as(t)),
+  coupons:      (t)       => call('GET', '/admin/coupons', undefined, as(t)),
+  createCoupon: (t, body) => call('POST', '/admin/coupons', body, as(t)),
+  updateCoupon: (t, body) => call('POST', '/admin/coupons/update', body, as(t)),
+  staff:        (t)       => call('GET', '/admin/staff', undefined, as(t)),
+  createStaff:  (t, body) => call('POST', '/admin/staff', body, as(t)),
+  updateStaff:  (t, body) => call('POST', '/admin/staff/update', body, as(t)),
+  /** The printable invoice page, as HTML (it needs the token, so it can't be a plain link). */
+  async invoiceHtml(t, ws, id) {
+    const res = await fetch(`${API_BASE_URL}/billing${wsPath(ws)}/invoices/${encodeURIComponent(id)}`, { headers: as(t) })
+    if (!res.ok) throw new BillingError('invoice_unavailable', 'Could not load that invoice.', res.status)
+    return res.text()
+  },
 }
 
 /* ── Razorpay Checkout ─────────────────────────────────────────────────── */

@@ -61,6 +61,8 @@ export interface BuildInvoiceInput {
   gstPercent: number
   /** what was actually paid, in paise — wins over today's catalog price if they differ */
   amountPaise?: number
+  /** coupon taken off before GST */
+  discount?: { code: string; amount: number }
   addons?: AddonSel[]
   /** invoice only the add-ons (a one-time purchase) */
   addonsOnly?: boolean
@@ -81,7 +83,7 @@ export function allowanceNote(plan: PlanId, period: Period): string {
 }
 
 export function buildInvoice(i: BuildInvoiceInput): Invoice {
-  const c = chargeFor(i.plan, i.period, i.gstPercent, { supplier: i.seller.stateCode, customer: i.buyer.address.stateCode }, i.addons, i.addonsOnly, i.addonPeriod)
+  const c = chargeFor(i.plan, i.period, i.gstPercent, { supplier: i.seller.stateCode, customer: i.buyer.address.stateCode }, i.addons, i.addonsOnly, i.addonPeriod, i.discount?.amount)
   const taxKind = c.tax.kind === 'intra' ? 'intra' : 'inter'
   // If the price has changed since this was paid, the invoice must show what was actually charged.
   const repriced = Boolean(i.amountPaise && i.amountPaise !== c.totalPaise)
@@ -99,6 +101,7 @@ export function buildInvoice(i: BuildInvoiceInput): Invoice {
   const items: InvoiceItem[] | undefined = repriced ? undefined : [
     ...(i.addonsOnly ? [] : [{ description: `SmatBot ${planName} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription`, qty: 1, unit, rate: PLAN_CATALOG[i.plan][i.period], taxable: PLAN_CATALOG[i.plan][i.period] }]),
     ...lines.map((l) => ({ description: `Add-on: ${l.name} (${l.unit})${i.addonsOnly ? ((i.addonPeriod ?? i.period) === 'monthly' ? ' · 1 month' : ' · yearly rate') : ''}`, qty: l.qty, unit: l.unit, rate: l.rate, taxable: l.amount })),
+    ...(i.discount ? [{ description: `Discount — coupon ${i.discount.code}`, qty: 1, unit: '', rate: -i.discount.amount, taxable: -i.discount.amount }] : []),
   ]
   return {
     id: invoiceId(i.number),
@@ -129,12 +132,13 @@ export function buildInvoice(i: BuildInvoiceInput): Invoice {
     amountPaise: c.totalPaise,
     method: i.method,
     kind: i.kind,
+    ...(i.discount ? { discount: i.discount } : {}),
   }
 }
 
 /* ── printable page ───────────────────────────────────────────────────── */
 const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!))
-const inr = (n: number) => '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const inr = (n: number) => (n < 0 ? '−₹' : '₹') + Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const day = (s: number) => new Date(s * 1000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
 const methodText = (m?: string) => (m ? m.toUpperCase() : 'Online')
 

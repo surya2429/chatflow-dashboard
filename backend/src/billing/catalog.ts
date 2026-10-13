@@ -159,10 +159,11 @@ export interface Charge {
 /** supplier = the state we are registered in; customer = place of supply. */
 export interface PlaceOfSupply { supplier: string; customer?: string }
 
-export function chargeFor(plan: PlanId, period: Period, gstPercent: number, place?: PlaceOfSupply, addons?: AddonSel[], addonsOnly = false, addonPeriod?: Period): Charge {
+export function chargeFor(plan: PlanId, period: Period, gstPercent: number, place?: PlaceOfSupply, addons?: AddonSel[], addonsOnly = false, addonPeriod?: Period, discount = 0): Charge {
   // addonsOnly: a one-time add-on purchase on top of a plan that is already paid for.
   // addonPeriod: which price list the add-ons use — a yearly plan can buy them at the monthly rate.
-  const base = (addonsOnly ? 0 : PLAN_CATALOG[plan][period]) + addonsBase(addons, addonPeriod ?? period)
+  // discount: ₹ off before GST (a coupon), so GST is charged on the reduced price.
+  const base = Math.round(((addonsOnly ? 0 : PLAN_CATALOG[plan][period]) + addonsBase(addons, addonPeriod ?? period) - discount) * 100) / 100
   const totalPaise = Math.round(base * (1 + gstPercent / 100) * 100)
   const total = totalPaise / 100
   const gst = Math.round((total - base) * 100) / 100

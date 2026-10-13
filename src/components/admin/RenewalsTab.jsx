@@ -1,0 +1,143 @@
+// RenewalsTab.jsx — who pays next, when and how much: autopay charges coming up, and manual
+// renewals (pay-once and assigned plans) that need chasing. Every filter combines with the others.
+import { useMemo, useState } from 'react'
+import clsx from 'clsx'
+import { Search, ArrowUpDown } from 'lucide-react'
+import { PLANS } from '../../constants/pricing'
+import Select from '../Select'
+import DatePicker from '../DatePicker'
+import { Kpi, Chips, StatusPill, STATUS_OPTIONS, fmtDate, fmtRel, rupees, num, daysFromNow, downloadCsv, btnGhost } from './ui'
+
+const WINDOWS = [['overdue', 'Overdue'], ['7', 'Next 7 days'], ['30', 'Next 30 days'], ['90', 'Next 90 days'], ['all', 'All'], ['custom', 'Custom dates']]
+const dayStart = (ymd) => new Date(`${ymd}T00:00:00`).getTime() / 1000
+const dayEnd = (ymd) => new Date(`${ymd}T23:59:59`).getTime() / 1000
+
+export default function RenewalsTab({ customers, onOpen }) {
+  const [win, setWin] = useState('30')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [plan, setPlan] = useState('all')
+  const [period, setPeriod] = useState('all')
+  const [type, setType] = useState('all')
+  const [status, setStatus] = useState('all')
+  const [query, setQuery] = useState('')
+  const [desc, setDesc] = useState(false)
+
+  const all = useMemo(() => customers.filter((c) => c.renewal), [customers])
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const inWindow = (at) => {
+      const d = daysFromNow(at)
+      if (win === 'overdue') return at * 1000 < Date.now()
+      if (win === 'all') return true
+      if (win === 'custom') return (!from || at >= dayStart(from)) && (!to || at <= dayEnd(to))
+      return at * 1000 >= Date.now() && d <= Number(win)
+    }
+    return all
+      .filter((c) => inWindow(c.renewal.at)
+        && (plan === 'all' || c.renewal.plan === plan)
+        && (period === 'all' || c.renewal.period === period)
+        && (type === 'all' || c.renewal.type === type)
+        && (status === 'all' || c.status === status)
+        && (!q || [c.workspaceId, c.customer, c.contactName, c.email, c.phone].some((v) => v?.toLowerCase().includes(q))))
+      .sort((a, b) => (desc ? b.renewal.at - a.renewal.at : a.renewal.at - b.renewal.at))
+  }, [all, win, from, to, plan, period, type, status, query, desc])
+
+  const total = rows.reduce((n, c) => n + c.renewal.total, 0)
+  const auto = rows.filter((c) => c.renewal.type === 'autopay')
+  const overdueCount = all.filter((c) => c.renewal.at * 1000 < Date.now()).length
+
+  function exportCsv() {
+    downloadCsv('smatbot-renewals.csv', [
+      ['Renews on', 'Company', 'Contact', 'Email', 'Phone', 'Workspace', 'Plan', 'Billing', 'Type', 'Amount incl. GST (₹)', 'Status'],
+      ...rows.map((c) => [fmtDate(c.renewal.at), c.customer, c.contactName, c.email, c.phone, c.workspaceId, c.renewal.planName, c.renewal.period, c.renewal.type, c.renewal.total, c.status]),
+    ])
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi label="Renewals shown" value={num(rows.length)} sub={`of ${num(all.length)} clients with a plan`}/>
+        <Kpi label="Expected value" value={rupees(total)} sub="incl. GST"/>
+        <Kpi label="Charged automatically" value={num(auto.length)} sub={rupees(auto.reduce((n, c) => n + c.renewal.total, 0))}/>
+        <Kpi label="Overdue (all time)" value={num(overdueCount)} sub="ended, not renewed" warn={overdueCount > 0}/>
+      </div>
+
+      <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div className="p-4 border-b border-slate-100 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Chips label="When" value={win} onChange={setWin} options={WINDOWS}/>
+            {win === 'custom' && (
+              <div className="flex items-center gap-2">
+                <DatePicker value={from} onChange={setFrom} min="2000-01-01" textSize="text-xs" className="w-36"/>
+                <span className="text-xs text-slate-400">to</span>
+                <DatePicker value={to} onChange={setTo} min={from || '2000-01-01'} textSize="text-xs" className="w-36"/>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+              <input aria-label="Search renewals" placeholder="Search client, email, phone…" value={query} onChange={(e) => setQuery(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-primary"/>
+            </div>
+            <div className="w-36"><Select size="sm" value={plan} onChange={setPlan} options={[{ value: 'all', label: 'All plans' }, ...PLANS.map((p) => ({ value: p.id, label: p.name }))]}/></div>
+            <div className="w-36"><Select size="sm" value={status} onChange={setStatus} options={[{ value: 'all', label: 'Any status' }, ...STATUS_OPTIONS.filter(([v]) => v !== 'none').map(([value, label]) => ({ value, label }))]}/></div>
+            <button type="button" onClick={exportCsv} className={btnGhost}>Export CSV</button>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <Chips label="Billing" value={period} onChange={setPeriod} options={[['all', 'Monthly & yearly'], ['monthly', 'Monthly'], ['yearly', 'Yearly']]}/>
+            <Chips label="Renewal type" value={type} onChange={setType} options={[['all', 'Autopay & manual'], ['autopay', 'Autopay'], ['manual', 'Manual']]}/>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 bg-slate-50">
+                <th className="px-4 py-2.5 font-semibold">
+                  <button type="button" onClick={() => setDesc((d) => !d)} className="inline-flex items-center gap-1 uppercase font-semibold hover:text-slate-600" aria-label={`Sort by date, ${desc ? 'latest' : 'soonest'} first`}>
+                    Renews on <ArrowUpDown size={11}/>
+                  </button>
+                </th>
+                <th className="px-3 py-2.5 font-semibold">Client</th>
+                <th className="px-3 py-2.5 font-semibold">Plan</th>
+                <th className="px-3 py-2.5 font-semibold">Type</th>
+                <th className="px-3 py-2.5 font-semibold text-right">Amount</th>
+                <th className="px-3 py-2.5 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => {
+                const late = c.renewal.at * 1000 < Date.now()
+                return (
+                  <tr key={c.workspaceId} className="border-t border-slate-100 hover:bg-slate-50/60">
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="text-slate-800 font-medium">{fmtDate(c.renewal.at)}</div>
+                      <div className={clsx('text-[11px]', late ? 'text-red-600 font-semibold' : daysFromNow(c.renewal.at) <= 7 ? 'text-amber-600' : 'text-slate-400')}>{fmtRel(c.renewal.at)}</div>
+                    </td>
+                    <td className="px-3 py-3 max-w-[240px]">
+                      <button type="button" onClick={() => onOpen(c.workspaceId)} className="text-left font-semibold text-slate-800 hover:text-primary truncate block max-w-full">{c.customer || c.workspaceId}</button>
+                      <div className="text-xs text-slate-400 truncate">{[c.contactName, c.phone && `+91 ${c.phone}`, c.email].filter(Boolean).join(' · ')}</div>
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-slate-700">{c.renewal.planName} <span className="text-slate-400">· {c.renewal.period}</span></td>
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      <span className={clsx('text-xs font-semibold', c.renewal.type === 'autopay' ? 'text-violet-700' : 'text-slate-600')}>{c.renewal.type === 'autopay' ? 'Autopay' : 'Manual'}</span>
+                      {c.card && <div className="text-[11px] text-slate-400">{c.card.network || 'Card'} •••• {c.card.last4}</div>}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums font-semibold text-slate-800">{rupees(c.renewal.total)}</td>
+                    <td className="px-3 py-3"><StatusPill status={c.status}/></td>
+                  </tr>
+                )
+              })}
+              {!rows.length && (
+                <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">No renewals match these filters.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  )
+}

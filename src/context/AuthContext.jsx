@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { ALL_NAV_ITEMS } from '../constants/navigation'
+import { setBillingWorkspace } from '../lib/billingApi'
 
 const AuthContext = createContext(null)
 
@@ -85,15 +86,20 @@ export function AuthProvider({ children }) {
       u => u.email.toLowerCase() === email.toLowerCase() && u.password === password
     )
     if (!found) return { ok: false, error: 'Invalid email or password.' }
+    setBillingWorkspace('default')
     setCurrentUser(found)
     return { ok: true }
   }
 
+  /* Also how SmatBot staff open a customer's dashboard from the admin console: that user
+     carries the customer's workspaceId (billing then answers for them) and impersonatedBy. */
   function loginAs(user) {
+    setBillingWorkspace(user.workspaceId)
     setCurrentUser(user)
   }
 
   function logout() {
+    setBillingWorkspace('default')
     setCurrentUser(null)
   }
 

@@ -38,6 +38,10 @@ import { DUNNING_POLICY, assertPolicy, attemptTimes, deadlineFor, type DunningPo
 import { buildInvoice, financialYear, invoiceNumber, renderInvoiceHtml, type SellerInfo } from './invoice.js'
 import { DEFAULT_LOGO } from './logo.js'
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import {
+  checkPassword, couponDiscount, couponProblem, hashPassword, isStaffRole, parseCoupon, readSession, signSession,
+  type Coupon, type StaffMember, type StaffRole,
+} from './admin.js'
 import type {
   BillingRecord, BillingRequest, BillingResponse, BillingStore, Dunning, Invoice, PaymentMethod,
 } from './types.js'
@@ -105,8 +109,8 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* The charge for a plan, with GST labelled for the customer's state when known.
      The TOTAL is the same either way; only CGST/SGST vs IGST changes. */
-  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null, addons?: AddonSel[], addonsOnly = false, addonPeriod?: Period) =>
-    chargeFor(plan, period, gstPercent, { supplier, customer: rec?.profile?.address.stateCode }, addons, addonsOnly, addonPeriod)
+  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null, addons?: AddonSel[], addonsOnly = false, addonPeriod?: Period, discount = 0) =>
+    chargeFor(plan, period, gstPercent, { supplier, customer: rec?.profile?.address.stateCode }, addons, addonsOnly, addonPeriod, discount)
 
   /* What goes on the Razorpay order / subscription as notes (visible in their dashboard). */
   const notesFor = (rec: BillingRecord, plan: PlanId, period: Period, addons?: AddonSel[]) => ({
@@ -216,6 +220,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     periodStart: number
     periodEnd: number
     kind: Invoice['kind']
+    coupon?: { code: string; discount: number }
   }
 
   /* Idempotent: the same Razorpay payment id is only ever recorded and invoiced once. */
@@ -224,6 +229,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       rec.payments.unshift({
         id: p.paymentId, orderId: p.orderId, subscriptionId: p.subscriptionId, amountPaise: p.amountPaise,
         at: p.at ?? now(), plan: p.plan, period: p.period, status: 'paid', method: p.method,
+        ...(p.coupon ? { coupon: p.coupon.code } : {}),
       })
     }
     rec.invoices ??= []
@@ -239,6 +245,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       paymentId: p.paymentId, orderId: p.orderId, subscriptionId: p.subscriptionId,
       plan: p.plan, period: p.period, periodStart: p.periodStart, periodEnd: p.periodEnd,
       gstPercent, amountPaise: p.amountPaise, addons: p.addons, addonsOnly: p.addonsOnly, addonPeriod: p.addonPeriod, method: p.method, kind: p.kind,
+      ...(p.coupon ? { discount: { code: p.coupon.code, amount: p.coupon.discount } } : {}),
     })
     rec.invoices.unshift(inv)
     return inv
@@ -680,7 +687,7 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* ── handlers ──────────────────────────────────────────────────────────── */
   async function checkout(req: BillingRequest): Promise<BillingResponse> {
-    const { plan, period, mode, startAtCycleEnd, consent, addons: addonsIn } = (req.body ?? {}) as Record<string, unknown>
+    const { plan, period, mode, startAtCycleEnd, consent, addons: addonsIn, coupon: couponIn } = (req.body ?? {}) as Record<string, unknown>
     if (!isPlanId(plan) || !isPeriod(period) || (mode !== 'once' && mode !== 'autopay')) {
       return err(400, 'invalid_request', 'plan, period and mode are required.')
     }
@@ -692,7 +699,14 @@ export function createBillingService(opts: BillingServiceOptions) {
     if (!rec.profile) return err(409, 'billing_details_required', 'Add your billing details before paying.')
     // A recurring mandate needs the customer's explicit, recorded agreement.
     if (mode === 'autopay' && consent !== true) return err(409, 'consent_required', 'Please confirm that you authorise the recurring charges.')
-    const c = chargeOf(plan, period, rec, addons)
+    let coupon: { code: string; discount: number } | undefined
+    if (typeof couponIn === 'string' && couponIn.trim()) {
+      if (mode !== 'once') return err(409, 'coupon_not_allowed', 'Coupons apply to Pay once payments, not autopay.')
+      const r = await resolveCoupon(couponIn, plan, period, rec, addons)
+      if ('error' in r) return err(400, 'invalid_coupon', r.error)
+      coupon = r
+    }
+    const c = chargeOf(plan, period, rec, addons, false, undefined, coupon?.discount)
     const description = `SmatBot ${PLAN_CATALOG[plan].name}${addons.length ? ' + add-ons' : ''} · ${period} (incl. ${gstPercent}% GST)`
     const base = { keyId, amount: c.totalPaise, currency: 'INR', description, plan, period }
 
@@ -701,9 +715,9 @@ export function createBillingService(opts: BillingServiceOptions) {
         amount: c.totalPaise,
         currency: 'INR',
         receipt: `${req.workspaceId}-${now()}`.slice(0, 40),
-        notes: notesFor(rec, plan, period, addons),
+        notes: { ...notesFor(rec, plan, period, addons), ...(coupon ? { coupon: coupon.code } : {}) },
       })
-      rec.pending = { mode: 'once', plan, period, addons, orderId: order.id, createdAt: now() }
+      rec.pending = { mode: 'once', plan, period, addons, coupon, orderId: order.id, createdAt: now() }
       rec.updatedAt = now()
       await store.put(rec)
       return reply(200, { ...base, mode, orderId: order.id })
@@ -772,7 +786,7 @@ export function createBillingService(opts: BillingServiceOptions) {
 
     if (pend.updateCard) return verifyCardUpdate(rec, pend, paymentId)
     const payment = await rz!.request<RzEntity>('GET', `/payments/${paymentId}`).catch(() => null)
-    const c = chargeOf(pend.plan, pend.period, rec, pend.addons, pend.addonsOnly, pend.addonPeriod)
+    const c = chargeOf(pend.plan, pend.period, rec, pend.addons, pend.addonsOnly, pend.addonPeriod, pend.coupon?.discount)
 
     if (pend.mode === 'once') {
       // A valid signature proves Razorpay issued it; the payment itself must still
@@ -814,8 +828,9 @@ export function createBillingService(opts: BillingServiceOptions) {
       rec.paymentMethod = methodOf(p)
       await recordPayment(rec, {
         paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, method: p.method,
-        periodStart: rec.currentStart, periodEnd: rec.currentEnd, kind: 'purchase',
+        periodStart: rec.currentStart, periodEnd: rec.currentEnd, kind: 'purchase', coupon: pend.coupon,
       })
+      if (pend.coupon) await useCoupon(pend.coupon.code)
     } else if (pend.engine === 'token') {
       // The card was authorised by a real payment. Confirm it with Razorpay before trusting it.
       let p = payment
@@ -1097,7 +1112,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       return buildInvoice({
         seller, buyer: inv.buyer, number: inv.number, issuedAt: inv.issuedAt, paymentId: inv.paymentId, orderId: inv.orderId,
         subscriptionId: inv.subscriptionId, plan: inv.plan, period: inv.period, periodStart: inv.periodStart, periodEnd: inv.periodEnd,
-        gstPercent, amountPaise: inv.amountPaise, method: inv.method, kind: inv.kind,
+        gstPercent, amountPaise: inv.amountPaise, method: inv.method, kind: inv.kind, discount: inv.discount,
       })
     })
     return changed
@@ -1202,65 +1217,245 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* What a plan will cost THIS customer, with GST labelled for their state. */
   async function quote(req: BillingRequest): Promise<BillingResponse> {
-    const { plan, period, addons: addonsIn, addonsOnly, term } = (req.body ?? {}) as Record<string, unknown>
+    const { plan, period, addons: addonsIn, addonsOnly, term, coupon: couponIn } = (req.body ?? {}) as Record<string, unknown>
     if (!isPlanId(plan) || !isPeriod(period)) return err(400, 'invalid_request', 'plan and period are required.')
     const sel = normalizeAddons(addonsIn, plan)
     if (!sel.ok) return err(400, 'invalid_addons', sel.message)
     const rec = await store.get(req.workspaceId)
     const only = addonsOnly === true
     const addonPeriod: Period | undefined = only && period === 'yearly' && term === 'monthly' ? 'monthly' : undefined
-    const c = chargeOf(plan, period, rec, sel.addons, only, addonPeriod)
-    return reply(200, { plan, planName: PLAN_CATALOG[plan].name, period, charge: c, planBase: only ? 0 : PLAN_CATALOG[plan][period], addonPeriod: addonPeriod ?? null, addons: addonLines(sel.addons, addonPeriod ?? period), requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES })
+    // A coupon that doesn't apply is reported, not an error: the price is simply quoted without it.
+    const couponCode = typeof couponIn === 'string' && couponIn.trim() && !only ? couponIn.trim().toUpperCase() : null
+    const cr = couponCode ? await resolveCoupon(couponCode, plan, period, rec, sel.addons) : null
+    const coupon = cr && !('error' in cr) ? cr : null
+    const c = chargeOf(plan, period, rec, sel.addons, only, addonPeriod, coupon?.discount)
+    return reply(200, {
+      plan, planName: PLAN_CATALOG[plan].name, period, charge: c, planBase: only ? 0 : PLAN_CATALOG[plan][period], addonPeriod: addonPeriod ?? null,
+      addons: addonLines(sel.addons, addonPeriod ?? period), requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES,
+      couponCode, coupon, couponError: cr && 'error' in cr ? cr.error : null,
+    })
   }
 
-  /* ── admin panel: give a customer a plan without a payment ──────────────
-     For deals paid offline (bank transfer, cheque) and free or trial plans. It runs like a
-     pay-once plan: active until `until`, then it simply ends. No Razorpay payment, so no invoice. */
-  /* Signing in returns a token derived from the password: no session store, and it stops working
-     when the password changes.
-     shortcut: one shared login, no expiry or lockout; move to real staff accounts before more people use it. */
-  const admin = opts.admin?.email && opts.admin.password ? opts.admin : undefined
+  /* ── admin console ────────────────────────────────────────────────────────
+     SmatBot staff only. The owner signs in with BILLING_ADMIN_EMAIL / BILLING_ADMIN_PASSWORD and adds
+     employees (passwords stored hashed, in the 'staff' doc). Tokens are signed with a key derived from
+     the owner's password, so changing it signs everyone out. Admin routes never touch Razorpay. */
+  const owner = opts.admin?.email && opts.admin.password ? { email: opts.admin.email.trim().toLowerCase(), password: opts.admin.password } : undefined
+  const sessionKey = owner ? createHmac('sha256', owner.password).update('smatbot-admin-session-v1').digest('base64') : ''
   const digest = (s: string) => createHash('sha256').update(s).digest()   // equal lengths for timingSafeEqual
   const same = (a: string, b: string) => timingSafeEqual(digest(a), digest(b))
-  const adminSession = admin ? createHmac('sha256', admin.password).update(`admin:${admin.email.toLowerCase()}`).digest('base64url') : ''
-  const isAdmin = (req: BillingRequest) => {
-    const given = req.headers['x-admin-token']
-    return Boolean(admin && given && same(given, adminSession))
+  type Staff = { email: string; name: string; role: 'owner' | StaffRole }
+
+  const staffList = async () => (await store.getDoc<StaffMember[]>('staff')) ?? []
+  const coupons = async () => (await store.getDoc<Coupon[]>('coupons')) ?? []
+  const staffView = (s: StaffMember) => ({ email: s.email, name: s.name, role: s.role, active: s.active, createdAt: s.createdAt, createdBy: s.createdBy, lastLoginAt: s.lastLoginAt ?? null })
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  const badPassword = (pw: unknown) => typeof pw !== 'string' || pw.length < 8 || pw.length > 200
+
+  async function currentStaff(req: BillingRequest): Promise<Staff | null> {
+    const email = readSession(sessionKey, req.headers['x-admin-token'], now())
+    if (!email || !owner) return null
+    if (email === owner.email) return { email, name: 'Owner', role: 'owner' }
+    const s = (await staffList()).find((m) => m.email === email && m.active)   // switched off = signed out
+    return s ? { email: s.email, name: s.name, role: s.role } : null
   }
 
-  function adminLogin(req: BillingRequest): BillingResponse {
-    const { email, password } = (req.body ?? {}) as Record<string, unknown>
-    const ok = admin && typeof email === 'string' && typeof password === 'string'
-      && same(email.trim().toLowerCase(), admin.email.toLowerCase()) && same(password, admin.password)
-    return ok ? reply(200, { token: adminSession }) : err(401, 'unauthorized', 'Wrong email or password.')
+  /* shortcut: the wrong-password lockout (5 tries, then 10 minutes) lives in memory, per email; a restart
+     clears it and separate API instances don't share it — move it to Redis if that matters. */
+  const failures = new Map<string, { n: number; until: number }>()
+
+  async function adminLogin(req: BillingRequest): Promise<BillingResponse> {
+    const { email: emailIn, password } = (req.body ?? {}) as Record<string, unknown>
+    const email = typeof emailIn === 'string' ? emailIn.trim().toLowerCase().slice(0, 200) : ''
+    const f = failures.get(email)
+    if (f && f.until > now()) return err(429, 'too_many_attempts', 'Too many wrong passwords. Try again in 10 minutes.')
+    let user: Staff | null = null
+    if (owner && email && typeof password === 'string') {
+      if (same(email, owner.email)) {
+        if (same(password, owner.password)) user = { email, name: 'Owner', role: 'owner' }
+      } else {
+        const list = await staffList()
+        const s = list.find((m) => m.email === email)
+        if (s?.active && await checkPassword(password, s.passwordHash)) {
+          user = { email: s.email, name: s.name, role: s.role }
+          s.lastLoginAt = now()
+          await store.putDoc('staff', list)
+        }
+      }
+    }
+    if (!user) {
+      const n = (f?.n ?? 0) + 1
+      failures.set(email, n >= 5 ? { n: 0, until: now() + 600 } : { n, until: 0 })
+      return err(401, 'unauthorized', 'Wrong email or password.')
+    }
+    failures.delete(email)
+    return reply(200, { token: signSession(sessionKey, user.email, now()), user })
   }
 
+  async function createStaff(req: BillingRequest, me: Staff): Promise<BillingResponse> {
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const name = typeof b.name === 'string' ? b.name.trim().slice(0, 80) : ''
+    const email = typeof b.email === 'string' ? b.email.trim().toLowerCase() : ''
+    if (!name) return err(400, 'invalid_name', 'Enter their name.')
+    if (!EMAIL_RE.test(email) || email.length > 200) return err(400, 'invalid_email', 'Enter a valid email address.')
+    if (!isStaffRole(b.role)) return err(400, 'invalid_role', 'Choose a role.')
+    if (badPassword(b.password)) return err(400, 'invalid_password', 'Password: at least 8 characters.')
+    const list = await staffList()
+    if (email === owner!.email || list.some((m) => m.email === email)) return err(409, 'exists', 'Someone with that email already has access.')
+    const m: StaffMember = { email, name, role: b.role, active: true, passwordHash: await hashPassword(b.password as string), createdAt: now(), createdBy: me.email }
+    await store.putDoc('staff', [...list, m])
+    return reply(200, staffView(m))
+  }
+
+  async function updateStaff(req: BillingRequest, me: Staff): Promise<BillingResponse> {
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const list = await staffList()
+    const m = list.find((x) => x.email === String(b.email ?? '').trim().toLowerCase())
+    if (!m) return err(404, 'not_found', 'No such employee.')
+    if (m.email === me.email && (b.active === false || b.role === 'support')) return err(409, 'own_access', "You can't remove your own admin access.")
+    if (b.name !== undefined) {
+      const name = String(b.name).trim().slice(0, 80)
+      if (!name) return err(400, 'invalid_name', 'Enter their name.')
+      m.name = name
+    }
+    if (b.role !== undefined) {
+      if (!isStaffRole(b.role)) return err(400, 'invalid_role', 'Choose a role.')
+      m.role = b.role
+    }
+    if (b.active !== undefined) m.active = b.active === true
+    if (b.password !== undefined) {
+      if (badPassword(b.password)) return err(400, 'invalid_password', 'Password: at least 8 characters.')
+      m.passwordHash = await hashPassword(b.password as string)
+    }
+    await store.putDoc('staff', list)
+    return reply(200, staffView(m))
+  }
+
+  /* ── coupons ── */
+  async function resolveCoupon(codeIn: string, plan: PlanId, period: Period, rec: BillingRecord | null | undefined, addons: AddonSel[]): Promise<{ error: string } | { code: string; discount: number }> {
+    const code = codeIn.trim().toUpperCase()
+    const cp = (await coupons()).find((c) => c.code === code)
+    const problem = couponProblem(cp, plan, period, now(), Boolean(rec?.payments.some((p) => p.coupon === code)))
+    if (problem) return { error: problem }
+    return { code, discount: couponDiscount(cp!, chargeOf(plan, period, rec, addons).base) }
+  }
+
+  /* Counted once the payment has gone through.
+     shortcut: read-modify-write, so two payments finishing at the same instant can take a coupon one past maxUses. */
+  async function useCoupon(code: string): Promise<void> {
+    const list = await coupons()
+    const c = list.find((x) => x.code === code)
+    if (c) { c.uses += 1; await store.putDoc('coupons', list) }
+  }
+
+  async function createCoupon(req: BillingRequest, me: Staff): Promise<BillingResponse> {
+    const p = parseCoupon((req.body ?? {}) as Record<string, unknown>, now())
+    if (!p.ok) return err(400, 'invalid_coupon', p.message)
+    const list = await coupons()
+    if (list.some((c) => c.code === p.coupon.code)) return err(409, 'exists', 'A coupon with that code already exists.')
+    const c: Coupon = { ...p.coupon, active: true, uses: 0, createdAt: now(), createdBy: me.email }
+    await store.putDoc('coupons', [c, ...list])
+    return reply(200, c)
+  }
+
+  async function updateCoupon(req: BillingRequest): Promise<BillingResponse> {
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const list = await coupons()
+    const c = list.find((x) => x.code === String(b.code ?? '').trim().toUpperCase())
+    if (!c) return err(404, 'not_found', 'No such coupon.')
+    if (typeof b.active !== 'boolean') return err(400, 'invalid_request', 'active must be true or false.')
+    c.active = b.active
+    await store.putDoc('coupons', list)
+    return reply(200, c)
+  }
+
+  /* ── customers ── */
   /* Would the customer still be charged (or be chased for money) by autopay? */
   const autopayRunning = (r: BillingRecord) => Boolean(
     r.dunning?.state === 'active' || r.upcoming
     || (r.engine === 'token' ? r.renewal : r.mode === 'autopay' && !r.cancelAtCycleEnd && !TERMINAL.has(r.status)),
   )
 
-  const adminRow = (r: BillingRecord) => ({
-    workspaceId: r.workspaceId,
-    customer: r.profile?.legalName ?? null,
-    email: r.profile?.email ?? null,
-    plan: r.plan,
-    planName: r.plan ? PLAN_CATALOG[r.plan].name : null,
-    period: r.period,
-    mode: r.mode,
-    status: r.dunning?.state === 'active' ? 'past_due'
-      : r.status === 'active' && r.currentEnd && r.currentEnd < now() && !autopayRunning(r) ? 'expired' : r.status,
-    currentEnd: r.currentEnd ?? null,
-    addons: r.period ? addonLines(r.addons, r.period) : [],
-    autopay: autopayRunning(r),
-    lastGrant: r.grants?.[0] ?? null,
-  })
+  /* The next time this customer pays: charged automatically (autopay), or due from them (manual). */
+  function renewalOf(r: BillingRecord) {
+    if (!r.plan || !r.period || !r.currentEnd) return null
+    const sc = r.scheduledChange
+    const next = r.engine === 'token' && r.renewal
+      ? { at: r.renewal.dueAt, type: 'autopay', plan: r.renewal.plan, period: r.renewal.period, addons: r.renewal.addons }
+      : r.upcoming
+      ? { at: r.upcoming.startsAt, type: 'autopay', plan: r.upcoming.plan, period: r.upcoming.period, addons: r.upcoming.addons }
+      : r.mode === 'autopay' && r.engine !== 'token' && !r.cancelAtCycleEnd && !TERMINAL.has(r.status)
+      ? { at: r.nextChargeAt ?? r.currentEnd, type: 'autopay', plan: sc?.plan ?? r.plan, period: sc?.period ?? r.period, addons: sc?.addons ?? r.addons }
+      : { at: r.currentEnd, type: 'manual', plan: r.plan, period: r.period, addons: r.addons }
+    return {
+      at: next.at, type: next.type as 'autopay' | 'manual', plan: next.plan, planName: PLAN_CATALOG[next.plan].name, period: next.period,
+      total: chargeOf(next.plan, next.period, r, next.addons).total,
+    }
+  }
 
-  async function adminAssign(req: BillingRequest): Promise<BillingResponse> {
+  const adminRow = (r: BillingRecord) => {
+    const p = r.profile
+    const paid = r.payments.filter((x) => x.status === 'paid')
+    return {
+      workspaceId: r.workspaceId,
+      customer: p?.legalName ?? null,
+      contactName: p?.contactName ?? null,
+      email: p?.email ?? null,
+      phone: p?.phone ?? null,
+      gstin: p?.gstin ?? null,
+      city: p?.address.city ?? null,
+      stateCode: p?.address.stateCode ?? null,
+      state: p ? stateName(p.address.stateCode) : null,
+      plan: r.plan,
+      planName: r.plan ? PLAN_CATALOG[r.plan].name : null,
+      period: r.period,
+      mode: r.mode,
+      status: r.dunning?.state === 'active' ? 'past_due'
+        : r.status === 'active' && r.currentEnd && r.currentEnd < now() && !autopayRunning(r) ? 'expired' : r.status,
+      currentStart: r.currentStart ?? null,
+      currentEnd: r.currentEnd ?? null,
+      autopay: autopayRunning(r),
+      card: r.mandate ? { last4: r.mandate.last4 ?? null, network: r.mandate.network ?? null } : null,
+      renewal: renewalOf(r),
+      addons: r.period ? addonLines(r.addons, r.period) : [],
+      extraAddons: (r.extraAddons ?? []).filter((e) => e.until > now()).map((e) => ({ id: e.id, qty: e.qty, until: e.until, term: e.term ?? null })),
+      paidTotal: paid.reduce((n, x) => n + x.amountPaise, 0) / 100,
+      paymentsCount: paid.length,
+      lastPaymentAt: paid[0]?.at ?? null,
+      lastGrant: r.grants?.[0] ?? null,
+      updatedAt: r.updatedAt,
+    }
+  }
+
+  async function adminCustomer(ws: string): Promise<BillingResponse> {
+    const r = await store.get(ws)
+    if (!r) return err(404, 'not_found', 'No such customer.')
+    const d = r.dunning
+    return reply(200, {
+      ...adminRow(r),
+      profile: r.profile ?? null,
+      payments: r.payments.map((x) => ({
+        id: x.id, at: x.at, amountPaise: x.amountPaise, planName: PLAN_CATALOG[x.plan].name, period: x.period, status: x.status, method: x.method ?? null, coupon: x.coupon ?? null,
+        kind: r.invoices?.find((i) => i.paymentId === x.id)?.kind ?? null,   // purchase · renewal · addon …
+      })),
+      invoices: (r.invoices ?? []).map((i) => ({ id: i.id, number: i.number, at: i.issuedAt, amountPaise: i.amountPaise, kind: i.kind })),
+      grants: r.grants ?? [],
+      dunning: d?.state === 'active' ? { attempts: d.attempts.length, maxAttempts: policy.maxAttempts, deadline: d.deadline, nextAttemptAt: d.nextAttemptAt, amountPaise: d.amountPaise } : null,
+    })
+  }
+
+  async function adminInvoice(ws: string, id: string): Promise<BillingResponse> {
+    const inv = (await store.get(ws))?.invoices?.find((i) => i.id === id)
+    if (!inv) return err(404, 'not_found', 'No such invoice.')
+    return { status: 200, body: renderInvoiceHtml(inv, seller), contentType: 'text/html; charset=utf-8' }
+  }
+
+  /* Give a customer a plan without a payment: deals paid offline (bank transfer, cheque) and free or
+     trial plans. It runs like a pay-once plan — active until `until`, then it ends. No invoice. */
+  async function adminAssign(req: BillingRequest, me: Staff): Promise<BillingResponse> {
     const { workspaceId, plan, period, addons: addonsIn, until: untilIn, note } = (req.body ?? {}) as Record<string, unknown>
     const ws = typeof workspaceId === 'string' ? workspaceId.trim() : ''
-    if (!/^[A-Za-z0-9_.@-]{1,64}$/.test(ws)) return err(400, 'invalid_workspace', 'Workspace id: 1–64 letters, digits or . _ - @')
+    if (!/^(?!__)[A-Za-z0-9_.@-]{1,64}$/.test(ws)) return err(400, 'invalid_workspace', 'Workspace id: 1–64 letters, digits or . _ - @')
     if (!isPlanId(plan) || !isPeriod(period)) return err(400, 'invalid_request', 'plan and period are required.')
     const sel = normalizeAddons(addonsIn, plan)
     if (!sel.ok) return err(400, 'invalid_addons', sel.message)
@@ -1275,10 +1470,38 @@ export function createBillingService(opts: BillingServiceOptions) {
     rec.subscriptionId = undefined; rec.engine = undefined; rec.cancelAtCycleEnd = false; rec.scheduledChange = null; rec.upcoming = null
     rec.dunning = null; rec.autopayLapsed = false
     rec.currentStart = t; rec.currentEnd = until; rec.nextChargeAt = null
-    rec.grants = [{ at: t, plan, period, addons: sel.addons, until, note: typeof note === 'string' ? note.trim().slice(0, 500) : '' }, ...(rec.grants ?? [])]
+    rec.grants = [{ at: t, plan, period, addons: sel.addons, until, note: typeof note === 'string' ? note.trim().slice(0, 500) : '', by: me.email }, ...(rec.grants ?? [])]
     rec.updatedAt = t
     await store.put(rec)
     return reply(200, adminRow(rec))
+  }
+
+  const decode = (s: string) => { try { return decodeURIComponent(s) } catch { return '' } }
+
+  async function adminHandle(req: BillingRequest, path: string, route: string): Promise<BillingResponse> {
+    if (!owner) return err(503, 'admin_not_configured', 'Set BILLING_ADMIN_EMAIL and BILLING_ADMIN_PASSWORD on the server to use the admin panel.')
+    if (route === 'POST /admin/login') return await adminLogin(req)
+    const me = await currentStaff(req)
+    if (!me) return err(401, 'unauthorized', 'Please sign in again.')
+    const get = req.method.toUpperCase() === 'GET'
+    const inv = path.match(/^\/admin\/customers\/([^/]{1,200})\/invoices\/([A-Za-z0-9_-]+)$/)
+    const one = path.match(/^\/admin\/customers\/([^/]{1,200})$/)
+    if (route === 'GET /admin/me') return reply(200, me)
+    if (route === 'GET /admin/customers') return reply(200, { items: (await store.list()).map(adminRow) })
+    if (get && inv) return await adminInvoice(decode(inv[1]!), inv[2]!)
+    if (get && one) return await adminCustomer(decode(one[1]!))
+    if (route === 'GET /admin/coupons') return reply(200, { items: await coupons() })
+    // Everything below moves money or changes who has access.
+    if (me.role === 'support') return err(403, 'forbidden', 'Only admins can do that.')
+    switch (route) {
+      case 'POST /admin/assign':         return await adminAssign(req, me)
+      case 'POST /admin/coupons':        return await createCoupon(req, me)
+      case 'POST /admin/coupons/update': return await updateCoupon(req)
+      case 'GET /admin/staff':           return reply(200, { owner: { email: owner.email }, items: (await staffList()).map(staffView) })
+      case 'POST /admin/staff':          return await createStaff(req, me)
+      case 'POST /admin/staff/update':   return await updateStaff(req, me)
+      default:                           return err(404, 'not_found')
+    }
   }
 
   /* ── router ────────────────────────────────────────────────────────────── */
@@ -1287,14 +1510,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     const route = `${req.method.toUpperCase()} ${path}`
 
     // Admin routes don't touch Razorpay, so they work even when payments aren't configured.
-    if (path.startsWith('/admin/')) {
-      if (!admin) return err(503, 'admin_not_configured', 'Set BILLING_ADMIN_EMAIL and BILLING_ADMIN_PASSWORD on the server to use the admin panel.')
-      if (route === 'POST /admin/login') return adminLogin(req)
-      if (!isAdmin(req)) return err(401, 'unauthorized', 'Please sign in again.')
-      if (route === 'GET /admin/customers') return reply(200, { items: (await store.list()).map(adminRow) })
-      if (route === 'POST /admin/assign') return await adminAssign(req)
-      return err(404, 'not_found')
-    }
+    if (path.startsWith('/admin/')) return await adminHandle(req, path, route)
 
     if (route === 'GET /config') {
       const prices = Object.fromEntries(PLAN_ORDER.map((p) => [p, {

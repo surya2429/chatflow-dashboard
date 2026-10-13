@@ -44,7 +44,7 @@ import WebChatCallTester from './pages/WebChatCallTester'
 import WebChatLandingPage from './pages/WebChatLandingPage'
 import WebChatFlowLivePreview from './pages/WebChatFlowLivePreview'
 import WebChatEmbed from './pages/WebChatEmbed'
-import AdminPlans from './pages/AdminPlans'
+import AdminConsole from './pages/AdminConsole'
 
 
 function AppRoutes() {
@@ -60,8 +60,9 @@ function AppRoutes() {
         element={isAuthenticated ? <Navigate to="/" replace /> : <SignIn />}
       />
       <Route path="/clientele" element={<Clientele />} />
-      {/* SmatBot staff only — outside the customer login; the server checks the admin token */}
-      <Route path="/admin/plans" element={<AdminPlans />} />
+      {/* SmatBot staff console — outside the customer login; the server checks every request */}
+      <Route path="/admin" element={<AdminConsole />} />
+      <Route path="/admin/plans" element={<Navigate to="/admin" replace />} />
       <Route path="/voice-landing" element={<VoiceLanding />} />
       {/* Standalone "you are the website visitor" call tester — bypasses login/layout
           so it can be opened in a second tab to test real webchat calling end-to-end. */}

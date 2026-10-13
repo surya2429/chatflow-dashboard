@@ -46,6 +46,17 @@ export const pgBillingStore: BillingStore = {
     const rows = await query<Row>('SELECT data FROM billing_records ORDER BY updated_at DESC')
     return rows.map((r) => r.data)
   },
+  async getDoc<T>(key: string) {
+    const rows = await query<{ data: T }>('SELECT data FROM billing_docs WHERE key = $1', [key])
+    return rows[0]?.data ?? null
+  },
+  async putDoc(key, value) {
+    await query(
+      `INSERT INTO billing_docs (key, data, updated_at) VALUES ($1, $2, now())
+       ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
+      [key, JSON.stringify(value)],
+    )
+  },
   /* One atomic statement: concurrent payments can never be handed the same number. */
   async nextSequence(key) {
     const rows = await query<{ value: string }>(

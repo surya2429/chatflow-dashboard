@@ -183,9 +183,9 @@ export default function BillingSection() {
   useEffect(() => {
     if (!dialog?.plan) { setQuote(null); return }
     let off = false
-    billing.quote({ plan: dialog.plan, period: dialog.period, addons: dialog.addons || [], addonsOnly: dialog.kind === 'addons-once', term: dialog.term || (dialog.period === 'yearly' ? 'monthly' : 'plan') }).then(q => !off && setQuote(q)).catch(() => !off && setQuote(null))
+    billing.quote({ plan: dialog.plan, period: dialog.period, addons: dialog.addons || [], addonsOnly: dialog.kind === 'addons-once', term: dialog.term || (dialog.period === 'yearly' ? 'monthly' : 'plan'), coupon: dialog.coupon || undefined }).then(q => !off && setQuote(q)).catch(() => !off && setQuote(null))
     return () => { off = true }
-  }, [dialog?.plan, dialog?.period, dialog?.kind, dialog?.term, JSON.stringify(dialog?.addons || []), profile?.address?.stateCode])
+  }, [dialog?.plan, dialog?.period, dialog?.kind, dialog?.term, dialog?.coupon, JSON.stringify(dialog?.addons || []), profile?.address?.stateCode])
 
   async function saveProfile(values) {
     const saved = await billing.saveProfile(values)
@@ -216,7 +216,7 @@ export default function BillingSection() {
   async function runCheckout(d) {
     setBusy(true); setDlgError(null)
     try {
-      const session = await billing.checkout({ plan: d.plan, period: d.period, mode: d.mode, startAtCycleEnd: !!d.startAtCycleEnd, consent: !!d.consent, addons: d.addons || [] })
+      const session = await billing.checkout({ plan: d.plan, period: d.period, mode: d.mode, startAtCycleEnd: !!d.startAtCycleEnd, consent: !!d.consent, addons: d.addons || [], coupon: d.mode === 'once' ? d.coupon || undefined : undefined })
       // Prefill from the billing details so Checkout never has to guess (or reuse someone else's saved info).
       const response = await payWithRazorpay(session, profile
         ? { name: profile.contactName, email: profile.email, contact: `+91${profile.phone}` }
@@ -1040,7 +1040,8 @@ export default function BillingSection() {
       )}
 
       <PaymentDialog dialog={dialog} config={config} sub={sub} profile={profile} defaults={accountDefaults} quote={quote} busy={busy} error={dlgError}
-        web={web} onAddonsChange={(addons) => setDialog(d => (d ? { ...d, addons } : d))} onTermChange={(term) => setDialog(d => (d ? { ...d, term } : d))} onSaveProfile={saveProfile} onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
+        web={web} onAddonsChange={(addons) => setDialog(d => (d ? { ...d, addons } : d))} onTermChange={(term) => setDialog(d => (d ? { ...d, term } : d))}
+        onCouponChange={(coupon) => setDialog(d => (d ? { ...d, coupon } : d))} onSaveProfile={saveProfile} onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
         onPayOnceInstead={() => { setPayMode('once'); setDlgError(null); setDialog(d => ({ ...d, mode: 'once', startAtCycleEnd: false })) }}
         onStartAtRenewal={() => { setDlgError(null); setDialog(d => ({ kind: 'new', plan: d.plan, period: d.period, mode: 'autopay', startAtCycleEnd: true })) }}/>
 
