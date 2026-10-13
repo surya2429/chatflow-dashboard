@@ -20,7 +20,7 @@ import {
 import { useApp } from '../../context/AppContext'
 import { useAuth } from '../../context/AuthContext'
 import {
-  PLANS, PLAN_HIGHLIGHTS, FEATURE_GROUPS, ADDONS, getPlan, planTier, planMath, inr, money, num, DEMO_USAGE,
+  PLANS, PLAN_HIGHLIGHTS, FEATURE_GROUPS, ADDONS, addonAllowances, sampleUsed, getPlan, planTier, planMath, inr, money, num, DEMO_USAGE,
 } from '../../constants/pricing'
 import { billing, payWithRazorpay } from '../../lib/billingApi'
 import { useSubscription, setSubscription, setProfile, refreshSubscription, isLive } from '../../lib/subscriptionStore'
@@ -353,23 +353,43 @@ export default function BillingSection() {
 
   const span = pooled ? 12 : 1
   const per = pooled ? 'yr' : 'mo'
+  // What the add-ons bought (with the plan, or once) add on top of the plan's own allowances.
+  const ex = hasSub ? addonAllowances({ period: sub.period, addons: sub.addons, extraAddons: sub.extraAddons }) : { bi: 0, agents: 0, lang: 0, bots: 0, own: [] }
   const svcAllowance = current ? current.serviceMsgs * span : 0
-  const biAllowance = current ? current.biMsgs * span : 0
+  const biAllowance = current ? current.biMsgs * span + ex.bi : 0
   const svcUsed = DEMO_USAGE.svcUsed, biUsed = DEMO_USAGE.biUsed
+  const agentsIncl = ['pro', 'ai'].includes(current?.id) ? 3 : 0
+  const agentsTotal = agentsIncl + ex.agents
+  const langIncl = ['pro', 'ai'].includes(current?.id) ? 2 : 1
+  const langTotal = langIncl + ex.lang
+  const botsTotal = (current?.chatbots || 0) + ex.bots
+  const withExtra = (incl, extra, noun) => extra ? `${incl + extra} (${incl} included + ${extra} add-on)` : `${incl} included`
+  const pctOf = (used, of) => (of ? Math.min(100, Math.max(1, Math.round(used / of * 100))) : 0)
+  const agentsMeter = { key: 'agents', icon: Users, label: 'Live agents', used: String(Math.min(agentsTotal, 3)), of: withExtra(agentsIncl, ex.agents), pct: pctOf(Math.min(agentsTotal, 3), agentsTotal), color: '#8b5cf6' }
+  const langMeter = { key: 'lang', icon: Languages, label: 'Languages', used: String(Math.min(langTotal, 2)), of: withExtra(langIncl, ex.lang), pct: pctOf(Math.min(langTotal, 2), langTotal), color: '#0ea5e9' }
+  const botsUsed = Math.min(botsTotal, Math.max(1, Math.ceil((current?.chatbots || 0) * 0.6)))
+  const botsMeter = { key: 'bots', icon: Layers, label: 'Chatbots', used: String(botsUsed), of: withExtra(current?.chatbots || 0, ex.bots), pct: pctOf(botsUsed, botsTotal), color: '#f43f5e' }
+  const ICONS = { shield: ShieldCheck, msg: MessageSquare, globe: Globe }
+  // Usage add-ons that have an allowance of their own (OTPs, notifications, website chats).
+  const addonMeters = ex.own.filter(o => !(web && /^w[a]-/.test(o.id))).map(o => {
+    const used = sampleUsed(o.id, o.allowance)
+    const onceOnly = o.sources.every(x => x.kind === 'once')
+    const until = onceOnly ? Math.max(...o.sources.map(x => x.until)) : null
+    return { key: 'addon-' + o.id, icon: ICONS[o.icon] || Zap, label: o.label, used: num(used), of: onceOnly ? `${num(o.allowance)} · one-time` : `${num(o.allowance)} / ${per}`,
+      pct: pctOf(used, o.allowance), color: o.color, left: o.allowance - used, until, addon: true }
+  })
 
   const meters = !hasSub ? [] : web
     ? [
         current?.id === 'broadcast'
           ? { key: 'web', icon: Globe, label: 'Website messages', used: '—', of: 'Not in Broadcast', pct: 0, color: '#94a3b8' }
           : { key: 'web', icon: Globe, label: 'Website messages', used: '8,412', of: 'Unlimited', pct: 0, color: '#0066ff', unlimited: true },
-        { key: 'agents', icon: Users, label: 'Live agents', used: '3', of: '3 included', pct: 100, color: '#8b5cf6' },
-        { key: 'lang', icon: Languages, label: 'Languages', used: '2', of: '2 included', pct: 100, color: '#0ea5e9' },
+        agentsMeter, langMeter, botsMeter,
       ]
     : [
         { key: 'svc', icon: MessageSquare, label: 'WhatsApp service messages', used: num(svcUsed), of: `${num(svcAllowance)} / ${per}`, pct: Math.max(1, Math.round(svcUsed / svcAllowance * 100)), color: '#16a34a' },
         { key: 'bi', icon: Zap, label: 'WhatsApp BI messages', used: num(biUsed), of: `${num(biAllowance)} / ${per}`, pct: Math.max(1, Math.round(biUsed / biAllowance * 100)), color: '#f59e0b' },
-        { key: 'agents', icon: Users, label: 'Live agents', used: '3', of: '3 included', pct: 100, color: '#8b5cf6' },
-        { key: 'lang', icon: Languages, label: 'Languages', used: '2', of: '2 included', pct: 100, color: '#0ea5e9' },
+        agentsMeter, langMeter, botsMeter,
       ]
 
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -515,15 +535,16 @@ export default function BillingSection() {
                 <button onClick={() => setTab('usage')} className="text-[11px] font-semibold text-primary hover:underline">View details</button>
               </div>
               <div className={clsx('grid grid-cols-1 sm:grid-cols-2 gap-3', web ? 'xl:grid-cols-3' : 'xl:grid-cols-4')}>
-                {meters.map(m => {
+                {[...meters, ...addonMeters].map(m => {
                   const Icon = m.icon
                   return (
-                    <div key={m.key} className="rounded-2xl border border-surface-border bg-white p-4 flex items-center gap-3.5">
+                    <div key={m.key} className={clsx('rounded-2xl border bg-white p-4 flex items-center gap-3.5', m.addon ? 'border-primary/20' : 'border-surface-border')}>
                       <Ring pct={m.unlimited ? 0 : m.pct} color={m.color}>{m.unlimited ? '∞' : `${m.pct}%`}</Ring>
                       <div className="min-w-0">
                         <p className="text-[11px] text-slate-500 flex items-center gap-1.5"><Icon size={12} style={{ color: m.color }}/> <span className="truncate">{m.label}</span></p>
                         <p className="text-base font-bold text-slate-900 tabular-nums mt-0.5">{m.used}</p>
                         <p className="text-[10.5px] text-slate-400">of {m.of}</p>
+                        {m.addon && <p className="text-[9.5px] font-semibold text-primary mt-0.5">Add-on{m.until ? ` · until ${fmtSec(m.until)}` : ''}</p>}
                       </div>
                     </div>
                   )
@@ -782,7 +803,7 @@ export default function BillingSection() {
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-semibold text-slate-600 flex items-center gap-1.5"><Icon size={13} style={{ color: m.color }}/> {m.label}</p>
                           <p className="text-xl font-extrabold text-slate-900 tabular-nums mt-1">{m.used}</p>
-                          <p className="text-[11px] text-slate-400">used of {m.of}</p>
+                          <p className="text-[11px] text-slate-400">used of {m.of}{m.key === 'bi' && ex.bi > 0 ? ` (incl. ${num(ex.bi)} from add-ons)` : ''}</p>
                           <p className="text-[11px] font-semibold mt-1.5" style={{ color: m.color }}>{num(left)} left {pooled ? 'in your yearly pool' : 'this month'}</p>
                         </div>
                       </div>
@@ -825,7 +846,7 @@ export default function BillingSection() {
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {meters.filter(m => m.key === 'agents' || m.key === 'lang').map(m => {
+            {meters.filter(m => m.key === 'agents' || m.key === 'lang' || m.key === 'bots').map(m => {
               const Icon = m.icon
               return (
                 <Card key={m.key}>
@@ -841,6 +862,33 @@ export default function BillingSection() {
               )
             })}
           </div>
+
+          {addonMeters.length > 0 && (
+            <div>
+              <div className="mb-2">
+                <h3 className="text-[13px] font-bold text-slate-900">Add-on usage</h3>
+                <p className="text-[11px] text-slate-400">What you've used of the usage add-ons you bought{pooled ? ' — yearly allowances are one pool' : ''}.</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {addonMeters.map(m => {
+                  const Icon = m.icon
+                  return (
+                    <Card key={m.key}>
+                      <div className="flex items-center gap-4">
+                        <Ring pct={m.pct} color={m.color} size={72} stroke={8}>{m.pct}%</Ring>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-slate-600 flex items-center gap-1.5"><Icon size={13} style={{ color: m.color }}/> {m.label}</p>
+                          <p className="text-lg font-extrabold text-slate-900 tabular-nums mt-0.5">{m.used}</p>
+                          <p className="text-[11px] text-slate-400">used of {m.of}</p>
+                          <p className="text-[11px] font-semibold mt-1" style={{ color: m.color }}>{num(m.left)} left{m.until ? ` until ${fmtSec(m.until)}` : ''}</p>
+                        </div>
+                      </div>
+                    </Card>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       ))}
 

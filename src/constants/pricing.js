@@ -138,6 +138,54 @@ export const ADDONS = [
   { id: 'premium-support',  kind: 'usage',   name: 'Premium Support',             unit: 'flat rate', on: ALL, m: 14999, y: 143988 },
 ]
 
+/* ── Usage from add-ons ───────────────────────────────────────────────────
+   A usage add-on is worth something the customer can run out of, so the dashboard shows it as an allowance:
+     into: 'bi' | 'agents' | 'lang' | 'bots'  → it tops up the plan's own allowance of that kind
+     own: true                                → it has an allowance of its own (OTPs, notifications, website chats)
+   size = how much ONE unit adds. Message-type units are per month; a yearly plan gets the 12 months credited
+   upfront, as one pool. A one-time purchase bought "for one month" on a yearly plan is a single month. */
+export const ADDON_METER = {
+  'wa-bi-messages':    { into: 'bi', size: 1000 },
+  'extra-live-agent':  { into: 'agents', size: 1 },
+  'extra-language':    { into: 'lang', size: 1 },
+  'extra-chatbots':    { into: 'bots', size: 5 },
+  'sms-otps':          { own: true, label: 'SMS OTPs', size: 1000, color: '#0ea5e9', icon: 'shield' },
+  'wa-otps':           { own: true, label: 'WhatsApp OTPs', size: 1000, color: '#16a34a', icon: 'shield' },
+  'email-otp':         { own: true, label: 'Email OTPs', size: 1000, color: '#6366f1', icon: 'shield' },
+  'sms-notifications': { own: true, label: 'SMS notifications', size: 1000, color: '#f59e0b', icon: 'msg' },
+  'wa-notifications':  { own: true, label: 'WhatsApp notifications', size: 1000, color: '#10b981', icon: 'msg' },
+  'web-chats':         { own: true, label: 'Website chats', size: 1000, color: '#0066ff', icon: 'globe' },
+}
+
+/* Turn what the customer bought (recurring add-ons + one-time ones still running) into extra allowances. */
+export function addonAllowances({ period, addons = [], extraAddons = [] }) {
+  const out = { bi: 0, agents: 0, lang: 0, bots: 0, own: [] }
+  const own = new Map()
+  const add = (id, qty, mult, source) => {
+    const m = ADDON_METER[id]
+    if (!m) return
+    const amount = qty * m.size * (m.size > 1 ? mult : 1)
+    if (m.into) out[m.into] += amount
+    else {
+      const cur = own.get(id) || { id, label: m.label, color: m.color, icon: m.icon, allowance: 0, sources: [] }
+      cur.allowance += amount; cur.sources.push(source)
+      own.set(id, cur)
+    }
+  }
+  const yearly = period === 'yearly' ? 12 : 1
+  for (const a of addons) add(a.id, a.qty, yearly, { kind: 'plan' })
+  for (const a of extraAddons) add(a.id, a.qty, a.term === 'monthly' ? 1 : yearly, { kind: 'once', until: a.until })
+  out.own = [...own.values()]
+  return out
+}
+
+/* Stand-in for real metering: a steady, believable share of the allowance, the same on every render. */
+export function sampleUsed(id, allowance) {
+  let h = 0
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 997
+  return Math.round(allowance * (0.12 + (h % 47) / 100))
+}
+
 /* What each plan is for, in one glance (the long descriptions stay in PLANS). */
 export const PLAN_HIGHLIGHTS = {
   broadcast: ['WhatsApp template & broadcast messages', 'Google Sheets integration', 'Replies handled by an agent (no bot)', '2 chatbots'],
