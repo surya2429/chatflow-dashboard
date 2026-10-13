@@ -142,7 +142,7 @@ export const ADDONS = [
 export const PLAN_HIGHLIGHTS = {
   broadcast: ['WhatsApp template & broadcast messages', 'Google Sheets integration', 'Replies handled by an agent (no bot)', '2 chatbots'],
   standard:  ['Everything in Broadcast, plus a bot', 'Flow / menu-driven chatbot · 5 chatbots', 'WhatsApp, Website, Instagram & Landing Page', 'Custom Google Sheet & webhook, lead emails, 2FA'],
-  pro:       ['Everything in Standard', '6 platforms incl. Messenger & in-app · 10 chatbots', '3 live agents, CRM & AI Agent included', 'Voice, multi-lingual, auto email follow-up, hot-lead alerts'],
+  pro:       ['Everything in Standard', '6 platforms incl. Messenger & in-app · 10 chatbots', '3 live agents, CRM & AI Agent (Dialogflow) included', 'Voice, multi-lingual, auto email follow-up, hot-lead alerts'],
   ai:        ['Everything in Pro', 'AI integration included', 'Highest message allowances', 'All add-ons available'],
 }
 
