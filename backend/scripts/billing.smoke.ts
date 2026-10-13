@@ -100,6 +100,7 @@ function memoryStore(): BillingStore {
     async findBySubscription(id) { return [...all.values()].find((r) => r.subscriptionId === id || r.upcoming?.subscriptionId === id) ?? null },
     async listActiveDunning() { return [...all.values()].filter((r) => r.dunning?.state === 'active').map((r) => structuredClone(r)) },
     async listTokenAutopay() { return [...all.values()].filter((r) => r.engine === 'token' && r.mandate && r.renewal).map((r) => structuredClone(r)) },
+    async list() { return [...all.values()].map((r) => structuredClone(r)) },
     async nextSequence(key) { counters[key] = (counters[key] ?? 0) + 1; return counters[key]! },
   }
 }
@@ -677,6 +678,33 @@ async function main() {
   check('notes say no refunds, Meta charges are the client pays, and the plan allowance', invPage.includes('we do not have any refund policy') && invPage.includes('Meta charges are separate') && invPage.includes('must be paid by the client') && invPage.includes('1,00,000 WhatsApp service messages'))
   check('line item: plan, start and end date, qty and rate — no long description', invPage.includes('Plan start date') && invPage.includes('Plan end date') && invPage.includes('1 month') && invPage.includes('₹6,500.00') && !invPage.includes('Flow-based bot with the full feature set'))
   check('contact details sit in the footer, not the supplier box', invPage.lastIndexOf('sales@smatbot.com') > invPage.indexOf('class="foot') && invPage.indexOf('sales@smatbot.com') === invPage.lastIndexOf('sales@smatbot.com'))
+
+  console.log('\nadmin panel: assign a plan without payment')
+  const ADMIN = 'admin-token-0123456789'
+  const asvc = createBillingService({ store, gstPercent: 18, adminToken: ADMIN, now: () => t })   // no Razorpay: admin routes must not need it
+  const adm = (method: string, path: string, body?: Record<string, unknown>, token = ADMIN) =>
+    asvc.handle({ method, path, body, headers: { 'x-admin-token': token }, workspaceId: 'ignored' })
+  check('admin routes are off when no token is configured', (await call('GET', '/admin/customers')).status === 503)
+  check('a wrong token is refused', (await adm('GET', '/admin/customers', undefined, 'admin-token-wrong-0000')).status === 401)
+  check('a short token cannot enable them', (await createBillingService({ store, gstPercent: 18, adminToken: 'short' }).handle({ method: 'GET', path: '/admin/customers', headers: { 'x-admin-token': 'short' }, workspaceId: 'x' })).status === 503)
+  r = await adm('POST', '/admin/assign', { workspaceId: 'wa1', plan: 'standard', period: 'yearly', addons: [{ id: 'crm', qty: 1 }], note: 'NEFT UTR 123' })
+  const ga = r.body as RzEntity
+  check('plan assigned for a year with its add-on and note', r.status === 200 && ga.planName === 'Standard' && ga.status === 'active' && ga.currentEnd > t + 364 * 86400 && ga.addons[0]?.id === 'crm' && ga.lastGrant?.note === 'NEFT UTR 123', ga)
+  s = (await call('GET', '/subscription', undefined, 'wa1')).body as RzEntity
+  check('the customer sees it as a plan that ends, no autopay, no invoice', s.status === 'active' && s.plan === 'standard' && s.autopay.on === false && s.endsAt === ga.currentEnd && !s.latestInvoice, s)
+  r = await adm('POST', '/admin/assign', { workspaceId: 'wa1', plan: 'pro', period: 'monthly', addons: [{ id: 'crm', qty: 1 }] })
+  check('an add-on the plan cannot have is rejected', r.status === 400 && (r.body as RzEntity).error === 'invalid_addons', r.body)
+  r = await adm('POST', '/admin/assign', { workspaceId: 'wa1', plan: 'pro', period: 'monthly', until: t - 1 })
+  check('an end date in the past is rejected', r.status === 400 && (r.body as RzEntity).error === 'invalid_until', r.body)
+  r = await adm('POST', '/admin/assign', { workspaceId: '../x', plan: 'pro', period: 'monthly' })
+  check('a bad workspace id is rejected', r.status === 400 && (r.body as RzEntity).error === 'invalid_workspace', r.body)
+  await store.put({ ...(await store.get('wa1'))!, workspaceId: 'wa2', engine: 'token', renewal: { plan: 'pro', period: 'monthly', dueAt: t + 86400 } })
+  r = await adm('POST', '/admin/assign', { workspaceId: 'wa2', plan: 'ai', period: 'monthly' })
+  check('refused while the customer is on autopay (they would be charged too)', r.status === 409 && (r.body as RzEntity).error === 'autopay_running', r.body)
+  const rows = ((await adm('GET', '/admin/customers')).body as RzEntity).items as RzEntity[]
+  check('customer list shows the assigned plan and who is on autopay', rows.some((x) => x.workspaceId === 'wa1' && x.plan === 'standard' && !x.autopay) && rows.some((x) => x.workspaceId === 'wa2' && x.autopay), rows.length)
+  t = ga.currentEnd + 1
+  check('after the end date the plan has ended', ((await call('GET', '/subscription', undefined, 'wa1')).body as RzEntity).status === 'expired')
 
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed')
   process.exit(failures ? 1 : 0)

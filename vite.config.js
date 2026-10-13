@@ -209,6 +209,7 @@ function devBillingApi(env) {
     gstPercent: Number(env.BILLING_GST_PERCENT) || 18,
     supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE || '36',
     autopayEngine: ['auto', 'token', 'subscription'].includes(env.BILLING_AUTOPAY_ENGINE) ? env.BILLING_AUTOPAY_ENGINE : 'auto',
+    adminToken: env.BILLING_ADMIN_TOKEN || undefined,
     seller: {
       ...(env.BILLING_SELLER_NAME && { name: env.BILLING_SELLER_NAME }),
       ...(env.BILLING_SELLER_ADDRESS && { address: env.BILLING_SELLER_ADDRESS }),
@@ -241,7 +242,7 @@ function devBillingApi(env) {
               path: req.url.split('?')[0].replace(/^\/api\/billing/, '') || '/',
               body,
               rawBody,
-              headers: { 'x-razorpay-signature': req.headers['x-razorpay-signature'] },
+              headers: { 'x-razorpay-signature': req.headers['x-razorpay-signature'], 'x-admin-token': req.headers['x-admin-token'] },
               workspaceId: String(req.headers['x-workspace-id'] || 'default'),
               ip: req.socket.remoteAddress,
               userAgent: req.headers['user-agent'],

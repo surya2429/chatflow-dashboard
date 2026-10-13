@@ -15,12 +15,12 @@ export class BillingError extends Error {
   }
 }
 
-async function call(method, path, body) {
+async function call(method, path, body, headers) {
   let res
   try {
     res = await fetch(`${API_BASE_URL}/billing${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   } catch {
@@ -44,6 +44,13 @@ export const billing = {
   setAutopay:   (enabled) => call('POST', '/autopay', { enabled }),
   updateCard:   ()     => call('POST', '/payment-method', {}),
   addonsCheckout: (addons, term) => call('POST', '/addons/checkout', { addons, term }),
+}
+
+/* The admin panel (pages/AdminPlans.jsx). The token is typed in by staff and checked on
+   the server (BILLING_ADMIN_TOKEN) — it is never part of this bundle. */
+export const billingAdmin = {
+  customers: (token)       => call('GET', '/admin/customers', undefined, { 'x-admin-token': token }),
+  assign:    (token, body) => call('POST', '/admin/assign', body, { 'x-admin-token': token }),
 }
 
 /* ── Razorpay Checkout ─────────────────────────────────────────────────── */

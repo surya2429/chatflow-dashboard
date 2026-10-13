@@ -41,6 +41,11 @@ export const pgBillingStore: BillingStore = {
     const rows = await query<Row>('SELECT data FROM billing_records WHERE token_autopay')
     return rows.map((r) => r.data)
   },
+  // shortcut: unpaginated, fine for a few thousand customers; add LIMIT/OFFSET when the list gets big.
+  async list() {
+    const rows = await query<Row>('SELECT data FROM billing_records ORDER BY updated_at DESC')
+    return rows.map((r) => r.data)
+  },
   /* One atomic statement: concurrent payments can never be handed the same number. */
   async nextSequence(key) {
     const rows = await query<{ value: string }>(

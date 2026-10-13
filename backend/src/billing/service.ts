@@ -37,6 +37,7 @@ import { STATES, stateName, validateProfile } from './india.js'
 import { DUNNING_POLICY, assertPolicy, attemptTimes, deadlineFor, type DunningPolicy } from './dunning.js'
 import { buildInvoice, financialYear, invoiceNumber, renderInvoiceHtml, type SellerInfo } from './invoice.js'
 import { DEFAULT_LOGO } from './logo.js'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import type {
   BillingRecord, BillingRequest, BillingResponse, BillingStore, Dunning, Invoice, PaymentMethod,
 } from './types.js'
@@ -55,6 +56,8 @@ export interface BillingServiceOptions {
   dunning?: DunningPolicy
   /** 'auto' (default): saved-card autopay when the charge is ≤ ₹15,000, Razorpay Subscriptions above that */
   autopayEngine?: 'auto' | 'token' | 'subscription'
+  /** unlocks /admin/* (assign plans without payment); 16+ characters, admin panel disabled when unset */
+  adminToken?: string
   /** unix seconds; injectable for tests */
   now?: () => number
 }
@@ -1210,10 +1213,75 @@ export function createBillingService(opts: BillingServiceOptions) {
     return reply(200, { plan, planName: PLAN_CATALOG[plan].name, period, charge: c, planBase: only ? 0 : PLAN_CATALOG[plan][period], addonPeriod: addonPeriod ?? null, addons: addonLines(sel.addons, addonPeriod ?? period), requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES })
   }
 
+  /* ── admin panel: give a customer a plan without a payment ──────────────
+     For deals paid offline (bank transfer, cheque) and free or trial plans. It runs like a
+     pay-once plan: active until `until`, then it simply ends. No Razorpay payment, so no invoice. */
+  const adminToken = opts.adminToken && opts.adminToken.length >= 16 ? opts.adminToken : undefined
+  const digest = (s: string) => createHash('sha256').update(s).digest()   // equal lengths for timingSafeEqual
+  const isAdmin = (req: BillingRequest) => {
+    const given = req.headers['x-admin-token']
+    return Boolean(adminToken && given && timingSafeEqual(digest(given), digest(adminToken)))
+  }
+
+  /* Would the customer still be charged (or be chased for money) by autopay? */
+  const autopayRunning = (r: BillingRecord) => Boolean(
+    r.dunning?.state === 'active' || r.upcoming
+    || (r.engine === 'token' ? r.renewal : r.mode === 'autopay' && !r.cancelAtCycleEnd && !TERMINAL.has(r.status)),
+  )
+
+  const adminRow = (r: BillingRecord) => ({
+    workspaceId: r.workspaceId,
+    customer: r.profile?.legalName ?? null,
+    email: r.profile?.email ?? null,
+    plan: r.plan,
+    planName: r.plan ? PLAN_CATALOG[r.plan].name : null,
+    period: r.period,
+    mode: r.mode,
+    status: r.dunning?.state === 'active' ? 'past_due'
+      : r.status === 'active' && r.currentEnd && r.currentEnd < now() && !autopayRunning(r) ? 'expired' : r.status,
+    currentEnd: r.currentEnd ?? null,
+    addons: r.period ? addonLines(r.addons, r.period) : [],
+    autopay: autopayRunning(r),
+    lastGrant: r.grants?.[0] ?? null,
+  })
+
+  async function adminAssign(req: BillingRequest): Promise<BillingResponse> {
+    const { workspaceId, plan, period, addons: addonsIn, until: untilIn, note } = (req.body ?? {}) as Record<string, unknown>
+    const ws = typeof workspaceId === 'string' ? workspaceId.trim() : ''
+    if (!/^[A-Za-z0-9_.@-]{1,64}$/.test(ws)) return err(400, 'invalid_workspace', 'Workspace id: 1–64 letters, digits or . _ - @')
+    if (!isPlanId(plan) || !isPeriod(period)) return err(400, 'invalid_request', 'plan and period are required.')
+    const sel = normalizeAddons(addonsIn, plan)
+    if (!sel.ok) return err(400, 'invalid_addons', sel.message)
+    const t = now()
+    const until = untilIn == null ? addPeriod(t, period) : Number(untilIn)
+    if (!Number.isInteger(until) || until <= t || until > t + 5 * 366 * 86400) return err(400, 'invalid_until', 'The end date must be in the future and within 5 years.')
+    const rec = (await store.get(ws)) ?? blank(ws)
+    if (autopayRunning(rec)) {
+      return err(409, 'autopay_running', 'This customer is on autopay (or has a renewal payment outstanding). They must turn autopay off first, or they would be charged as well.')
+    }
+    rec.plan = plan; rec.period = period; rec.mode = 'once'; rec.status = 'active'; rec.addons = sel.addons
+    rec.subscriptionId = undefined; rec.engine = undefined; rec.cancelAtCycleEnd = false; rec.scheduledChange = null; rec.upcoming = null
+    rec.dunning = null; rec.autopayLapsed = false
+    rec.currentStart = t; rec.currentEnd = until; rec.nextChargeAt = null
+    rec.grants = [{ at: t, plan, period, addons: sel.addons, until, note: typeof note === 'string' ? note.trim().slice(0, 500) : '' }, ...(rec.grants ?? [])]
+    rec.updatedAt = t
+    await store.put(rec)
+    return reply(200, adminRow(rec))
+  }
+
   /* ── router ────────────────────────────────────────────────────────────── */
   async function handle(req: BillingRequest): Promise<BillingResponse> {
     const path = req.path.replace(/\/+$/, '') || '/'
     const route = `${req.method.toUpperCase()} ${path}`
+
+    // Admin routes don't touch Razorpay, so they work even when payments aren't configured.
+    if (path.startsWith('/admin/')) {
+      if (!adminToken) return err(503, 'admin_not_configured', 'Set BILLING_ADMIN_TOKEN (16+ characters) on the server to use the admin panel.')
+      if (!isAdmin(req)) return err(401, 'unauthorized', 'Wrong admin token.')
+      if (route === 'GET /admin/customers') return reply(200, { items: (await store.list()).map(adminRow) })
+      if (route === 'POST /admin/assign') return await adminAssign(req)
+      return err(404, 'not_found')
+    }
 
     if (route === 'GET /config') {
       const prices = Object.fromEntries(PLAN_ORDER.map((p) => [p, {

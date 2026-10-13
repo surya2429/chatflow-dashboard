@@ -23,6 +23,7 @@ export function createFileBillingStore(file: string): BillingStore {
     },
     async listActiveDunning() { return records(read()).filter((r) => r.dunning?.state === 'active') },
     async listTokenAutopay() { return records(read()).filter((r) => r.engine === 'token' && r.mandate && r.renewal) },
+    async list() { return records(read()).sort((a, b) => b.updatedAt - a.updatedAt) },
     // Single dev process, synchronous read-modify-write: no two callers can interleave.
     async nextSequence(key) {
       const all = read()

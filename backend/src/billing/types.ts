@@ -199,6 +199,16 @@ export interface ExtraAddon {
   term?: Period
 }
 
+/** A plan given to a customer from the admin panel — paid offline, or free. No Razorpay payment, no invoice. */
+export interface AdminGrant {
+  at: number
+  plan: PlanId
+  period: Period
+  addons: AddonSel[]
+  until: number
+  note: string
+}
+
 export interface BillingRecord {
   workspaceId: string
   plan: PlanId | null
@@ -235,6 +245,8 @@ export interface BillingRecord {
   /** every recurring-charge authorisation, newest first */
   consents?: ConsentEntry[]
   pending?: PendingCheckout | null
+  /** plans assigned from the admin panel, newest first */
+  grants?: AdminGrant[]
   updatedAt: number
 }
 
@@ -247,6 +259,8 @@ export interface BillingStore {
   listActiveDunning(): Promise<BillingRecord[]>
   /** Records on token autopay — the job that sends notices and debits works through these. */
   listTokenAutopay(): Promise<BillingRecord[]>
+  /** Every record, most recently changed first — the admin panel's customer list. */
+  list(): Promise<BillingRecord[]>
   /** Atomic counter (invoice numbers must be gapless and never repeat, across all customers). */
   nextSequence(key: string): Promise<number>
 }
