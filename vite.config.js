@@ -209,7 +209,7 @@ function devBillingApi(env) {
     gstPercent: Number(env.BILLING_GST_PERCENT) || 18,
     supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE || '36',
     autopayEngine: ['auto', 'token', 'subscription'].includes(env.BILLING_AUTOPAY_ENGINE) ? env.BILLING_AUTOPAY_ENGINE : 'auto',
-    adminToken: env.BILLING_ADMIN_TOKEN || undefined,
+    admin: env.BILLING_ADMIN_EMAIL && env.BILLING_ADMIN_PASSWORD ? { email: env.BILLING_ADMIN_EMAIL, password: env.BILLING_ADMIN_PASSWORD } : undefined,
     seller: {
       ...(env.BILLING_SELLER_NAME && { name: env.BILLING_SELLER_NAME }),
       ...(env.BILLING_SELLER_ADDRESS && { address: env.BILLING_SELLER_ADDRESS }),

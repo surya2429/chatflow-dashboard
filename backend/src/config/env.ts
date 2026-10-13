@@ -65,8 +65,9 @@ const EnvSchema = z.object({
   BILLING_LOGO_FILE: z.string().optional(),
   BILLING_SAC_CODE: z.string().regex(/^\d{4,8}$/).default('998314'),
   BILLING_INVOICE_PREFIX: z.string().regex(/^[A-Z0-9]{1,6}$/).default('SB'),
-  // Unlocks the admin panel (/admin/plans) that assigns plans without payment. Unset = panel disabled.
-  BILLING_ADMIN_TOKEN: z.string().min(16).optional(),
+  // Login for the admin panel (/admin/plans) that assigns plans without payment. Unset = panel disabled.
+  BILLING_ADMIN_EMAIL: z.string().email().optional(),
+  BILLING_ADMIN_PASSWORD: z.string().min(8).optional(),
 })
 
 export type Env = z.infer<typeof EnvSchema>

@@ -46,9 +46,10 @@ export const billing = {
   addonsCheckout: (addons, term) => call('POST', '/addons/checkout', { addons, term }),
 }
 
-/* The admin panel (pages/AdminPlans.jsx). The token is typed in by staff and checked on
-   the server (BILLING_ADMIN_TOKEN) — it is never part of this bundle. */
+/* The admin panel (pages/AdminPlans.jsx). The server checks the login (BILLING_ADMIN_EMAIL /
+   BILLING_ADMIN_PASSWORD) and hands back a token that every other admin call carries. */
 export const billingAdmin = {
+  login:     (email, password) => call('POST', '/admin/login', { email, password }),
   customers: (token)       => call('GET', '/admin/customers', undefined, { 'x-admin-token': token }),
   assign:    (token, body) => call('POST', '/admin/assign', body, { 'x-admin-token': token }),
 }

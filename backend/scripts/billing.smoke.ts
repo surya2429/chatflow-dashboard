@@ -680,13 +680,19 @@ async function main() {
   check('contact details sit in the footer, not the supplier box', invPage.lastIndexOf('sales@smatbot.com') > invPage.indexOf('class="foot') && invPage.indexOf('sales@smatbot.com') === invPage.lastIndexOf('sales@smatbot.com'))
 
   console.log('\nadmin panel: assign a plan without payment')
-  const ADMIN = 'admin-token-0123456789'
-  const asvc = createBillingService({ store, gstPercent: 18, adminToken: ADMIN, now: () => t })   // no Razorpay: admin routes must not need it
-  const adm = (method: string, path: string, body?: Record<string, unknown>, token = ADMIN) =>
+  const ADMIN = { email: 'ops@smatbot.test', password: 'smoke-only-pass' }
+  const asvc = createBillingService({ store, gstPercent: 18, admin: ADMIN, now: () => t })   // no Razorpay: admin routes must not need it
+  const login = (body: Record<string, unknown>) => asvc.handle({ method: 'POST', path: '/admin/login', body, headers: {}, workspaceId: 'ignored' })
+  check('admin routes are off when no login is configured', (await call('GET', '/admin/customers')).status === 503)
+  check('a wrong password is refused', (await login({ email: ADMIN.email, password: 'smoke-only-pas' })).status === 401)
+  check('a wrong email is refused', (await login({ email: 'x@smatbot.test', password: ADMIN.password })).status === 401)
+  r = await login({ email: ' OPS@smatbot.test ', password: ADMIN.password })
+  const TOKEN = (r.body as RzEntity).token as string
+  check('the right login (email in any case) returns a token, not the password', r.status === 200 && TOKEN?.length > 20 && !TOKEN.includes(ADMIN.password), r.body)
+  const adm = (method: string, path: string, body?: Record<string, unknown>, token = TOKEN) =>
     asvc.handle({ method, path, body, headers: { 'x-admin-token': token }, workspaceId: 'ignored' })
-  check('admin routes are off when no token is configured', (await call('GET', '/admin/customers')).status === 503)
-  check('a wrong token is refused', (await adm('GET', '/admin/customers', undefined, 'admin-token-wrong-0000')).status === 401)
-  check('a short token cannot enable them', (await createBillingService({ store, gstPercent: 18, adminToken: 'short' }).handle({ method: 'GET', path: '/admin/customers', headers: { 'x-admin-token': 'short' }, workspaceId: 'x' })).status === 503)
+  check('admin calls without that token are refused', (await adm('GET', '/admin/customers', undefined, 'forged')).status === 401)
+  check('the token stops working when the password changes', (await createBillingService({ store, gstPercent: 18, admin: { ...ADMIN, password: 'another-pass-1' } }).handle({ method: 'GET', path: '/admin/customers', headers: { 'x-admin-token': TOKEN }, workspaceId: 'x' })).status === 401)
   r = await adm('POST', '/admin/assign', { workspaceId: 'wa1', plan: 'standard', period: 'yearly', addons: [{ id: 'crm', qty: 1 }], note: 'NEFT UTR 123' })
   const ga = r.body as RzEntity
   check('plan assigned for a year with its add-on and note', r.status === 200 && ga.planName === 'Standard' && ga.status === 'active' && ga.currentEnd > t + 364 * 86400 && ga.addons[0]?.id === 'crm' && ga.lastGrant?.note === 'NEFT UTR 123', ga)

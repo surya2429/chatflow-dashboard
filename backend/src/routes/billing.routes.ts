@@ -22,7 +22,7 @@ const billing = createBillingService({
   gstPercent: env.BILLING_GST_PERCENT,
   supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE,
   autopayEngine: env.BILLING_AUTOPAY_ENGINE,
-  adminToken: env.BILLING_ADMIN_TOKEN,
+  admin: env.BILLING_ADMIN_EMAIL && env.BILLING_ADMIN_PASSWORD ? { email: env.BILLING_ADMIN_EMAIL, password: env.BILLING_ADMIN_PASSWORD } : undefined,
   seller: {
     ...(env.BILLING_SELLER_NAME && { name: env.BILLING_SELLER_NAME }),
     ...(env.BILLING_SELLER_ADDRESS && { address: env.BILLING_SELLER_ADDRESS }),

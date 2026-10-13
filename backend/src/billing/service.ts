@@ -37,7 +37,7 @@ import { STATES, stateName, validateProfile } from './india.js'
 import { DUNNING_POLICY, assertPolicy, attemptTimes, deadlineFor, type DunningPolicy } from './dunning.js'
 import { buildInvoice, financialYear, invoiceNumber, renderInvoiceHtml, type SellerInfo } from './invoice.js'
 import { DEFAULT_LOGO } from './logo.js'
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import type {
   BillingRecord, BillingRequest, BillingResponse, BillingStore, Dunning, Invoice, PaymentMethod,
 } from './types.js'
@@ -56,8 +56,8 @@ export interface BillingServiceOptions {
   dunning?: DunningPolicy
   /** 'auto' (default): saved-card autopay when the charge is ≤ ₹15,000, Razorpay Subscriptions above that */
   autopayEngine?: 'auto' | 'token' | 'subscription'
-  /** unlocks /admin/* (assign plans without payment); 16+ characters, admin panel disabled when unset */
-  adminToken?: string
+  /** the admin panel's login (assign plans without payment); panel disabled when unset */
+  admin?: { email: string; password: string }
   /** unix seconds; injectable for tests */
   now?: () => number
 }
@@ -1216,11 +1216,23 @@ export function createBillingService(opts: BillingServiceOptions) {
   /* ── admin panel: give a customer a plan without a payment ──────────────
      For deals paid offline (bank transfer, cheque) and free or trial plans. It runs like a
      pay-once plan: active until `until`, then it simply ends. No Razorpay payment, so no invoice. */
-  const adminToken = opts.adminToken && opts.adminToken.length >= 16 ? opts.adminToken : undefined
+  /* Signing in returns a token derived from the password: no session store, and it stops working
+     when the password changes.
+     shortcut: one shared login, no expiry or lockout; move to real staff accounts before more people use it. */
+  const admin = opts.admin?.email && opts.admin.password ? opts.admin : undefined
   const digest = (s: string) => createHash('sha256').update(s).digest()   // equal lengths for timingSafeEqual
+  const same = (a: string, b: string) => timingSafeEqual(digest(a), digest(b))
+  const adminSession = admin ? createHmac('sha256', admin.password).update(`admin:${admin.email.toLowerCase()}`).digest('base64url') : ''
   const isAdmin = (req: BillingRequest) => {
     const given = req.headers['x-admin-token']
-    return Boolean(adminToken && given && timingSafeEqual(digest(given), digest(adminToken)))
+    return Boolean(admin && given && same(given, adminSession))
+  }
+
+  function adminLogin(req: BillingRequest): BillingResponse {
+    const { email, password } = (req.body ?? {}) as Record<string, unknown>
+    const ok = admin && typeof email === 'string' && typeof password === 'string'
+      && same(email.trim().toLowerCase(), admin.email.toLowerCase()) && same(password, admin.password)
+    return ok ? reply(200, { token: adminSession }) : err(401, 'unauthorized', 'Wrong email or password.')
   }
 
   /* Would the customer still be charged (or be chased for money) by autopay? */
@@ -1276,8 +1288,9 @@ export function createBillingService(opts: BillingServiceOptions) {
 
     // Admin routes don't touch Razorpay, so they work even when payments aren't configured.
     if (path.startsWith('/admin/')) {
-      if (!adminToken) return err(503, 'admin_not_configured', 'Set BILLING_ADMIN_TOKEN (16+ characters) on the server to use the admin panel.')
-      if (!isAdmin(req)) return err(401, 'unauthorized', 'Wrong admin token.')
+      if (!admin) return err(503, 'admin_not_configured', 'Set BILLING_ADMIN_EMAIL and BILLING_ADMIN_PASSWORD on the server to use the admin panel.')
+      if (route === 'POST /admin/login') return adminLogin(req)
+      if (!isAdmin(req)) return err(401, 'unauthorized', 'Please sign in again.')
       if (route === 'GET /admin/customers') return reply(200, { items: (await store.list()).map(adminRow) })
       if (route === 'POST /admin/assign') return await adminAssign(req)
       return err(404, 'not_found')

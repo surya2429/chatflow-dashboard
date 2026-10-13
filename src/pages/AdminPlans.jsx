@@ -1,7 +1,7 @@
 // AdminPlans.jsx — SmatBot staff panel: give a customer a plan without a Razorpay payment
 // (paid offline by bank transfer / cheque, or a free or trial plan). Lives at /admin/plans,
-// outside the customer login: every request carries the admin token, which the server checks
-// against BILLING_ADMIN_TOKEN. The plan runs like a pay-once plan and ends on the chosen date.
+// outside the customer login: staff sign in (checked on the server against BILLING_ADMIN_EMAIL /
+// BILLING_ADMIN_PASSWORD). The plan runs like a pay-once plan and ends on the chosen date.
 import { useState, useEffect, useMemo } from 'react'
 import clsx from 'clsx'
 import { Lock, Loader2, Search, CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react'
@@ -33,7 +33,8 @@ const blankForm = () => ({ workspaceId: '', plan: 'standard', period: 'yearly', 
 
 export default function AdminPlans() {
   const [token, setToken]           = useState(readToken)
-  const [tokenInput, setTokenInput] = useState('')
+  const [email, setEmail]           = useState('')
+  const [password, setPassword]     = useState('')
   const [loading, setLoading]       = useState(false)
   const [loadError, setLoadError]   = useState('')
   const [customers, setCustomers]   = useState(null)
@@ -58,6 +59,19 @@ export default function AdminPlans() {
     } finally { setLoading(false) }
   }
   useEffect(() => { if (token) load(token) }, [])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function signIn(e) {
+    e.preventDefault()
+    setLoading(true); setLoadError('')
+    try {
+      const { token: t } = await billingAdmin.login(email.trim(), password)
+      setPassword('')
+      await load(t)
+    } catch (err) {
+      setLoadError(err.message)
+      setLoading(false)
+    }
+  }
 
   const set = (patch) => setForm(f => ({ ...f, ...patch }))
   const setAddon = (id, qty) => setForm(f => ({ ...f, addons: { ...f.addons, [id]: qty } }))
@@ -104,17 +118,20 @@ export default function AdminPlans() {
   /* ── locked ── */
   if (!customers) return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <form onSubmit={e => { e.preventDefault(); load(tokenInput.trim()) }} className="w-full max-w-sm bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <form onSubmit={signIn} className="w-full max-w-sm bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-4"><Lock size={18}/></div>
         <h1 className="text-lg font-bold text-slate-900">SmatBot admin</h1>
-        <p className="text-sm text-slate-500 mt-1 mb-5">Enter the admin token to manage customer plans.</p>
-        <label htmlFor="admin-token" className={labelCls}>Admin token</label>
-        <input id="admin-token" type="password" autoComplete="current-password" autoFocus value={tokenInput}
-          onChange={e => setTokenInput(e.target.value)} className={inputCls}/>
+        <p className="text-sm text-slate-500 mt-1 mb-5">Sign in to manage customer plans.</p>
+        <label htmlFor="admin-email" className={labelCls}>Email</label>
+        <input id="admin-email" type="email" autoComplete="username" autoFocus required value={email}
+          onChange={e => setEmail(e.target.value)} className={inputCls}/>
+        <label htmlFor="admin-password" className={clsx(labelCls, 'mt-3')}>Password</label>
+        <input id="admin-password" type="password" autoComplete="current-password" required value={password}
+          onChange={e => setPassword(e.target.value)} className={inputCls}/>
         {loadError && <p role="alert" className="text-xs text-red-600 mt-2">{loadError}</p>}
-        <button type="submit" disabled={loading || !tokenInput.trim()}
+        <button type="submit" disabled={loading || !email.trim() || !password}
           className="mt-4 w-full bg-primary text-white rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
-          {loading && <Loader2 size={14} className="animate-spin"/>} Unlock
+          {loading && <Loader2 size={14} className="animate-spin"/>} Sign in
         </button>
       </form>
     </div>
@@ -131,7 +148,7 @@ export default function AdminPlans() {
             <p className="text-xs text-slate-500">Give a plan paid offline, or a free / trial plan. No Razorpay payment and no invoice is created.</p>
           </div>
           <button type="button" onClick={() => lock()} className="text-xs font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1.5">
-            <Lock size={12}/> Lock
+            <Lock size={12}/> Sign out
           </button>
         </div>
       </header>
