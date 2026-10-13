@@ -1,4 +1,6 @@
 import { query } from '../pool.js'
+import { logger } from '../../config/logger.js'
+import { countWhatsAppMessage } from '../../billing/usageSql.js'
 
 export type MessageDirection = 'inbound' | 'outbound'
 export type MessageChannel = 'mm_lite' | 'cloud_api'
@@ -63,6 +65,8 @@ export const messageRepository = {
     )
     const message = rows[0]
     if (!message) throw new Error('Failed to insert outbound message')
+    // Usage for the client's plan allowance. Never let counting get in the way of sending.
+    countWhatsAppMessage(input.phoneNumberId, input.category).catch((err: unknown) => logger.warn({ err }, 'could not count WhatsApp usage'))
     return message
   },
 

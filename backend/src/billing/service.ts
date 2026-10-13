@@ -29,21 +29,20 @@
 //   • Payments are idempotent by Razorpay payment id: a webhook, a poll and a
 //     dashboard refresh can all report the same payment and it is recorded once.
 import {
-  AFA_LIMIT_RUPEES, PLAN_CATALOG, PLAN_ORDER, ADDON_CATALOG, addPeriod, addonLines, chargeFor, eligibleAddons, normalizeAddons, isPeriod, isPlanId,
-  needsApprovalEachCycle, planKey, totalCount, type AddonSel, type Period, type PlanId,
+  AFA_LIMIT_RUPEES, PLAN_CATALOG, PLAN_ORDER, ADDON_CATALOG, DEFAULT_CATALOG, DAY, FEATURES, METRICS, isMetric, addPeriod, addonDef, addonLines, applyCatalog, chargeFor,
+  daysBetween, eligibleAddons, lockPrices, mergeAddons, monthlyEquivalent, normalizeAddons, isPeriod, isPlanId, needsApprovalEachCycle,
+  planKey, planName, planRate, totalCount, type AddonSel, type Catalog, type Period, type PlanId, type PriceLine, type PriceOpts,
 } from './catalog.js'
 import { RazorpayError, verifyWebhookSignature, type Razorpay, type RzEntity } from './razorpay.js'
 import { STATES, stateName, validateProfile } from './india.js'
 import { DUNNING_POLICY, assertPolicy, attemptTimes, deadlineFor, type DunningPolicy } from './dunning.js'
 import { buildInvoice, financialYear, invoiceNumber, renderInvoiceHtml, type SellerInfo } from './invoice.js'
 import { DEFAULT_LOGO } from './logo.js'
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
-import {
-  PARTNER_TYPE, checkPassword, couponDiscount, couponProblem, hashPassword, isCustomerType, isStaffRole, parseCoupon, readSession, signSession,
-  type Coupon, type StaffMember, type StaffRole,
-} from './admin.js'
+import { createHash, timingSafeEqual } from 'node:crypto'
+import { couponDiscount, couponProblem, type Coupon } from './admin.js'
+import { createAdminApi } from './adminApi.js'
 import type {
-  BillingRecord, BillingRequest, BillingResponse, BillingStore, Dunning, Invoice, PaymentMethod,
+  BillingRecord, BillingRequest, BillingResponse, BillingStore, Dunning, Invoice, PaymentMethod, UsageItem,
 } from './types.js'
 import type { Charge } from './catalog.js'
 
@@ -60,8 +59,10 @@ export interface BillingServiceOptions {
   dunning?: DunningPolicy
   /** 'auto' (default): saved-card autopay when the charge is ≤ ₹15,000, Razorpay Subscriptions above that */
   autopayEngine?: 'auto' | 'token' | 'subscription'
-  /** the admin panel's login (assign plans without payment); panel disabled when unset */
+  /** the admin console's owner login; the console is disabled when unset */
   admin?: { email: string; password: string }
+  /** shared secret other services send (x-usage-key) to report usage to POST /usage */
+  usageKey?: string
   /** unix seconds; injectable for tests */
   now?: () => number
 }
@@ -107,10 +108,57 @@ export function createBillingService(opts: BillingServiceOptions) {
     ...opts.seller,
   }
 
-  /* The charge for a plan, with GST labelled for the customer's state when known.
-     The TOTAL is the same either way; only CGST/SGST vs IGST changes. */
-  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null, addons?: AddonSel[], addonsOnly = false, addonPeriod?: Period, discount = 0) =>
-    chargeFor(plan, period, gstPercent, { supplier, customer: rec?.profile?.address.stateCode }, addons, addonsOnly, addonPeriod, discount)
+  /* While a plan is live the customer keeps the prices they bought at; after it lapses, list prices apply. */
+  const LIVE_STATUSES = new Set(['active', 'authenticated', 'pending', 'halted', 'past_due', 'created'])
+  const lockOf = (rec?: BillingRecord | null) => (rec?.priceLock && LIVE_STATUSES.has(rec.status) ? rec.priceLock : null)
+
+  /* The charge for a plan, with GST labelled for the customer's state when known, at this customer's
+     prices. The TOTAL is the same either way; only CGST/SGST vs IGST changes. */
+  const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null, o: Omit<PriceOpts, 'place'> = {}) =>
+    chargeFor(plan, period, gstPercent, { place: { supplier, customer: rec?.profile?.address.stateCode }, lock: lockOf(rec), ...o })
+
+  /* The price list is a doc staff can edit; re-read it now and then so every API instance sees edits. */
+  let catalogLoadedAt = -1
+  async function loadCatalog(force = false): Promise<void> {
+    if (!force && catalogLoadedAt >= 0 && now() - catalogLoadedAt < 30) return
+    const doc = await store.getDoc<Catalog>('catalog')
+    applyCatalog(doc ?? DEFAULT_CATALOG)
+    catalogLoadedAt = now()
+  }
+
+  const couponOpts = (c?: { code: string; discount: number }) => (c ? { discount: c.discount, discountLabel: `Discount — coupon ${c.code}` } : {})
+  /** Months in the current term: 1 monthly, 12 yearly, or a custom term. */
+  const termOf = (rec: BillingRecord) => rec.termMonths ?? (rec.period === 'yearly' ? 12 : 1)
+  /** The customer has a plan running right now. */
+  const isLive = (rec: BillingRecord | null | undefined): rec is BillingRecord & { plan: PlanId; period: Period; currentEnd: number } =>
+    Boolean(rec?.plan && rec.period && LIVE_STATUSES.has(rec.status) && rec.currentEnd && rec.currentEnd > now())
+
+  /* Moving from the plan they're on to another. Plans rank by list price per month; a longer
+     billing period on the same plan also counts as an upgrade. Anything else is a downgrade,
+     which customers can't do themselves (SmatBot staff can, from the admin console). */
+  function changeKind(rec: BillingRecord, plan: PlanId, period: Period): 'same' | 'upgrade' | 'downgrade' {
+    if (!rec.plan || !rec.period) return 'upgrade'
+    const cur = termOf(rec), next = period === 'yearly' ? 12 : 1
+    if (plan === rec.plan) return next === cur ? 'same' : next > cur ? 'upgrade' : 'downgrade'
+    const curRank = PLAN_CATALOG[rec.plan]?.monthly ?? 0, nextRank = PLAN_CATALOG[plan]?.monthly ?? 0
+    return nextRank > curRank && next >= cur ? 'upgrade' : 'downgrade'
+  }
+  const salesContact = () => seller.emails?.[0] ?? 'sales'
+  const downgradeRefusal = () => err(409, 'downgrade_contact_sales', `To move to a smaller plan, please contact our team at ${salesContact()} — they'll make sure nothing you use stops working.`)
+
+  /* What a customer may buy from the dashboard, given what they're on. */
+  function purchaseGuard(rec: BillingRecord, plan: PlanId, period: Period, mode: string, atRenewal: boolean): BillingResponse | null {
+    const p = PLAN_CATALOG[plan]!
+    if (rec.plan !== plan && (p.status !== 'active' || p.visibility !== 'public')) return err(409, 'plan_unavailable', 'That plan is not available. Please contact our team.')
+    if (!isLive(rec)) return null
+    const kind = changeKind(rec, plan, period)
+    if (kind === 'downgrade') return downgradeRefusal()
+    if (atRenewal) return null                                   // autopay that takes over when this period ends
+    if (kind === 'upgrade') return err(409, 'use_upgrade', 'Use Upgrade to change plan now — the unused days of your current plan are credited.')
+    if (mode === 'once' && rec.mode === 'autopay' && !rec.cancelAtCycleEnd) return err(409, 'autopay_on', 'Your plan renews automatically, so there is nothing to pay now.')
+    if (mode === 'autopay') return err(409, 'use_renewal', 'Turn autopay on from your next renewal instead.')
+    return null                                                   // paying once for the same plan: it extends the current period
+  }
 
   /* What goes on the Razorpay order / subscription as notes (visible in their dashboard). */
   const notesFor = (rec: BillingRecord, plan: PlanId, period: Period, addons?: AddonSel[]) => ({
@@ -128,7 +176,7 @@ export function createBillingService(opts: BillingServiceOptions) {
   const keyByPlanId = new Map<string, { plan: PlanId; period: Period }>()
 
   async function ensureRazorpayPlan(plan: PlanId, period: Period, addons?: AddonSel[]): Promise<string> {
-    const c = chargeFor(plan, period, gstPercent, undefined, addons)
+    const c = chargeFor(plan, period, gstPercent, { addons })
     const key = planKey(plan, period)
     const cacheKey = `${key}:${c.totalPaise}`
     const cached = planIdCache.get(cacheKey)
@@ -147,7 +195,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       period,
       interval: 1,
       item: {
-        name: `SmatBot ${PLAN_CATALOG[plan].name} (${period === 'monthly' ? 'Monthly' : 'Yearly'})${addons?.length ? ' + add-ons' : ''}`,
+        name: `SmatBot ${planName(plan)} (${period === 'monthly' ? 'Monthly' : 'Yearly'})${addons?.length ? ' + add-ons' : ''}`,
         description: `Includes ${gstPercent}% GST`,
         amount: c.totalPaise,
         currency: 'INR',
@@ -221,6 +269,10 @@ export function createBillingService(opts: BillingServiceOptions) {
     periodEnd: number
     kind: Invoice['kind']
     coupon?: { code: string; discount: number }
+    /** exactly what was charged; the invoice prints these */
+    lines?: PriceLine[]
+    months?: number
+    offline?: { method: string; reference: string; by: string }
   }
 
   /* Idempotent: the same Razorpay payment id is only ever recorded and invoiced once. */
@@ -228,8 +280,9 @@ export function createBillingService(opts: BillingServiceOptions) {
     if (!rec.payments.some((x) => x.id === p.paymentId)) {
       rec.payments.unshift({
         id: p.paymentId, orderId: p.orderId, subscriptionId: p.subscriptionId, amountPaise: p.amountPaise,
-        at: p.at ?? now(), plan: p.plan, period: p.period, status: 'paid', method: p.method,
+        at: p.at ?? now(), plan: p.plan, period: p.period, status: 'paid', method: p.method, kind: p.kind,
         ...(p.coupon ? { coupon: p.coupon.code } : {}),
+        ...(p.offline ? { offline: p.offline } : {}),
       })
     }
     rec.invoices ??= []
@@ -245,10 +298,25 @@ export function createBillingService(opts: BillingServiceOptions) {
       paymentId: p.paymentId, orderId: p.orderId, subscriptionId: p.subscriptionId,
       plan: p.plan, period: p.period, periodStart: p.periodStart, periodEnd: p.periodEnd,
       gstPercent, amountPaise: p.amountPaise, addons: p.addons, addonsOnly: p.addonsOnly, addonPeriod: p.addonPeriod, method: p.method, kind: p.kind,
+      lines: p.lines, months: p.months,
       ...(p.coupon ? { discount: { code: p.coupon.code, amount: p.coupon.discount } } : {}),
     })
     rec.invoices.unshift(inv)
     return inv
+  }
+
+  /** ₹ before GST a payment bought — leaving out credit for old time, which was paid for before. */
+  const paidValue = (lines: PriceLine[]) => Math.round(lines.filter((l) => l.kind !== 'credit').reduce((n, l) => n + l.amount, 0) * 100) / 100
+
+  /* A new current period on a plan: the one place the plan fields change together. */
+  function startPeriod(rec: BillingRecord, o: { plan: PlanId; period: Period; months?: number | null; addons: AddonSel[]; start: number; end: number; paid: number; relock: boolean }): void {
+    rec.plan = o.plan; rec.period = o.period; rec.termMonths = o.months ?? null; rec.addons = o.addons
+    rec.status = 'active'; rec.currentStart = o.start; rec.currentEnd = o.end; rec.periodPaid = o.paid
+    rec.cancelAtCycleEnd = false; rec.cancelAt = null; rec.scheduledChange = null; rec.upcoming = null
+    rec.dunning = null; rec.autopayLapsed = false
+    if (o.relock || !rec.priceLock) rec.priceLock = lockPrices(o.plan, o.addons, now(), o.relock ? null : rec.priceLock)
+    // One-time add-ons never outlive the plan they were bought on (a shorter new period cuts them).
+    rec.extraAddons = (rec.extraAddons ?? []).map((e) => (e.until > o.end ? { ...e, until: o.end } : e))
   }
 
   /* Pick up charges Razorpay made on its own (renewals, retries) that we haven't seen yet. */
@@ -263,7 +331,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       const wasDunning = rec.dunning?.state === 'active'
       await recordPayment(rec, {
         paymentId: inv.payment_id, subscriptionId: sub.id, plan: rec.plan, period: rec.period,
-        amountPaise: inv.amount ?? chargeOf(rec.plan, rec.period, rec, rec.addons).totalPaise, addons: rec.addons, method: payment?.method,
+        amountPaise: inv.amount ?? chargeOf(rec.plan, rec.period, rec, { addons: rec.addons }).totalPaise, addons: rec.addons, method: payment?.method,
         at: inv.paid_at ?? now(), periodStart: start, periodEnd: inv.billing_end ?? addPeriod(start, rec.period),
         kind: wasDunning ? 'dunning_recovery' : rec.payments.length ? 'renewal' : 'purchase',
       })
@@ -284,7 +352,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     const times = attemptTimes(t, policy)
     const dun: Dunning = {
       state: 'active', engine: rec.engine ?? 'subscription', cycleKey: rec.currentEnd ?? t, startedAt: t, deadline: deadlineFor(t, policy),
-      amountPaise: chargeOf(plan, period, rec, addons).totalPaise, plan, period, addons,
+      amountPaise: chargeOf(plan, period, rec, { addons: addons }).totalPaise, plan, period, addons,
       attempts: [{ n: 1, at: t, kind: 'charge', result: 'failed', reason }],
       nextAttemptAt: times[1] ?? null,
     }
@@ -308,7 +376,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     try {
       const link = await rz!.request<RzEntity>('POST', '/payment_links', {
         amount: d.amountPaise, currency: 'INR', accept_partial: false,
-        description: `SmatBot ${PLAN_CATALOG[d.plan].name} plan renewal — reminder ${n} of ${policy.maxAttempts}`,
+        description: `SmatBot ${planName(d.plan)} plan renewal — reminder ${n} of ${policy.maxAttempts}`,
         reference_id: `dun_${rec.workspaceId}_${d.startedAt}_${n}`.slice(0, 40),
         ...(p ? { customer: { name: p.contactName, email: p.email, contact: `+91${p.phone}` }, notify: { sms: true, email: true } } : {}),
         reminder_enable: true,
@@ -430,7 +498,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     const r = await rz!.request<RzEntity>('POST', '/payments/create/recurring', {
       email: p.email, contact: `+91${p.phone}`, amount: amountPaise, currency: 'INR', order_id: orderId,
       customer_id: rec.customerId, token: rec.mandate!.id, recurring: true,
-      description: `SmatBot ${PLAN_CATALOG[plan].name} plan renewal`,
+      description: `SmatBot ${planName(plan)} plan renewal`,
     })
     const id = r.razorpay_payment_id ?? r.id
     if (!id) throw new Error('Razorpay did not return a payment id for the debit.')
@@ -444,14 +512,20 @@ export function createBillingService(opts: BillingServiceOptions) {
     const d = rec.dunning
     const start = r.dueAt
     const end = addPeriod(start, r.period)
-    rec.plan = r.plan; rec.period = r.period; rec.addons = r.addons; rec.mode = 'autopay'; rec.status = 'active'
+    const c = chargeOf(r.plan, r.period, rec, { addons: r.addons })    // at their locked prices
+    const planChanged = r.plan !== rec.plan || r.period !== rec.period
+    rec.plan = r.plan; rec.period = r.period; rec.addons = r.addons; rec.mode = 'autopay'; rec.status = 'active'; rec.termMonths = null
     rec.currentStart = start; rec.currentEnd = end; rec.nextChargeAt = end
+    rec.periodPaid = c.base
+    // A plan switched at renewal is bought at today's price; the same plan keeps its locked price.
+    rec.priceLock = lockPrices(r.plan, r.addons, now(), planChanged ? null : rec.priceLock)
     rec.paidCount = (rec.paidCount ?? 0) + 1
     rec.cancelAtCycleEnd = false; rec.scheduledChange = null; rec.autopayLapsed = false
     rec.paymentMethod = methodOf(payment) ?? rec.paymentMethod
     await recordPayment(rec, {
       paymentId, orderId: payment?.order_id, plan: r.plan, period: r.period,
-      amountPaise: payment?.amount ?? chargeOf(r.plan, r.period, rec, r.addons).totalPaise, addons: r.addons, method: payment?.method,
+      amountPaise: payment?.amount ?? c.totalPaise, addons: r.addons, method: payment?.method,
+      lines: payment?.amount && payment.amount !== c.totalPaise ? undefined : c.lines,
       periodStart: start, periodEnd: end, kind: d?.state === 'active' ? 'dunning_recovery' : 'renewal',
     })
     if (d?.state === 'active') {
@@ -469,7 +543,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     try {
       const link = await rz!.request<RzEntity>('POST', '/payment_links', {
         amount: d.amountPaise, currency: 'INR', accept_partial: false,
-        description: `SmatBot ${PLAN_CATALOG[d.plan].name} plan renewal — pay now to keep your plan active`,
+        description: `SmatBot ${planName(d.plan)} plan renewal — pay now to keep your plan active`,
         reference_id: `dun_${rec.workspaceId}_${d.startedAt}`.slice(0, 40),
         ...(p ? { customer: { name: p.contactName, email: p.email, contact: `+91${p.phone}` }, notify: { sms: true, email: true } } : {}),
         reminder_enable: true,
@@ -508,7 +582,7 @@ export function createBillingService(opts: BillingServiceOptions) {
   async function advanceRenewal(rec: BillingRecord): Promise<boolean> {
     const r = rec.renewal
     if (!r || !rec.mandate || !rec.profile || rec.dunning?.state === 'active') return false
-    const amount = chargeOf(r.plan, r.period, rec, r.addons).totalPaise
+    const amount = chargeOf(r.plan, r.period, rec, { addons: r.addons }).totalPaise
 
     if (r.paymentId) {                                   // a debit is in flight
       const p = await rz!.request<RzEntity>('GET', `/payments/${r.paymentId}`).catch(() => null)
@@ -584,6 +658,103 @@ export function createBillingService(opts: BillingServiceOptions) {
     } finally { busy.delete(rec.workspaceId) }
   }
 
+  /* ── usage ────────────────────────────────────────────────────────────────
+     Counts (messages, OTPs …) arrive as events and are summed per IST day; gauges (chatbots, live
+     agents, languages) and the features an account uses arrive as a snapshot. Both come from the
+     services that do the work — the WhatsApp sender reports in-process (recordUsage), anything else
+     posts to /api/billing/usage with the shared BILLING_USAGE_KEY. */
+  const IST = 5.5 * 3600
+  const dayOf = (sec: number) => new Date((sec + IST) * 1000).toISOString().slice(0, 10)
+  interface UsageState { counts: Record<string, number>; features: Record<string, boolean>; at: number }
+
+  /** What the plan and its add-ons allow in the current period, per metric (null = unlimited). */
+  function allowancesOf(rec: BillingRecord): Record<string, number | null> {
+    const p = rec.plan ? PLAN_CATALOG[rec.plan] : undefined
+    if (!p || !rec.period) return {}
+    const span = termOf(rec)
+    const out: Record<string, number | null> = {}
+    for (const [m, v] of Object.entries(p.limits)) out[m] = v === null ? null : METRICS[m]?.kind === 'count' ? v * span : v
+    const add = (id: string, qty: number, months: number) => {
+      const def = addonDef(id)
+      if (!def?.meter || out[def.meter.metric] === null) return
+      const m = def.meter.metric
+      out[m] = (out[m] ?? 0) + qty * def.meter.size * (METRICS[m]?.kind === 'count' ? months : 1)
+    }
+    for (const a of rec.addons ?? []) add(a.id, a.qty, span)
+    // A one-time add-on adds what it covers: a month per 30 days it runs.
+    for (const e of rec.extraAddons ?? []) if (e.until > now()) add(e.id, e.qty, Math.max(1, Math.round((e.until - e.at) / (30 * DAY))))
+    return out
+  }
+
+  /** Used vs allowed for the current period. reported = some service has sent data for them. */
+  async function usageOf(rec: BillingRecord) {
+    if (!rec.plan || !rec.currentStart) return { reported: false, lastReportAt: null as number | null, items: [] as UsageItem[] }
+    const rows = await store.usage(dayOf(rec.currentStart), rec.workspaceId)
+    const state = await store.getDoc<UsageState>(`usage-state:${rec.workspaceId}`)
+    const allow = allowancesOf(rec)
+    const used: Record<string, number> = {}
+    for (const r of rows) used[r.metric] = (used[r.metric] ?? 0) + r.value
+    const items: UsageItem[] = Object.entries(METRICS)
+      .filter(([m]) => m in allow || used[m] || state?.counts?.[m] != null)
+      .map(([m, def]) => {
+        const limit = m in allow ? allow[m]! : 0
+        const u = def.kind === 'gauge' ? (state?.counts?.[m] ?? null) : (used[m] ?? 0)
+        return { metric: m, label: def.label, kind: def.kind, used: u, limit, pct: limit && u != null ? Math.round((u / limit) * 100) : null }
+      })
+    const lastDay = rows.reduce((d, r) => (r.day > d ? r.day : d), '')
+    return { reported: rows.length > 0 || Boolean(state), lastReportAt: state?.at ?? (lastDay ? Date.parse(`${lastDay}T00:00:00+05:30`) / 1000 : null), items, features: state?.features ?? null }
+  }
+
+  /* Which workspace a WhatsApp number belongs to — staff set the numbers on the client page. */
+  let phoneMap: Map<string, string> | null = null
+  let phoneMapAt = 0
+  async function workspaceForPhone(phoneNumberId: string): Promise<string | null> {
+    if (!phoneMap || now() - phoneMapAt > 60) {
+      phoneMap = new Map()
+      for (const r of await store.list()) for (const n of r.whatsappNumbers ?? []) phoneMap.set(n, r.workspaceId)
+      phoneMapAt = now()
+    }
+    return phoneMap.get(phoneNumberId) ?? null
+  }
+  const forgetPhoneMap = () => { phoneMap = null }
+
+  /** Record usage. Events without a known workspace (or number) are skipped and counted as such. */
+  async function recordUsage(input: { events?: unknown; state?: unknown }): Promise<{ accepted: number; skipped: number }> {
+    let accepted = 0, skipped = 0
+    const wsOf = async (e: Record<string, unknown>) => (typeof e.workspaceId === 'string' && e.workspaceId ? e.workspaceId
+      : typeof e.phoneNumberId === 'string' ? await workspaceForPhone(e.phoneNumberId) : null)
+    for (const raw of (Array.isArray(input.events) ? input.events : []).slice(0, 1000)) {
+      const e = (raw ?? {}) as Record<string, unknown>
+      const ws = await wsOf(e)
+      const qty = e.qty === undefined ? 1 : Number(e.qty)
+      const at = e.at === undefined ? now() : Number(e.at)
+      if (!ws || !isMetric(e.metric) || METRICS[e.metric as string]!.kind !== 'count' || !Number.isInteger(qty) || qty < 1 || qty > 1_000_000 || !Number.isFinite(at)) { skipped++; continue }
+      await store.addUsage(ws, dayOf(at), e.metric as string, qty)
+      accepted++
+    }
+    for (const raw of (Array.isArray(input.state) ? input.state : []).slice(0, 500)) {
+      const s = (raw ?? {}) as Record<string, unknown>
+      const ws = await wsOf(s)
+      if (!ws) { skipped++; continue }
+      const prev = await store.getDoc<UsageState>(`usage-state:${ws}`)
+      const counts: Record<string, number> = { ...(prev?.counts ?? {}) }
+      for (const [m, v] of Object.entries((s.counts ?? {}) as Record<string, unknown>)) if (isMetric(m) && METRICS[m]!.kind === 'gauge' && Number.isInteger(v) && (v as number) >= 0) counts[m] = v as number
+      const features: Record<string, boolean> = { ...(prev?.features ?? {}) }
+      for (const [k, v] of Object.entries((s.features ?? {}) as Record<string, unknown>)) if (FEATURES.some((f) => f.key === k) && typeof v === 'boolean') features[k] = v
+      await store.putDoc(`usage-state:${ws}`, { counts, features, at: now() })
+      accepted++
+    }
+    return { accepted, skipped }
+  }
+
+  async function usageRoute(req: BillingRequest): Promise<BillingResponse> {
+    const given = req.headers['x-usage-key']
+    if (!opts.usageKey || !given || !timingSafeEqual(createHash('sha256').update(given).digest(), createHash('sha256').update(opts.usageKey).digest())) {
+      return err(401, 'unauthorized', 'A valid usage key is required.')
+    }
+    return reply(200, await recordUsage((req.body ?? {}) as { events?: unknown; state?: unknown }))
+  }
+
   /* ── the dashboard's view of a record ──────────────────────────────────── */
   async function summarize(rec: BillingRecord | null) {
     if (!rec || rec.status === 'none' || !rec.plan || !rec.period) {
@@ -614,12 +785,13 @@ export function createBillingService(opts: BillingServiceOptions) {
     }
     // A one-off plan, or saved-card autopay that was switched off, simply ends with its period.
     if ((rec.mode === 'once' || (rec.engine === 'token' && !rec.renewal && rec.dunning?.state !== 'active')) && rec.status === 'active' && rec.currentEnd && rec.currentEnd < now()) {
-      rec.status = 'expired'
+      rec.status = rec.cancelAt ? 'cancelled' : 'expired'
+      if (rec.cancelAt) { rec.cancelledAt = rec.cancelAt; rec.cancelAt = null }
       dirty = true
     }
     if (dirty) { rec.updatedAt = now(); await store.put(rec) }
 
-    const c = chargeOf(rec.plan, rec.period, rec, rec.addons)
+    const c = chargeOf(rec.plan, rec.period, rec, { addons: rec.addons, months: rec.termMonths ?? undefined })
     const d = rec.dunning
     const status = d?.state === 'active' ? 'past_due' : rec.status
     const ending = rec.mode === 'once' || rec.cancelAtCycleEnd
@@ -628,16 +800,24 @@ export function createBillingService(opts: BillingServiceOptions) {
     const openLink = d?.engine === 'token' ? { linkUrl: d.linkUrl } : d?.attempts.slice().reverse().find((a) => a.result === 'sent')
     const token = rec.engine === 'token'
     const rn = rec.renewal
+    const renewsAddon = (id: string) => Boolean(token && rn && !rec.cancelAtCycleEnd && rn.addons?.some((a) => a.id === id))
     return {
       configured: true,
       stale,
       status,
       plan: rec.plan,
-      planName: PLAN_CATALOG[rec.plan].name,
+      planName: planName(rec.plan),
       period: rec.period,
+      /** a custom term, e.g. 6 (months) — otherwise null */
+      termMonths: rec.termMonths ?? null,
       mode: rec.mode,
       charge: { base: c.base, gst: c.gst, total: c.total, gstPercent, tax: c.tax },
-      addons: addonLines(rec.addons, rec.period),
+      addons: addonLines(rec.addons, rec.period, lockOf(rec)).map((l) => ({ ...l, renews: renewsAddon(l.id) })),
+      cancelAt: rec.cancelAt ?? null,
+      cancelledAt: rec.cancelledAt ?? null,
+      canAddRecurringAddons: Boolean(token && rec.mandate && rn && !rn.orderId && !rec.cancelAt && live),
+      usage: await usageOf(rec),
+      salesEmail: salesContact(),
       extraAddons: (rec.extraAddons ?? []).filter((e) => e.until > now()).map((e) => {
         const def = ADDON_CATALOG.find((a) => a.id === e.id)
         return { id: e.id, name: def?.name ?? e.id, unit: def?.unit ?? '', qty: e.qty, until: e.until, term: e.term ?? null }
@@ -656,8 +836,8 @@ export function createBillingService(opts: BillingServiceOptions) {
         canUpdateCard: Boolean(token && rec.mandate && rec.renewal),
         card: token && rec.mandate ? { last4: rec.mandate.last4 ?? null, network: rec.mandate.network ?? null } : null,
         next: token && rn && !rec.cancelAtCycleEnd ? (() => {
-          const nc = chargeOf(rn.plan, rn.period, rec, rn.addons)
-          return { plan: rn.plan, planName: PLAN_CATALOG[rn.plan].name, period: rn.period, total: nc.total, dueAt: rn.dueAt, noticeSent: Boolean(rn.orderId), changed: rn.plan !== rec.plan || rn.period !== rec.period, addons: addonLines(rn.addons, rn.period) }
+          const nc = chargeOf(rn.plan, rn.period, rec, { addons: rn.addons })
+          return { plan: rn.plan, planName: planName(rn.plan), period: rn.period, total: nc.total, dueAt: rn.dueAt, noticeSent: Boolean(rn.orderId), changed: rn.plan !== rec.plan || rn.period !== rec.period, addons: addonLines(rn.addons, rn.period) }
         })() : null,
       },
       dunning: d && d.state !== 'recovered' ? {
@@ -674,7 +854,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       } : null,
       scheduledChange: rec.scheduledChange ?? null,
       upcoming: rec.upcoming
-        ? { ...rec.upcoming, planName: PLAN_CATALOG[rec.upcoming.plan].name, charge: chargeOf(rec.upcoming.plan, rec.upcoming.period, rec) }
+        ? { ...rec.upcoming, planName: planName(rec.upcoming.plan), charge: chargeOf(rec.upcoming.plan, rec.upcoming.period, rec) }
         : null,
       paymentMethod: rec.paymentMethod ?? null,
       authorisedAt: rec.consents?.[0]?.at ?? null,
@@ -699,6 +879,8 @@ export function createBillingService(opts: BillingServiceOptions) {
     if (!rec.profile) return err(409, 'billing_details_required', 'Add your billing details before paying.')
     // A recurring mandate needs the customer's explicit, recorded agreement.
     if (mode === 'autopay' && consent !== true) return err(409, 'consent_required', 'Please confirm that you authorise the recurring charges.')
+    const guard = purchaseGuard(rec, plan, period, mode, startAtCycleEnd === true)
+    if (guard) return guard
     let coupon: { code: string; discount: number } | undefined
     if (typeof couponIn === 'string' && couponIn.trim()) {
       if (mode !== 'once') return err(409, 'coupon_not_allowed', 'Coupons apply to Pay once payments, not autopay.')
@@ -706,8 +888,8 @@ export function createBillingService(opts: BillingServiceOptions) {
       if ('error' in r) return err(400, 'invalid_coupon', r.error)
       coupon = r
     }
-    const c = chargeOf(plan, period, rec, addons, false, undefined, coupon?.discount)
-    const description = `SmatBot ${PLAN_CATALOG[plan].name}${addons.length ? ' + add-ons' : ''} · ${period} (incl. ${gstPercent}% GST)`
+    const c = chargeOf(plan, period, rec, { addons, ...couponOpts(coupon) })
+    const description = `SmatBot ${planName(plan)}${addons.length ? ' + add-ons' : ''} · ${period} (incl. ${gstPercent}% GST)`
     const base = { keyId, amount: c.totalPaise, currency: 'INR', description, plan, period }
 
     if (mode === 'once') {
@@ -717,7 +899,7 @@ export function createBillingService(opts: BillingServiceOptions) {
         receipt: `${req.workspaceId}-${now()}`.slice(0, 40),
         notes: { ...notesFor(rec, plan, period, addons), ...(coupon ? { coupon: coupon.code } : {}) },
       })
-      rec.pending = { mode: 'once', plan, period, addons, coupon, orderId: order.id, createdAt: now() }
+      rec.pending = { mode: 'once', plan, period, addons, coupon, lines: c.lines, orderId: order.id, createdAt: now() }
       rec.updatedAt = now()
       await store.put(rec)
       return reply(200, { ...base, mode, orderId: order.id })
@@ -786,7 +968,10 @@ export function createBillingService(opts: BillingServiceOptions) {
 
     if (pend.updateCard) return verifyCardUpdate(rec, pend, paymentId)
     const payment = await rz!.request<RzEntity>('GET', `/payments/${paymentId}`).catch(() => null)
-    const c = chargeOf(pend.plan, pend.period, rec, pend.addons, pend.addonsOnly, pend.addonPeriod, pend.coupon?.discount)
+    const c = chargeOf(pend.plan, pend.period, rec, { addons: pend.addons, addonsOnly: pend.addonsOnly, addonPeriod: pend.addonPeriod, ...couponOpts(pend.coupon) })
+    const expectedPaise = pend.amountPaise ?? c.totalPaise
+    const lines = pend.lines ?? c.lines
+    const t = now()
 
     if (pend.mode === 'once') {
       // A valid signature proves Razorpay issued it; the payment itself must still
@@ -796,47 +981,74 @@ export function createBillingService(opts: BillingServiceOptions) {
       if (p.order_id !== pend.orderId) return err(400, 'order_mismatch', 'That payment belongs to a different order.')
       // If the account is set to manual capture the payment is only "authorized".
       if (p.status === 'authorized') {
-        p = await rz!.request<RzEntity>('POST', `/payments/${paymentId}/capture`, { amount: c.totalPaise, currency: 'INR' })
+        p = await rz!.request<RzEntity>('POST', `/payments/${paymentId}/capture`, { amount: expectedPaise, currency: 'INR' })
       }
       if (p.status !== 'captured') return err(402, 'payment_not_captured', `Payment status is "${p.status}".`)
-      if (p.amount !== c.totalPaise) return err(400, 'amount_mismatch', 'The amount paid does not match the plan price.')
+      if (p.amount !== expectedPaise) return err(400, 'amount_mismatch', 'The amount paid does not match the plan price.')
 
       if (pend.addonsOnly) {
-        // Add-ons bought once on the running plan: plan, autopay and saved card are untouched.
-        // Bought at the monthly rate on a yearly plan: one month, or whatever is left of the year if less.
-        const monthly = pend.addonPeriod === 'monthly' && pend.period === 'yearly'
-        const planEnd = rec.currentEnd ?? now()
-        const until = monthly ? Math.min(addPeriod(now(), 'monthly'), planEnd) : planEnd
-        rec.extraAddons = [...(rec.extraAddons ?? []), ...(pend.addons ?? []).map((a) => ({ id: a.id, qty: a.qty, at: now(), until, paymentId, ...(monthly ? { term: 'monthly' as Period } : {}) }))]
+        // Add-ons on the running plan: the plan, the autopay and the saved card are untouched.
+        const until = pend.until ?? rec.currentEnd ?? t
+        if (pend.purpose === 'addon_recurring') {
+          // Added to the plan: they start now and renew with it from the next renewal.
+          rec.addons = mergeAddons(rec.addons, pend.addons)
+          if (rec.renewal) rec.renewal = { ...rec.renewal, addons: mergeAddons(rec.renewal.addons, pend.addons) }
+          rec.priceLock = lockPrices(rec.plan ?? pend.plan, pend.addons, t, rec.priceLock)
+        } else {
+          rec.extraAddons = [...(rec.extraAddons ?? []), ...(pend.addons ?? []).map((a) => ({
+            id: a.id, qty: a.qty, at: t, until, paymentId, ...(pend.addonPeriod === 'monthly' ? { term: 'monthly' as Period } : {}),
+          }))]
+        }
         await recordPayment(rec, {
-          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, addonsOnly: true, addonPeriod: pend.addonPeriod,
-          method: p.method, periodStart: now(), periodEnd: until, kind: 'addon',
+          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: expectedPaise, addons: pend.addons, addonsOnly: true,
+          addonPeriod: pend.addonPeriod, lines, method: p.method, periodStart: t, periodEnd: until, kind: 'addon',
         })
         rec.pending = null
-        rec.updatedAt = now()
+        rec.updatedAt = t
         await store.put(rec)
         return reply(200, await summarize(rec))
       }
 
-      const start = now()
-      rec.plan = pend.plan; rec.period = pend.period; rec.mode = 'once'; rec.status = 'active'
-      rec.subscriptionId = undefined; rec.cancelAtCycleEnd = false; rec.scheduledChange = null; rec.upcoming = null
-      rec.dunning = null; rec.autopayLapsed = false; rec.addons = pend.addons ?? []
-      if (rec.engine === 'token') await dropMandate(rec)
-      rec.engine = undefined
-      rec.currentStart = start; rec.currentEnd = addPeriod(start, pend.period); rec.nextChargeAt = null
       rec.paymentMethod = methodOf(p)
-      await recordPayment(rec, {
-        paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, method: p.method,
-        periodStart: rec.currentStart, periodEnd: rec.currentEnd, kind: 'purchase', coupon: pend.coupon,
-      })
-      if (pend.coupon) await useCoupon(pend.coupon.code)
+      if (pend.purpose === 'upgrade') {
+        // The new plan starts today; the unused part of the old one was credited in the price.
+        const card = rec.engine === 'token' && rec.mandate && rec.renewal
+        startPeriod(rec, { plan: pend.plan, period: pend.period, addons: pend.addons ?? [], start: t, end: addPeriod(t, pend.period), paid: paidValue(lines), relock: true })
+        if (card) {
+          // Saved-card autopay carries on, at the new plan's price, from the new renewal date.
+          rec.mode = 'autopay'
+          rec.renewal = { plan: pend.plan, period: pend.period, addons: pend.addons, dueAt: rec.currentEnd! }
+          rec.nextChargeAt = rec.currentEnd
+          if (rec.renewal.dueAt && chargeOf(pend.plan, pend.period, rec, { addons: pend.addons }).total > AFA_LIMIT_RUPEES) {
+            await dropMandate(rec); rec.mode = 'once'; rec.cancelAtCycleEnd = true      // above the card-autopay limit: it ends with the period
+          }
+        }
+        await recordPayment(rec, {
+          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: expectedPaise, addons: pend.addons, lines, method: p.method,
+          periodStart: rec.currentStart!, periodEnd: rec.currentEnd!, kind: 'upgrade',
+        })
+      } else {
+        // Paying again for the plan they're on extends it from the current end — no days are lost.
+        const extend = isLive(rec) && changeKind(rec, pend.plan, pend.period) === 'same'
+        const start = extend ? rec.currentEnd! : t
+        if (rec.engine === 'token') await dropMandate(rec)
+        startPeriod(rec, {
+          plan: pend.plan, period: pend.period, addons: pend.addons ?? [], start: extend ? rec.currentStart! : t, end: addPeriod(start, pend.period),
+          paid: (extend ? rec.periodPaid ?? 0 : 0) + paidValue(lines), relock: !extend,
+        })
+        rec.mode = 'once'; rec.engine = undefined; rec.subscriptionId = undefined; rec.nextChargeAt = null
+        await recordPayment(rec, {
+          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: expectedPaise, addons: pend.addons, lines, method: p.method,
+          periodStart: start, periodEnd: rec.currentEnd!, kind: extend ? 'renewal' : 'purchase', coupon: pend.coupon,
+        })
+        if (pend.coupon) await useCoupon(pend.coupon.code)
+      }
     } else if (pend.engine === 'token') {
       // The card was authorised by a real payment. Confirm it with Razorpay before trusting it.
       let p = payment
       if (!p) return err(502, 'payment_lookup_failed', 'Could not confirm the payment with Razorpay. Nothing was applied — try again in a moment.')
       if (p.order_id !== pend.orderId) return err(400, 'order_mismatch', 'That payment belongs to a different order.')
-      const expected = pend.authOnly ? 100 : c.totalPaise
+      const expected = pend.authOnly ? 100 : expectedPaise
       if (p.status === 'authorized') p = await rz!.request<RzEntity>('POST', `/payments/${paymentId}/capture`, { amount: expected, currency: 'INR' })
       if (p.status !== 'captured') return err(402, 'payment_not_captured', `Payment status is "${p.status}".`)
       if (p.amount !== expected) return err(400, 'amount_mismatch', 'The amount paid does not match.')
@@ -857,18 +1069,19 @@ export function createBillingService(opts: BillingServiceOptions) {
       rec.upcoming = null; rec.subscriptionId = undefined; rec.cancelAtCycleEnd = false; rec.scheduledChange = null
       rec.dunning = null; rec.autopayLapsed = false
 
+      rec.cancelAt = null
       if (pend.authOnly) {
         await rz!.request('POST', `/payments/${paymentId}/refund`, { amount: 100 }).catch(() => undefined)
         rec.renewal = { plan: pend.plan, period: pend.period, addons: pend.addons, dueAt: rec.currentEnd ?? now() }
+        if (pend.plan !== rec.plan) rec.scheduledChange = { plan: pend.plan, period: pend.period, at: rec.renewal.dueAt, addons: pend.addons }
       } else {
-        const start = now()
-        rec.plan = pend.plan; rec.period = pend.period; rec.addons = pend.addons ?? []; rec.status = 'active'
-        rec.currentStart = start; rec.currentEnd = addPeriod(start, pend.period); rec.nextChargeAt = rec.currentEnd
+        startPeriod(rec, { plan: pend.plan, period: pend.period, addons: pend.addons ?? [], start: t, end: addPeriod(t, pend.period), paid: paidValue(lines), relock: true })
+        rec.mode = 'autopay'; rec.nextChargeAt = rec.currentEnd
         rec.paidCount = (rec.paidCount ?? 0) + 1
-        rec.renewal = { plan: pend.plan, period: pend.period, addons: pend.addons, dueAt: rec.currentEnd }
+        rec.renewal = { plan: pend.plan, period: pend.period, addons: pend.addons, dueAt: rec.currentEnd! }
         await recordPayment(rec, {
-          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, method: p.method,
-          periodStart: start, periodEnd: rec.currentEnd, kind: 'purchase',
+          paymentId, orderId: pend.orderId, plan: pend.plan, period: pend.period, amountPaise: expectedPaise, addons: pend.addons, lines, method: p.method,
+          periodStart: t, periodEnd: rec.currentEnd!, kind: 'purchase',
         })
       }
     } else {
@@ -885,13 +1098,15 @@ export function createBillingService(opts: BillingServiceOptions) {
       } else {
         await applySubscription(rec, sub)
         rec.cancelAtCycleEnd = false; rec.scheduledChange = null; rec.upcoming = null; rec.addons = pend.addons ?? []
-        rec.dunning = null; rec.autopayLapsed = false
+        rec.dunning = null; rec.autopayLapsed = false; rec.cancelAt = null; rec.termMonths = null
+        rec.priceLock = lockPrices(pend.plan, pend.addons, t)
+        rec.periodPaid = paidValue(lines)
         rec.paymentMethod = methodOf(payment)
         // The first debit is charged with the authorisation; invoice it as soon as it's captured.
         if (payment?.status === 'captured') {
           const start = sub.current_start ?? now()
           await recordPayment(rec, {
-            paymentId, subscriptionId: sub.id, plan: pend.plan, period: pend.period, amountPaise: c.totalPaise, addons: pend.addons, method: payment.method,
+            paymentId, subscriptionId: sub.id, plan: pend.plan, period: pend.period, amountPaise: expectedPaise, addons: pend.addons, lines, method: payment.method,
             periodStart: start, periodEnd: sub.current_end ?? addPeriod(start, pend.period), kind: 'purchase',
           })
         }
@@ -909,6 +1124,8 @@ export function createBillingService(opts: BillingServiceOptions) {
     const { plan, period } = (req.body ?? {}) as Record<string, unknown>
     if (!isPlanId(plan) || !isPeriod(period)) return err(400, 'invalid_request', 'plan and period are required.')
     const rec = await store.get(req.workspaceId)
+    // Customers can only move up; a smaller plan goes through our team.
+    if (rec && isLive(rec) && changeKind(rec, plan, period) === 'downgrade') return downgradeRefusal()
     if (rec?.engine === 'token' && rec.mandate && rec.renewal && rec.plan && rec.period) {
       // Saved-card autopay: the change takes effect at the next renewal.
       const r = rec.renewal
@@ -917,7 +1134,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       if (r.orderId) return err(409, 'notice_sent', 'Your next renewal notice has already been sent, so it can no longer be changed. Change your plan after it renews.')
       const kept = eligibleAddons(r.addons, plan)
       const dropped = (r.addons ?? []).length - kept.length
-      const next = chargeOf(plan, period, rec, kept)
+      const next = chargeOf(plan, period, rec, { addons: kept })
       if (next.total > AFA_LIMIT_RUPEES) return err(409, 'autopay_limit', `Card autopay is limited to ₹${AFA_LIMIT_RUPEES.toLocaleString('en-IN')} per charge, so this plan can only be paid once.`)
       rec.renewal = { ...r, plan, period, addons: kept }
       rec.scheduledChange = plan === rec.plan && period === rec.period && !dropped ? null : { plan, period, at: r.dueAt, addons: kept }
@@ -934,8 +1151,8 @@ export function createBillingService(opts: BillingServiceOptions) {
     }
 
     const keptAddons = eligibleAddons(rec.addons, plan)
-    const cur = chargeFor(rec.plan, rec.period, gstPercent, undefined, rec.addons)
-    const next = chargeFor(plan, period, gstPercent, undefined, keptAddons)
+    const cur = chargeFor(rec.plan, rec.period, gstPercent, { addons: rec.addons })
+    const next = chargeFor(plan, period, gstPercent, { addons: keptAddons })
     const upgrade = next.totalPaise > cur.totalPaise
     try {
       const planId = await ensureRazorpayPlan(plan, period, keptAddons)
@@ -963,32 +1180,198 @@ export function createBillingService(opts: BillingServiceOptions) {
     return reply(200, { ...(await summarize(rec) as object), appliedNow: upgrade })
   }
 
-  /* ── add-ons bought once, on top of the running plan ─────────────────────
-     Works the same for autopay and pay-once customers: a single Orders payment, no change to the
-     plan, the autopay or the saved card. The add-ons run until the current period ends. */
-  async function addonCheckout(req: BillingRequest): Promise<BillingResponse> {
-    const rec = await store.get(req.workspaceId)
+  /* ── add-ons on top of the running plan ──────────────────────────────────
+     how = 'month'      one-time, 30 days at the monthly rate — never past the plan's end, and priced
+                        by the days it actually runs when the plan ends sooner
+           'plan'       one-time, until the plan ends, at the plan term's rate prorated to the days left
+           'recurring'  added to the plan (saved-card autopay): prorated to the days left now, then full
+                        price with every renewal
+     The plan, the autopay and the saved card are untouched; it is one Orders payment. */
+  type AddonHow = 'month' | 'plan' | 'recurring'
+  const addonHowOf = (v: unknown): AddonHow => (v === 'monthly' || v === 'month' ? 'month' : v === 'recurring' ? 'recurring' : 'plan')
+
+  function addonPrice(rec: BillingRecord & { plan: PlanId; period: Period; currentEnd: number }, addons: AddonSel[], how: AddonHow) {
+    const t = now()
+    // Each line says how long it runs, so the invoice reads on its own.
+    const label = (c: ReturnType<typeof chargeOf>, suffix: string) => ({ ...c, lines: c.lines.map((l) => (l.kind === 'addon' ? { ...l, description: `${l.description}${suffix}` } : l)) })
+    if (how === 'month') {
+      const until = Math.min(t + 30 * DAY, rec.currentEnd)
+      const days = daysBetween(t, until)
+      const c = chargeOf(rec.plan, rec.period, rec, { addons, addonsOnly: true, addonPeriod: 'monthly', fraction: Math.min(1, days / 30), prorateNote: `${days} of 30 days — ends with your plan` })
+      return { until, addonPeriod: 'monthly' as Period, c: days >= 30 ? label(c, ' · 30 days') : c }
+    }
+    const days = daysBetween(t, rec.currentEnd)
+    // A custom term is priced per month; a yearly plan per year (365 days); a monthly plan per 30 days.
+    const pricePeriod: Period = rec.termMonths ? 'monthly' : rec.period
+    const termDays = pricePeriod === 'yearly' ? 365 : 30
+    const fraction = rec.termMonths ? days / 30 : Math.min(1, days / termDays)
+    const c = chargeOf(rec.plan, rec.period, rec, { addons, addonsOnly: true, addonPeriod: pricePeriod, fraction, prorateNote: rec.termMonths ? `${days} days` : `${days} of ${termDays} days` })
+    return { until: rec.currentEnd, addonPeriod: pricePeriod, c: label(c, how === 'recurring' ? ' · added to your plan, renews with it' : ' · until your plan ends') }
+  }
+
+  /* Who may buy add-ons now, and how. */
+  function addonGuard(rec: BillingRecord | null, how: AddonHow): BillingResponse | null {
     if (!rec || !rec.plan || !rec.period) return err(409, 'no_plan', 'Add-ons can be bought once you have a plan.')
     if (!rec.profile) return err(409, 'billing_details_required', 'Add your billing details before paying.')
     if (rec.dunning?.state === 'active') return err(409, 'payment_overdue', 'Fix the overdue renewal payment first, then add extras.')
-    if (rec.status !== 'active' || !rec.currentEnd || rec.currentEnd <= now()) return err(409, 'plan_not_active', 'Add-ons need an active plan.')
+    if (!isLive(rec) || rec.cancelAt) return err(409, 'plan_not_active', 'Add-ons need an active plan that is not being cancelled.')
+    if (how === 'recurring') {
+      if (rec.engine !== 'token' || !rec.mandate || !rec.renewal) return err(409, 'recurring_needs_autopay', 'Add-ons that renew need card autopay on your plan. You can still buy them one-time.')
+      if (rec.renewal.orderId) return err(409, 'notice_sent', 'Your renewal is being processed. Add recurring add-ons after it renews, or buy them one-time now.')
+    }
+    return null
+  }
+
+  async function addonCheckout(req: BillingRequest): Promise<BillingResponse> {
+    const rec = await store.get(req.workspaceId)
+    const how = addonHowOf((req.body ?? {}).term)
+    const guard = addonGuard(rec, how)
+    if (guard || !isLive(rec)) return guard!
     const sel = normalizeAddons((req.body ?? {}).addons, rec.plan)
     if (!sel.ok) return err(400, 'invalid_addons', sel.message)
     if (!sel.addons.length) return err(400, 'no_addons', 'Choose at least one add-on.')
-    // A yearly plan may buy them for one month at the monthly rate instead of until the year ends.
-    const term: Period | undefined = (req.body ?? {}).term === 'monthly' && rec.period === 'yearly' ? 'monthly' : undefined
-    const c = chargeOf(rec.plan, rec.period, rec, sel.addons, true, term)
+    if (how === 'recurring') {
+      const after = chargeOf(rec.renewal!.plan, rec.renewal!.period, rec, { addons: mergeAddons(rec.renewal!.addons, sel.addons) })
+      if (after.total > AFA_LIMIT_RUPEES) return err(409, 'autopay_limit', `With these add-ons your renewal would be above the ₹${AFA_LIMIT_RUPEES.toLocaleString('en-IN')} card-autopay limit. Buy them one-time instead.`)
+    }
+    const { c, until, addonPeriod } = addonPrice(rec, sel.addons, how)
     const order = await rz!.request<RzEntity>('POST', '/orders', {
       amount: c.totalPaise, currency: 'INR', receipt: `${req.workspaceId}-a${now()}`.slice(0, 40),
-      notes: { ...notesFor(rec, rec.plan, rec.period, sel.addons), purpose: 'one-time add-ons' },
+      notes: { ...notesFor(rec, rec.plan, rec.period, sel.addons), purpose: how === 'recurring' ? 'add-ons added to the plan' : 'one-time add-ons' },
     })
-    rec.pending = { mode: 'once', addonsOnly: true, addonPeriod: term, plan: rec.plan, period: rec.period, addons: sel.addons, orderId: order.id, createdAt: now() }
+    rec.pending = {
+      mode: 'once', addonsOnly: true, addonPeriod, plan: rec.plan, period: rec.period, addons: sel.addons, orderId: order.id,
+      until, lines: c.lines, amountPaise: c.totalPaise, ...(how === 'recurring' ? { purpose: 'addon_recurring' as const } : {}), createdAt: now(),
+    }
     rec.updatedAt = now()
     await store.put(rec)
     return reply(200, {
-      keyId, amount: c.totalPaise, currency: 'INR', description: `SmatBot add-ons · ${term ? '1 month' : 'one-time'} (incl. ${gstPercent}% GST)`,
-      plan: rec.plan, period: rec.period, mode: 'once', orderId: order.id,
+      keyId, amount: c.totalPaise, currency: 'INR', description: `SmatBot add-ons · ${how === 'recurring' ? 'added to your plan' : 'one-time'} (incl. ${gstPercent}% GST)`,
+      plan: rec.plan, period: rec.period, mode: 'once', orderId: order.id, until,
     })
+  }
+
+  /* A recurring add-on removed: it runs to the end of this period and is left out of the next renewal. */
+  async function removeAddon(req: BillingRequest): Promise<BillingResponse> {
+    const rec = await store.get(req.workspaceId)
+    const id = String((req.body ?? {}).id ?? '')
+    if (!rec || !rec.addons?.some((a) => a.id === id)) return err(404, 'not_found', 'That add-on is not on your plan.')
+    if (rec.engine === 'token' && rec.renewal) {
+      if (rec.renewal.orderId) return err(409, 'notice_sent', 'Your renewal is being processed. You can remove it after it renews.')
+      rec.renewal = { ...rec.renewal, addons: (rec.renewal.addons ?? []).filter((a) => a.id !== id) }
+    } else if (rec.mode === 'autopay' && rec.subscriptionId && !rec.cancelAtCycleEnd) {
+      return err(409, 'contact_support', 'To remove an add-on from this autopay plan, please contact our team.')
+    }
+    // Without autopay nothing renews anyway; it simply ends with the period.
+    rec.updatedAt = now()
+    await store.put(rec)
+    return reply(200, await summarize(rec))
+  }
+
+  /* ── upgrades: the new plan starts today, the unused days of the old one are credited ── */
+  function upgradeQuote(rec: BillingRecord | null, plan: unknown, period: unknown): { ok: false; res: BillingResponse } | { ok: true; c: ReturnType<typeof chargeOf>; credit: number; addons: AddonSel[]; dropped: AddonSel[]; start: number; end: number; autopayContinues: boolean } {
+    const no = (res: BillingResponse) => ({ ok: false as const, res })
+    if (!isPlanId(plan) || !isPeriod(period)) return no(err(400, 'invalid_request', 'plan and period are required.'))
+    if (!rec || !isLive(rec)) return no(err(409, 'no_plan', 'There is no running plan to upgrade.'))
+    if (!rec.profile) return no(err(409, 'billing_details_required', 'Add your billing details before paying.'))
+    const kind = changeKind(rec, plan, period)
+    if (kind === 'same') return no(err(409, 'same_plan', 'That is already your plan.'))
+    if (kind === 'downgrade') return no(downgradeRefusal())
+    const p = PLAN_CATALOG[plan]!
+    if (p.status !== 'active' || (p.visibility !== 'public' && rec.plan !== plan)) return no(err(409, 'plan_unavailable', 'That plan is not available. Please contact our team.'))
+    if (rec.dunning?.state === 'active') return no(err(409, 'payment_overdue', 'Fix the overdue renewal payment first, then upgrade.'))
+    if (rec.renewal?.orderId) return no(err(409, 'notice_sent', 'Your renewal is being processed. Upgrade after it renews.'))
+    if (rec.mode === 'autopay' && rec.subscriptionId && !rec.cancelAtCycleEnd) return no(err(409, 'use_change_plan', 'Your autopay is managed by Razorpay; use Upgrade on the plan card.'))
+    const t = now()
+    const total = Math.max(1, rec.currentEnd - (rec.currentStart ?? t))
+    const paid = rec.periodPaid ?? chargeOf(rec.plan, rec.period, rec, { addons: rec.addons, months: rec.termMonths ?? undefined }).base
+    const credit = Math.round(paid * Math.max(0, rec.currentEnd - t) / total * 100) / 100
+    const addons = eligibleAddons(rec.addons, plan)
+    const dropped = (rec.addons ?? []).filter((a) => !addons.some((k) => k.id === a.id))
+    const daysLeft = daysBetween(t, rec.currentEnd)
+    // List prices for the new plan: an upgrade is a new sale.
+    const c = chargeFor(plan, period, gstPercent, {
+      place: { supplier, customer: rec.profile.address.stateCode }, addons, credit,
+      creditLabel: `Credit for ${daysLeft} unused day${daysLeft === 1 ? '' : 's'} of your ${planName(rec.plan)} plan`,
+    })
+    if (c.totalPaise < 100) return no(err(409, 'contact_sales', 'Your credit covers this change. Please contact our team to switch.'))
+    const end = addPeriod(t, period)
+    const card = rec.engine === 'token' && Boolean(rec.mandate && rec.renewal)
+    const renewalTotal = chargeFor(plan, period, gstPercent, { addons }).total
+    return { ok: true, c, credit, addons, dropped, start: t, end, autopayContinues: card && renewalTotal <= AFA_LIMIT_RUPEES }
+  }
+
+  async function upgradeQuoteRoute(req: BillingRequest): Promise<BillingResponse> {
+    const { plan, period } = (req.body ?? {}) as Record<string, unknown>
+    const rec = await store.get(req.workspaceId)
+    const q = upgradeQuote(rec, plan, period)
+    if (!q.ok) return q.res
+    return reply(200, {
+      plan, planName: planName(plan as string), period, charge: q.c, credit: q.credit, startsAt: q.start, endsAt: q.end,
+      addons: addonLines(q.addons, period as Period), droppedAddons: addonLines(q.dropped, rec!.period!),
+      autopayContinues: q.autopayContinues, renewal: q.autopayContinues ? chargeFor(plan as string, period as Period, gstPercent, { addons: q.addons }).total : null,
+    })
+  }
+
+  async function upgradeCheckout(req: BillingRequest): Promise<BillingResponse> {
+    const { plan, period } = (req.body ?? {}) as Record<string, unknown>
+    const rec = await store.get(req.workspaceId)
+    const q = upgradeQuote(rec, plan, period)
+    if (!q.ok) return q.res
+    const r = rec as BillingRecord
+    const order = await rz!.request<RzEntity>('POST', '/orders', {
+      amount: q.c.totalPaise, currency: 'INR', receipt: `${req.workspaceId}-u${now()}`.slice(0, 40),
+      notes: { ...notesFor(r, plan as string, period as Period, q.addons), purpose: 'upgrade' },
+    })
+    r.pending = { mode: 'once', purpose: 'upgrade', plan: plan as string, period: period as Period, addons: q.addons, lines: q.c.lines, amountPaise: q.c.totalPaise, orderId: order.id, createdAt: now() }
+    r.updatedAt = now()
+    await store.put(r)
+    return reply(200, {
+      keyId, amount: q.c.totalPaise, currency: 'INR', mode: 'once', orderId: order.id, plan, period,
+      description: `SmatBot upgrade to ${planName(plan as string)} · ${period} (incl. ${gstPercent}% GST)`,
+    })
+  }
+
+  /* ── cancelling ───────────────────────────────────────────────────────────
+     'period_end'  nothing renews; the plan and its add-ons keep working until the period ends
+     'now'         access ends immediately. No refund (see the invoice notes) — the dashboard says so
+                   before the customer confirms. Staff use the same rules from the admin console. */
+  async function cancelPlan(rec: BillingRecord, when: 'now' | 'period_end'): Promise<void> {
+    const t = now()
+    if (rec.engine === 'token') await dropMandate(rec)
+    if (rec.subscriptionId && rec.mode === 'autopay' && !TERMINAL.has(rec.status)) {
+      await rz?.request('POST', `/subscriptions/${rec.subscriptionId}/cancel`, { cancel_at_cycle_end: when === 'now' ? 0 : 1 }).catch(() => undefined)
+    }
+    if (rec.upcoming) {
+      await rz?.request('POST', `/subscriptions/${rec.upcoming.subscriptionId}/cancel`, { cancel_at_cycle_end: 0 }).catch(() => undefined)
+      rec.upcoming = null
+    }
+    rec.scheduledChange = null; rec.pending = null; rec.nextChargeAt = null; rec.cancelAtCycleEnd = true
+    if (when === 'now') {
+      if (rec.dunning?.state === 'active') {
+        for (const a of rec.dunning.attempts) if (a.result === 'sent') { await stopLink(a.linkId); a.result = 'expired' }
+        await stopLink(rec.dunning.linkId)
+        rec.dunning = null
+      }
+      rec.status = 'cancelled'; rec.cancelledAt = t; rec.cancelAt = null
+      if (rec.currentEnd && rec.currentEnd > t) rec.currentEnd = t
+      rec.extraAddons = (rec.extraAddons ?? []).map((e) => (e.until > t ? { ...e, until: t } : e))
+      rec.priceLock = null
+    } else {
+      rec.cancelAt = rec.currentEnd ?? t
+    }
+    rec.updatedAt = t
+  }
+
+  async function cancelRoute(req: BillingRequest): Promise<BillingResponse> {
+    const when = (req.body ?? {}).when
+    if (when !== 'now' && when !== 'period_end') return err(400, 'invalid_request', 'Choose to cancel now or at the end of the period.')
+    const rec = await store.get(req.workspaceId)
+    if (!rec || !isLive(rec)) return err(409, 'no_plan', 'There is no running plan to cancel.')
+    if (when === 'period_end' && rec.cancelAt) return err(409, 'already_cancelling', 'Your plan is already set to end on that date.')
+    await cancelPlan(rec, when)
+    await store.put(rec)
+    return reply(200, await summarize(rec))
   }
 
   /* ── replace the saved card ───────────────────────────────────────────── */
@@ -998,7 +1381,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       return err(409, 'no_card_autopay', 'There is no saved card to replace. Turn autopay on instead.')
     }
     const r = rec.renewal
-    const c = chargeOf(r.plan, r.period, rec, r.addons)
+    const c = chargeOf(r.plan, r.period, rec, { addons: r.addons })
     const customerId = await ensureCustomer(rec)
     const order = await rz!.request<RzEntity>('POST', '/orders', {
       amount: 100, currency: 'INR', receipt: `${req.workspaceId}-c${now()}`.slice(0, 40), customer_id: customerId, method: 'card',
@@ -1095,7 +1478,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     if (reissueDrafts(rec) || filled) { rec.updatedAt = now(); await store.put(rec) }
     const items = (rec.invoices ?? []).map((i) => ({
       id: i.id, number: i.number, date: i.issuedAt, amountPaise: i.amountPaise, status: 'paid',
-      description: i.kind === 'addon' ? 'Add-ons · one-time purchase' : `${PLAN_CATALOG[i.plan].name} plan · ${i.period}${i.kind === 'renewal' ? ' · renewal' : i.kind === 'dunning_recovery' ? ' · renewal (recovered)' : ''}`,
+      description: i.kind === 'addon' ? 'Add-ons · one-time purchase' : `${planName(i.plan)} plan · ${i.period}${i.kind === 'renewal' ? ' · renewal' : i.kind === 'dunning_recovery' ? ' · renewal (recovered)' : ''}`,
       url: `/api/billing/invoices/${i.id}/view`, paymentId: i.paymentId,
     }))
     return reply(200, { items })
@@ -1223,121 +1606,36 @@ export function createBillingService(opts: BillingServiceOptions) {
     if (!sel.ok) return err(400, 'invalid_addons', sel.message)
     const rec = await store.get(req.workspaceId)
     const only = addonsOnly === true
-    const addonPeriod: Period | undefined = only && period === 'yearly' && term === 'monthly' ? 'monthly' : undefined
+    if (only) {
+      // Add-ons on the running plan: priced by how long they will actually run.
+      const how = addonHowOf(term)
+      if (!isLive(rec)) return err(409, 'plan_not_active', 'Add-ons need an active plan.')
+      const { c, until, addonPeriod } = addonPrice(rec, sel.addons, how)
+      return reply(200, {
+        plan, planName: planName(plan), period, charge: c, planBase: 0, addonPeriod: addonPeriod !== period ? addonPeriod : null, term: how, until,
+        addons: addonLines(sel.addons, addonPeriod, lockOf(rec)), requiresApproval: false, approvalLimit: AFA_LIMIT_RUPEES, couponCode: null, coupon: null, couponError: null,
+      })
+    }
     // A coupon that doesn't apply is reported, not an error: the price is simply quoted without it.
-    const couponCode = typeof couponIn === 'string' && couponIn.trim() && !only ? couponIn.trim().toUpperCase() : null
+    const couponCode = typeof couponIn === 'string' && couponIn.trim() ? couponIn.trim().toUpperCase() : null
     const cr = couponCode ? await resolveCoupon(couponCode, plan, period, rec, sel.addons) : null
     const coupon = cr && !('error' in cr) ? cr : null
-    const c = chargeOf(plan, period, rec, sel.addons, only, addonPeriod, coupon?.discount)
+    const c = chargeOf(plan, period, rec, { addons: sel.addons, ...couponOpts(coupon ?? undefined) })
     return reply(200, {
-      plan, planName: PLAN_CATALOG[plan].name, period, charge: c, planBase: only ? 0 : PLAN_CATALOG[plan][period], addonPeriod: addonPeriod ?? null,
-      addons: addonLines(sel.addons, addonPeriod ?? period), requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES,
+      plan, planName: planName(plan), period, charge: c, planBase: planRate(plan, period, lockOf(rec)), addonPeriod: null,
+      addons: addonLines(sel.addons, period, lockOf(rec)), requiresApproval: needsApprovalEachCycle(c), approvalLimit: AFA_LIMIT_RUPEES,
       couponCode, coupon, couponError: cr && 'error' in cr ? cr.error : null,
     })
   }
 
-  /* ── admin console ────────────────────────────────────────────────────────
-     SmatBot staff only. The owner signs in with BILLING_ADMIN_EMAIL / BILLING_ADMIN_PASSWORD and adds
-     employees (passwords stored hashed, in the 'staff' doc). Tokens are signed with a key derived from
-     the owner's password, so changing it signs everyone out. Admin routes never touch Razorpay. */
-  const owner = opts.admin?.email && opts.admin.password ? { email: opts.admin.email.trim().toLowerCase(), password: opts.admin.password } : undefined
-  const sessionKey = owner ? createHmac('sha256', owner.password).update('smatbot-admin-session-v1').digest('base64') : ''
-  const digest = (s: string) => createHash('sha256').update(s).digest()   // equal lengths for timingSafeEqual
-  const same = (a: string, b: string) => timingSafeEqual(digest(a), digest(b))
-  type Staff = { email: string; name: string; role: 'owner' | StaffRole }
-
-  const staffList = async () => (await store.getDoc<StaffMember[]>('staff')) ?? []
+  /* ── coupons (checkout side; staff create them in adminApi.ts) ─────────── */
   const coupons = async () => (await store.getDoc<Coupon[]>('coupons')) ?? []
-  const staffView = (s: StaffMember) => ({ email: s.email, name: s.name, role: s.role, active: s.active, createdAt: s.createdAt, createdBy: s.createdBy, lastLoginAt: s.lastLoginAt ?? null })
-  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  const badPassword = (pw: unknown) => typeof pw !== 'string' || pw.length < 8 || pw.length > 200
-
-  async function currentStaff(req: BillingRequest): Promise<Staff | null> {
-    const email = readSession(sessionKey, req.headers['x-admin-token'], now())
-    if (!email || !owner) return null
-    if (email === owner.email) return { email, name: 'Owner', role: 'owner' }
-    const s = (await staffList()).find((m) => m.email === email && m.active)   // switched off = signed out
-    return s ? { email: s.email, name: s.name, role: s.role } : null
-  }
-
-  /* shortcut: the wrong-password lockout (5 tries, then 10 minutes) lives in memory, per email; a restart
-     clears it and separate API instances don't share it — move it to Redis if that matters. */
-  const failures = new Map<string, { n: number; until: number }>()
-
-  async function adminLogin(req: BillingRequest): Promise<BillingResponse> {
-    const { email: emailIn, password } = (req.body ?? {}) as Record<string, unknown>
-    const email = typeof emailIn === 'string' ? emailIn.trim().toLowerCase().slice(0, 200) : ''
-    const f = failures.get(email)
-    if (f && f.until > now()) return err(429, 'too_many_attempts', 'Too many wrong passwords. Try again in 10 minutes.')
-    let user: Staff | null = null
-    if (owner && email && typeof password === 'string') {
-      if (same(email, owner.email)) {
-        if (same(password, owner.password)) user = { email, name: 'Owner', role: 'owner' }
-      } else {
-        const list = await staffList()
-        const s = list.find((m) => m.email === email)
-        if (s?.active && await checkPassword(password, s.passwordHash)) {
-          user = { email: s.email, name: s.name, role: s.role }
-          s.lastLoginAt = now()
-          await store.putDoc('staff', list)
-        }
-      }
-    }
-    if (!user) {
-      const n = (f?.n ?? 0) + 1
-      failures.set(email, n >= 5 ? { n: 0, until: now() + 600 } : { n, until: 0 })
-      return err(401, 'unauthorized', 'Wrong email or password.')
-    }
-    failures.delete(email)
-    return reply(200, { token: signSession(sessionKey, user.email, now()), user })
-  }
-
-  async function createStaff(req: BillingRequest, me: Staff): Promise<BillingResponse> {
-    const b = (req.body ?? {}) as Record<string, unknown>
-    const name = typeof b.name === 'string' ? b.name.trim().slice(0, 80) : ''
-    const email = typeof b.email === 'string' ? b.email.trim().toLowerCase() : ''
-    if (!name) return err(400, 'invalid_name', 'Enter their name.')
-    if (!EMAIL_RE.test(email) || email.length > 200) return err(400, 'invalid_email', 'Enter a valid email address.')
-    if (!isStaffRole(b.role)) return err(400, 'invalid_role', 'Choose a role.')
-    if (badPassword(b.password)) return err(400, 'invalid_password', 'Password: at least 8 characters.')
-    const list = await staffList()
-    if (email === owner!.email || list.some((m) => m.email === email)) return err(409, 'exists', 'Someone with that email already has access.')
-    const m: StaffMember = { email, name, role: b.role, active: true, passwordHash: await hashPassword(b.password as string), createdAt: now(), createdBy: me.email }
-    await store.putDoc('staff', [...list, m])
-    return reply(200, staffView(m))
-  }
-
-  async function updateStaff(req: BillingRequest, me: Staff): Promise<BillingResponse> {
-    const b = (req.body ?? {}) as Record<string, unknown>
-    const list = await staffList()
-    const m = list.find((x) => x.email === String(b.email ?? '').trim().toLowerCase())
-    if (!m) return err(404, 'not_found', 'No such employee.')
-    if (m.email === me.email && (b.active === false || b.role === 'support')) return err(409, 'own_access', "You can't remove your own admin access.")
-    if (b.name !== undefined) {
-      const name = String(b.name).trim().slice(0, 80)
-      if (!name) return err(400, 'invalid_name', 'Enter their name.')
-      m.name = name
-    }
-    if (b.role !== undefined) {
-      if (!isStaffRole(b.role)) return err(400, 'invalid_role', 'Choose a role.')
-      m.role = b.role
-    }
-    if (b.active !== undefined) m.active = b.active === true
-    if (b.password !== undefined) {
-      if (badPassword(b.password)) return err(400, 'invalid_password', 'Password: at least 8 characters.')
-      m.passwordHash = await hashPassword(b.password as string)
-    }
-    await store.putDoc('staff', list)
-    return reply(200, staffView(m))
-  }
-
-  /* ── coupons ── */
   async function resolveCoupon(codeIn: string, plan: PlanId, period: Period, rec: BillingRecord | null | undefined, addons: AddonSel[]): Promise<{ error: string } | { code: string; discount: number }> {
     const code = codeIn.trim().toUpperCase()
     const cp = (await coupons()).find((c) => c.code === code)
     const problem = couponProblem(cp, plan, period, now(), Boolean(rec?.payments.some((p) => p.coupon === code)))
     if (problem) return { error: problem }
-    return { code, discount: couponDiscount(cp!, chargeOf(plan, period, rec, addons).base) }
+    return { code, discount: couponDiscount(cp!, chargeOf(plan, period, rec, { addons }).base) }
   }
 
   /* Counted once the payment has gone through.
@@ -1348,205 +1646,63 @@ export function createBillingService(opts: BillingServiceOptions) {
     if (c) { c.uses += 1; await store.putDoc('coupons', list) }
   }
 
-  async function createCoupon(req: BillingRequest, me: Staff): Promise<BillingResponse> {
-    const p = parseCoupon((req.body ?? {}) as Record<string, unknown>, now())
-    if (!p.ok) return err(400, 'invalid_coupon', p.message)
-    const list = await coupons()
-    if (list.some((c) => c.code === p.coupon.code)) return err(409, 'exists', 'A coupon with that code already exists.')
-    const c: Coupon = { ...p.coupon, active: true, uses: 0, createdAt: now(), createdBy: me.email }
-    await store.putDoc('coupons', [c, ...list])
-    return reply(200, c)
-  }
-
-  async function updateCoupon(req: BillingRequest): Promise<BillingResponse> {
-    const b = (req.body ?? {}) as Record<string, unknown>
-    const list = await coupons()
-    const c = list.find((x) => x.code === String(b.code ?? '').trim().toUpperCase())
-    if (!c) return err(404, 'not_found', 'No such coupon.')
-    if (typeof b.active !== 'boolean') return err(400, 'invalid_request', 'active must be true or false.')
-    c.active = b.active
-    await store.putDoc('coupons', list)
-    return reply(200, c)
-  }
-
-  /* ── customers ── */
-  /* Would the customer still be charged (or be chased for money) by autopay? */
-  const autopayRunning = (r: BillingRecord) => Boolean(
-    r.dunning?.state === 'active' || r.upcoming
-    || (r.engine === 'token' ? r.renewal : r.mode === 'autopay' && !r.cancelAtCycleEnd && !TERMINAL.has(r.status)),
-  )
-
-  /* The next time this customer pays: charged automatically (autopay), or due from them (manual). */
-  function renewalOf(r: BillingRecord) {
-    if (!r.plan || !r.period || !r.currentEnd) return null
-    const sc = r.scheduledChange
-    const next = r.engine === 'token' && r.renewal
-      ? { at: r.renewal.dueAt, type: 'autopay', plan: r.renewal.plan, period: r.renewal.period, addons: r.renewal.addons }
-      : r.upcoming
-      ? { at: r.upcoming.startsAt, type: 'autopay', plan: r.upcoming.plan, period: r.upcoming.period, addons: r.upcoming.addons }
-      : r.mode === 'autopay' && r.engine !== 'token' && !r.cancelAtCycleEnd && !TERMINAL.has(r.status)
-      ? { at: r.nextChargeAt ?? r.currentEnd, type: 'autopay', plan: sc?.plan ?? r.plan, period: sc?.period ?? r.period, addons: sc?.addons ?? r.addons }
-      : { at: r.currentEnd, type: 'manual', plan: r.plan, period: r.period, addons: r.addons }
-    return {
-      at: next.at, type: next.type as 'autopay' | 'manual', plan: next.plan, planName: PLAN_CATALOG[next.plan].name, period: next.period,
-      total: chargeOf(next.plan, next.period, r, next.addons).total,
+  /* Staff replacing a plan: whatever would charge the customer automatically is stopped first. */
+  async function stopAutopay(rec: BillingRecord): Promise<void> {
+    if (rec.engine === 'token') await dropMandate(rec)
+    if (rec.subscriptionId && rec.mode === 'autopay' && !TERMINAL.has(rec.status)) {
+      await rz?.request('POST', `/subscriptions/${rec.subscriptionId}/cancel`, { cancel_at_cycle_end: 0 }).catch(() => undefined)
     }
-  }
-
-  const adminRow = (r: BillingRecord) => {
-    const p = r.profile
-    const paid = r.payments.filter((x) => x.status === 'paid')
-    return {
-      workspaceId: r.workspaceId,
-      customerType: r.customerType ?? 'direct',
-      partner: r.partner ?? null,
-      customer: p?.legalName ?? null,
-      contactName: p?.contactName ?? null,
-      email: p?.email ?? null,
-      phone: p?.phone ?? null,
-      gstin: p?.gstin ?? null,
-      city: p?.address.city ?? null,
-      stateCode: p?.address.stateCode ?? null,
-      state: p ? stateName(p.address.stateCode) : null,
-      plan: r.plan,
-      planName: r.plan ? PLAN_CATALOG[r.plan].name : null,
-      period: r.period,
-      mode: r.mode,
-      status: r.dunning?.state === 'active' ? 'past_due'
-        : r.status === 'active' && r.currentEnd && r.currentEnd < now() && !autopayRunning(r) ? 'expired' : r.status,
-      currentStart: r.currentStart ?? null,
-      currentEnd: r.currentEnd ?? null,
-      /** plan + add-ons for one period, ₹ before GST */
-      planValue: r.plan && r.period ? chargeOf(r.plan, r.period, r, r.addons).base : null,
-      autopay: autopayRunning(r),
-      card: r.mandate ? { last4: r.mandate.last4 ?? null, network: r.mandate.network ?? null } : null,
-      renewal: renewalOf(r),
-      addons: r.period ? addonLines(r.addons, r.period) : [],
-      extraAddons: (r.extraAddons ?? []).filter((e) => e.until > now()).map((e) => ({ id: e.id, qty: e.qty, until: e.until, term: e.term ?? null })),
-      paidTotal: paid.reduce((n, x) => n + x.amountPaise, 0) / 100,
-      paymentsCount: paid.length,
-      lastPaymentAt: paid[0]?.at ?? null,
-      lastGrant: r.grants?.[0] ?? null,
-      updatedAt: r.updatedAt,
+    if (rec.upcoming) {
+      await rz?.request('POST', `/subscriptions/${rec.upcoming.subscriptionId}/cancel`, { cancel_at_cycle_end: 0 }).catch(() => undefined)
+      rec.upcoming = null
     }
-  }
-
-  async function adminCustomer(ws: string): Promise<BillingResponse> {
-    const r = await store.get(ws)
-    if (!r) return err(404, 'not_found', 'No such customer.')
-    const d = r.dunning
-    return reply(200, {
-      ...adminRow(r),
-      profile: r.profile ?? null,
-      payments: r.payments.map((x) => ({
-        id: x.id, at: x.at, amountPaise: x.amountPaise, planName: PLAN_CATALOG[x.plan].name, period: x.period, status: x.status, method: x.method ?? null, coupon: x.coupon ?? null,
-        kind: r.invoices?.find((i) => i.paymentId === x.id)?.kind ?? null,   // purchase · renewal · addon …
-      })),
-      invoices: (r.invoices ?? []).map((i) => ({ id: i.id, number: i.number, at: i.issuedAt, amountPaise: i.amountPaise, kind: i.kind })),
-      grants: r.grants ?? [],
-      dunning: d?.state === 'active' ? { attempts: d.attempts.length, maxAttempts: policy.maxAttempts, deadline: d.deadline, nextAttemptAt: d.nextAttemptAt, amountPaise: d.amountPaise } : null,
-    })
-  }
-
-  async function setCustomerType(req: BillingRequest): Promise<BillingResponse> {
-    const b = (req.body ?? {}) as Record<string, unknown>
-    const rec = await store.get(String(b.workspaceId ?? ''))
-    if (!rec) return err(404, 'not_found', 'No such customer.')
-    if (!isCustomerType(b.type)) return err(400, 'invalid_type', 'Choose a customer type.')
-    const partnerType = PARTNER_TYPE[b.type]
-    let partner: string | null = null
-    if (partnerType && b.partner) {
-      const p = await store.get(String(b.partner))
-      if (!p || p.workspaceId === rec.workspaceId || (p.customerType ?? 'direct') !== partnerType) {
-        return err(400, 'invalid_partner', `Pick a ${partnerType === 'reseller' ? 'reseller' : 'white label partner'}.`)
-      }
-      partner = p.workspaceId
+    if (rec.dunning?.state === 'active') {
+      for (const a of rec.dunning.attempts) if (a.result === 'sent') { await stopLink(a.linkId); a.result = 'expired' }
+      await stopLink(rec.dunning.linkId)
+      rec.dunning = null
     }
-    rec.customerType = b.type; rec.partner = partner; rec.updatedAt = now()
-    await store.put(rec)
-    return reply(200, adminRow(rec))
+    rec.subscriptionId = undefined; rec.engine = undefined; rec.mode = 'once'; rec.cancelAtCycleEnd = false
+    rec.nextChargeAt = null; rec.renewal = null; rec.pending = null; rec.scheduledChange = null
   }
 
-  async function adminInvoice(ws: string, id: string): Promise<BillingResponse> {
-    const inv = (await store.get(ws))?.invoices?.find((i) => i.id === id)
-    if (!inv) return err(404, 'not_found', 'No such invoice.')
-    return { status: 200, body: renderInvoiceHtml(inv, seller), contentType: 'text/html; charset=utf-8' }
-  }
-
-  /* Give a customer a plan without a payment: deals paid offline (bank transfer, cheque) and free or
-     trial plans. It runs like a pay-once plan — active until `until`, then it ends. No invoice. */
-  async function adminAssign(req: BillingRequest, me: Staff): Promise<BillingResponse> {
-    const { workspaceId, plan, period, addons: addonsIn, until: untilIn, note } = (req.body ?? {}) as Record<string, unknown>
-    const ws = typeof workspaceId === 'string' ? workspaceId.trim() : ''
-    if (!/^(?!__)[A-Za-z0-9_.@-]{1,64}$/.test(ws)) return err(400, 'invalid_workspace', 'Workspace id: 1–64 letters, digits or . _ - @')
-    if (!isPlanId(plan) || !isPeriod(period)) return err(400, 'invalid_request', 'plan and period are required.')
-    const sel = normalizeAddons(addonsIn, plan)
-    if (!sel.ok) return err(400, 'invalid_addons', sel.message)
-    const t = now()
-    const until = untilIn == null ? addPeriod(t, period) : Number(untilIn)
-    if (!Number.isInteger(until) || until <= t || until > t + 5 * 366 * 86400) return err(400, 'invalid_until', 'The end date must be in the future and within 5 years.')
-    const rec = (await store.get(ws)) ?? blank(ws)
-    if (autopayRunning(rec)) {
-      return err(409, 'autopay_running', 'This customer is on autopay (or has a renewal payment outstanding). They must turn autopay off first, or they would be charged as well.')
-    }
-    rec.plan = plan; rec.period = period; rec.mode = 'once'; rec.status = 'active'; rec.addons = sel.addons
-    rec.subscriptionId = undefined; rec.engine = undefined; rec.cancelAtCycleEnd = false; rec.scheduledChange = null; rec.upcoming = null
-    rec.dunning = null; rec.autopayLapsed = false
-    rec.currentStart = t; rec.currentEnd = until; rec.nextChargeAt = null
-    rec.grants = [{ at: t, plan, period, addons: sel.addons, until, note: typeof note === 'string' ? note.trim().slice(0, 500) : '', by: me.email }, ...(rec.grants ?? [])]
-    rec.updatedAt = t
-    await store.put(rec)
-    return reply(200, adminRow(rec))
-  }
-
-  const decode = (s: string) => { try { return decodeURIComponent(s) } catch { return '' } }
-
-  async function adminHandle(req: BillingRequest, path: string, route: string): Promise<BillingResponse> {
-    if (!owner) return err(503, 'admin_not_configured', 'Set BILLING_ADMIN_EMAIL and BILLING_ADMIN_PASSWORD on the server to use the admin panel.')
-    if (route === 'POST /admin/login') return await adminLogin(req)
-    const me = await currentStaff(req)
-    if (!me) return err(401, 'unauthorized', 'Please sign in again.')
-    const get = req.method.toUpperCase() === 'GET'
-    const inv = path.match(/^\/admin\/customers\/([^/]{1,200})\/invoices\/([A-Za-z0-9_-]+)$/)
-    const one = path.match(/^\/admin\/customers\/([^/]{1,200})$/)
-    if (route === 'GET /admin/me') return reply(200, me)
-    if (route === 'GET /admin/customers') return reply(200, { items: (await store.list()).map(adminRow) })
-    if (get && inv) return await adminInvoice(decode(inv[1]!), inv[2]!)
-    if (get && one) return await adminCustomer(decode(one[1]!))
-    if (route === 'GET /admin/coupons') return reply(200, { items: await coupons() })
-    // Everything below moves money or changes who has access.
-    if (me.role === 'support') return err(403, 'forbidden', 'Only admins can do that.')
-    switch (route) {
-      case 'POST /admin/assign':         return await adminAssign(req, me)
-      case 'POST /admin/customers/type': return await setCustomerType(req)
-      case 'POST /admin/coupons':        return await createCoupon(req, me)
-      case 'POST /admin/coupons/update': return await updateCoupon(req)
-      case 'GET /admin/staff':           return reply(200, { owner: { email: owner.email }, items: (await staffList()).map(staffView) })
-      case 'POST /admin/staff':          return await createStaff(req, me)
-      case 'POST /admin/staff/update':   return await updateStaff(req, me)
-      default:                           return err(404, 'not_found')
-    }
-  }
+  /* ── the admin console (adminApi.ts) uses the same engine ────────────── */
+  const admin = createAdminApi({
+    store, now, gstPercent, seller, owner: opts.admin, maxDunningAttempts: policy.maxAttempts, terminal: TERMINAL,
+    chargeOf, isLive, termOf, changeKind, startPeriod, paidValue, recordPayment, cancelPlan, stopAutopay, addonPrice,
+    allowancesOf, usageOf, loadCatalog, blank, forgetPhoneMap,
+  })
 
   /* ── router ────────────────────────────────────────────────────────────── */
   async function handle(req: BillingRequest): Promise<BillingResponse> {
     const path = req.path.replace(/\/+$/, '') || '/'
     const route = `${req.method.toUpperCase()} ${path}`
 
+    await loadCatalog()
     // Admin routes don't touch Razorpay, so they work even when payments aren't configured.
-    if (path.startsWith('/admin/')) return await adminHandle(req, path, route)
+    if (path.startsWith('/admin/')) return await admin.handle(req, path, route)
+    if (route === 'POST /usage') return await usageRoute(req)
 
     if (route === 'GET /config') {
-      const prices = Object.fromEntries(PLAN_ORDER.map((p) => [p, {
-        monthly: chargeFor(p, 'monthly', gstPercent), yearly: chargeFor(p, 'yearly', gstPercent),
+      // What THIS customer can see: public plans on sale, plus the plan they are on (it may be private
+      // or archived) — and the add-ons on sale, plus any they already have.
+      const rec = await store.get(req.workspaceId)
+      const owned = new Set([...(rec?.addons ?? []), ...(rec?.extraAddons ?? [])].map((a) => a.id))
+      const plans = PLAN_ORDER.map((id) => PLAN_CATALOG[id]!).filter((p) => (p.status === 'active' && p.visibility === 'public') || p.id === rec?.plan)
+      const addons = ADDON_CATALOG.filter((a) => a.status === 'active' || owned.has(a.id))
+      const prices = Object.fromEntries(plans.map((p) => [p.id, {
+        monthly: chargeFor(p.id, 'monthly', gstPercent), yearly: chargeFor(p.id, 'yearly', gstPercent),
       }]))
       return reply(200, {
         configured: Boolean(rz && keyId), keyId: keyId ?? null, gstPercent, approvalLimit: AFA_LIMIT_RUPEES, prices,
         states: STATES, supplierStateCode: supplier, autopayEngine: engineMode,
-        addons: ADDON_CATALOG,
+        catalog: { plans, addons, features: FEATURES, metrics: METRICS },
+        addons,
+        salesEmail: salesContact(),
         dunning: { maxAttempts: policy.maxAttempts, windowDays: policy.windowDays, retryAfterHours: policy.retryAfterHours },
       })
     }
+    // Reading your own plan works without Razorpay (a plan given by staff needs no payment).
+    if (route === 'GET /subscription' && (!rz || !keyId)) return reply(200, { ...(await summarize(await store.get(req.workspaceId)) as object), paymentsConfigured: false })
     if (!rz || !keyId) return err(503, 'payments_not_configured', 'Razorpay keys are not configured on the server.')
 
     try {
@@ -1564,6 +1720,10 @@ export function createBillingService(opts: BillingServiceOptions) {
         case 'POST /autopay':       return await setAutopay(req)
         case 'POST /payment-method': return await cardUpdateCheckout(req)
         case 'POST /addons/checkout': return await addonCheckout(req)
+        case 'POST /addons/remove': return await removeAddon(req)
+        case 'POST /upgrade/quote': return await upgradeQuoteRoute(req)
+        case 'POST /upgrade/checkout': return await upgradeCheckout(req)
+        case 'POST /cancel':        return await cancelRoute(req)
         case 'GET /invoices':       return await invoices(req)
         case 'POST /webhook':       return await webhook(req)
         default:                    return err(404, 'not_found')
@@ -1577,7 +1737,13 @@ export function createBillingService(opts: BillingServiceOptions) {
     }
   }
 
-  return { handle, runDue }
+  /** For services in the same process (the WhatsApp sender): report usage without HTTP. */
+  async function reportUsage(input: { events?: unknown; state?: unknown }) {
+    await loadCatalog()
+    return recordUsage(input)
+  }
+
+  return { handle, runDue, reportUsage }
 }
 
 export type BillingService = ReturnType<typeof createBillingService>

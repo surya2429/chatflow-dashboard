@@ -8,6 +8,7 @@ import { hmacHex, type Razorpay, type RzEntity } from '../src/billing/razorpay.j
 import { gstinCheckChar, gstinError, normalizeMobile } from '../src/billing/india.js'
 import { DUNNING_POLICY, assertPolicy, attemptTimes } from '../src/billing/dunning.js'
 import type { BillingRecord, BillingStore } from '../src/billing/types.js'
+import { DEFAULT_CATALOG, addPeriod, applyCatalog, type Catalog } from '../src/billing/catalog.js'
 
 const SECRET = 'test_secret'
 const WEBHOOK = 'whsec_test'
@@ -94,6 +95,7 @@ function fakeRazorpay(clock: () => number) {
 function memoryStore(): BillingStore {
   const all = new Map<string, BillingRecord>()
   const docs = new Map<string, unknown>()
+  const usage = new Map<string, number>()
   const counters: Record<string, number> = {}
   return {
     async get(w) { return structuredClone(all.get(w) ?? null) },
@@ -104,6 +106,11 @@ function memoryStore(): BillingStore {
     async list() { return [...all.values()].map((r) => structuredClone(r)) },
     async getDoc(key) { return structuredClone(docs.get(key) ?? null) as never },
     async putDoc(key, value) { docs.set(key, structuredClone(value)) },
+    async addUsage(ws, day, metric, qty) { const k = `${ws}|${day}|${metric}`; usage.set(k, (usage.get(k) ?? 0) + qty) },
+    async usage(fromDay, ws) {
+      return [...usage].map(([k, value]) => { const [w, day, metric] = k.split('|') as [string, string, string]; return { workspaceId: w, day, metric, value } })
+        .filter((r) => r.day >= fromDay && (!ws || r.workspaceId === ws))
+    },
     async nextSequence(key) { counters[key] = (counters[key] ?? 0) + 1; return counters[key]! },
   }
 }
@@ -173,6 +180,9 @@ async function main() {
   check('payment appears in invoices', (r.body as RzEntity).items.length === 1)
 
   console.log('\nautopay subscription')
+  r = await call('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'autopay', consent: true })
+  check('while the yearly plan runs, a monthly one is a downgrade: refused, contact sales', r.status === 409 && (r.body as RzEntity).error === 'downgrade_contact_sales', r.body)
+  t += 366 * 86400                                      // the yearly plan has run out
   r = await call('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'autopay' })
   check('autopay refused without explicit consent', r.status === 409 && (r.body as RzEntity).error === 'consent_required', r.body)
   r = await call('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'autopay', consent: true })
@@ -197,8 +207,7 @@ async function main() {
   s = r.body as RzEntity
   check('upgrade applies immediately', r.status === 200 && s.appliedNow === true && s.plan === 'ai', s)
   r = await call('POST', '/change-plan', { plan: 'standard', period: 'monthly' })
-  s = r.body as RzEntity
-  check('downgrade is scheduled for the end of the cycle', r.status === 200 && s.appliedNow === false && s.scheduledChange?.plan === 'standard', s)
+  check('customers cannot downgrade themselves — they are sent to sales', r.status === 409 && (r.body as RzEntity).error === 'downgrade_contact_sales' && /sales@smatbot.com/.test((r.body as RzEntity).message), r.body)
   r = await call('POST', '/change-plan', { plan: 'standard', period: 'monthly' }, 'ws-none')
   check('plan change without a subscription rejected', r.status === 409)
 
@@ -210,19 +219,21 @@ async function main() {
 
   console.log('\nturn autopay back on at renewal')
   r = await call('POST', '/checkout', { plan: 'pro', period: 'yearly', mode: 'autopay', consent: true, startAtCycleEnd: true })
+  check('a smaller plan at renewal is a downgrade too', r.status === 409 && (r.body as RzEntity).error === 'downgrade_contact_sales', r.body)
+  r = await call('POST', '/checkout', { plan: 'ai', period: 'yearly', mode: 'autopay', consent: true, startAtCycleEnd: true })
   const up = r.body as RzEntity
   check('new subscription starts at the current period end', up.startsAt === t + 30 * 86400, up)
   const payUp = fake.pay(undefined, up.amount)
   fake.subs.get(up.subscriptionId)!.status = 'authenticated'
   r = await call('POST', '/verify', { razorpay_payment_id: payUp, razorpay_signature: sign(payUp, up.subscriptionId) })
   s = r.body as RzEntity
-  check('queued plan shown as upcoming', s.upcoming?.plan === 'pro' && s.upcoming?.period === 'yearly', s.upcoming)
+  check('queued plan shown as upcoming', s.upcoming?.plan === 'ai' && s.upcoming?.period === 'yearly', s.upcoming)
   t += 31 * 86400
   const queued = fake.subs.get(up.subscriptionId)!
   Object.assign(queued, { status: 'active', current_start: t, current_end: t + 365 * 86400, charge_at: t + 365 * 86400, paid_count: 1 })
   s = (await call('GET', '/subscription')).body as RzEntity
-  check('queued plan takes over once the old period ends', s.plan === 'pro' && s.period === 'yearly' && s.upcoming === null && s.autopay.on === true, s)
-  check('yearly Pro flagged: every renewal needs approval', s.autopay.requiresApproval === true)
+  check('queued plan takes over once the old period ends', s.plan === 'ai' && s.period === 'yearly' && s.upcoming === null && s.autopay.on === true, s)
+  check('yearly AI flagged: every renewal needs approval', s.autopay.requiresApproval === true)
 
   console.log('\nwebhook')
   const body = JSON.stringify({ event: 'subscription.halted', payload: { subscription: { entity: { id: up.subscriptionId, status: 'halted', plan_id: queued.plan_id, paid_count: 1 } } } })
@@ -405,7 +416,7 @@ async function main() {
   check('pre-debit notice goes out 48 hours before (an order with a notification)', noticeOrders().length === 1 && noticeOrders()[0]!.notification.token_id === 'token_a' && noticeOrders()[0]!.notification.payment_after === due1, noticeOrders())
   check('nothing is debited before the notice period is over', fake.debits.length === 0)
   check('dashboard shows the notice was sent', (await statusT('wt')).autopay.next.noticeSent === true)
-  r = await callT('POST', '/change-plan', { plan: 'standard', period: 'monthly' })
+  r = await callT('POST', '/change-plan', { plan: 'ai', period: 'monthly' })
   check('plan can no longer change once the notice is out', r.status === 409 && (r.body as RzEntity).error === 'notice_sent', r.body)
   t = due1; await tick()
   s1 = await statusT('wt')
@@ -492,13 +503,15 @@ async function main() {
   fake.state.debit = 'capture'
   const W5 = await activateT('wt5')
   r = await callT('POST', '/change-plan', { plan: 'standard', period: 'monthly' }, 'wt5')
+  check('a smaller plan at renewal is refused for the customer (contact sales)', r.status === 409 && (r.body as RzEntity).error === 'downgrade_contact_sales', r.body)
+  r = await callT('POST', '/change-plan', { plan: 'ai', period: 'monthly' }, 'wt5')
   let s5 = r.body as RzEntity
-  check('a plan change is queued for the next renewal', r.status === 200 && s5.appliedNow === false && s5.scheduledChange?.plan === 'standard' && s5.autopay.next.plan === 'standard', r.body)
+  check('an upgrade can be queued for the next renewal', r.status === 200 && s5.appliedNow === false && s5.scheduledChange?.plan === 'ai' && s5.autopay.next.plan === 'ai', r.body)
   r = await callT('POST', '/change-plan', { plan: 'pro', period: 'yearly' }, 'wt5')
   check('a yearly plan cannot be paid by card autopay (over ₹15,000)', r.status === 409 && (r.body as RzEntity).error === 'autopay_limit', r.body)
   t = (W5.sum.currentEnd as number) - 48 * HOUR; await tick(); t = W5.sum.currentEnd as number; await tick()
   s5 = await statusT('wt5')
-  check('the renewal charges the NEW plan price (Standard ₹4,130)', fake.debits.slice(-1)[0]!.amount === 413000 && s5.plan === 'standard', [s5.plan, fake.debits.slice(-1)[0]])
+  check('the renewal charges the NEW plan price (AI ₹10,618.82)', fake.debits.slice(-1)[0]!.amount === 1061882 && s5.plan === 'ai', [s5.plan, fake.debits.slice(-1)[0]])
   r = await callT('POST', '/autopay', { enabled: false }, 'wt5')
   s5 = r.body as RzEntity
   check('turning autopay off removes the saved card and keeps the plan until the period ends', s5.autopay.on === false && s5.status === 'active' && s5.endsAt === s5.currentEnd && fake.deletedTokens.length >= 2, s5)
@@ -534,8 +547,8 @@ async function main() {
   const dueA = WA.sum.currentEnd as number
   t = dueA - 48 * HOUR; await tick(); t = dueA; await tick()
   check('the renewal debits the plan AND its add-ons', fake.debits.slice(-1)[0]!.amount === 1227200, fake.debits.slice(-1)[0])
-  r = await callT('POST', '/change-plan', { plan: 'standard', period: 'monthly' }, 'wa2')
-  check('add-ons offered on both plans carry over to the new plan (₹3,500 + ₹3,900 + GST = ₹8,732)', r.status === 200 && (r.body as RzEntity).droppedAddons === 0 && (r.body as RzEntity).autopay.next.total === 8732, r.body)
+  r = await callT('POST', '/change-plan', { plan: 'ai', period: 'monthly' }, 'wa2')
+  check('moving up to AI with these add-ons would pass the ₹15,000 card-autopay limit, so it is refused', r.status === 409 && (r.body as RzEntity).error === 'autopay_limit', r.body)
   await callT('POST', '/autopay', { enabled: false }, 'wa2')
   await activateT('wa3', 'standard', 'monthly', [{ id: 'crm', qty: 1 }, { id: 'extra-live-agent', qty: 1 }])
   r = await callT('POST', '/change-plan', { plan: 'pro', period: 'monthly' }, 'wa3')
@@ -665,7 +678,7 @@ async function main() {
   check('they run for one month — not the whole year — and the yearly plan is unchanged', ys.extraAddons[0].term === 'monthly' && ys.extraAddons[0].until > tBuy + 27 * 86400 && ys.extraAddons[0].until < tBuy + 32 * 86400 && ys.currentEnd === yoSum.currentEnd && ys.period === 'yearly', [ys.extraAddons, ys.currentEnd])
   const yInv = ((await callT('GET', '/invoices', undefined, 'wo5')).body as RzEntity).items[0]
   const yPage = String((await callT('GET', `/invoices/${yInv.id}/view`, undefined, 'wo5')).body)
-  check('the invoice says 1 month', yInv.amountPaise === 236000 && yPage.includes('1 month'))
+  check('the invoice says 30 days', yInv.amountPaise === 236000 && yPage.includes('30 days'))
   r = await callT('POST', '/addons/checkout', { addons: AO }, 'wo5')
   check('without choosing a term they pay the yearly rate', (r.body as RzEntity).amount === 2265600, r.body)
   r = await callT('POST', '/addons/checkout', { addons: AO, term: 'monthly' }, 'wo4')
@@ -698,7 +711,7 @@ async function main() {
   check('the token stops working when the password changes', (await createBillingService({ store, gstPercent: 18, admin: { ...ADMIN, password: 'another-pass-1' } }).handle({ method: 'GET', path: '/admin/customers', headers: { 'x-admin-token': TOKEN }, workspaceId: 'x' })).status === 401)
   r = await adm('POST', '/admin/assign', { workspaceId: 'wa1', plan: 'standard', period: 'yearly', addons: [{ id: 'crm', qty: 1 }], note: 'NEFT UTR 123' })
   const ga = r.body as RzEntity
-  check('plan assigned for a year with its add-on and note', r.status === 200 && ga.planName === 'Standard' && ga.status === 'active' && ga.currentEnd > t + 364 * 86400 && ga.addons[0]?.id === 'crm' && ga.lastGrant?.note === 'NEFT UTR 123', ga)
+  check('plan assigned for a year with its add-on and note', r.status === 200 && ga.planName === 'Standard' && ga.status === 'active' && ga.currentEnd > t + 364 * 86400 && ga.addons[0]?.id === 'crm' && ga.lastGrant?.note.includes('NEFT UTR 123') && ga.free === true, ga)
   s = (await call('GET', '/subscription', undefined, 'wa1')).body as RzEntity
   check('the customer sees it as a plan that ends, no autopay, no invoice', s.status === 'active' && s.plan === 'standard' && s.autopay.on === false && s.endsAt === ga.currentEnd && !s.latestInvoice, s)
   r = await adm('POST', '/admin/assign', { workspaceId: 'wa1', plan: 'pro', period: 'monthly', addons: [{ id: 'crm', qty: 1 }] })
@@ -790,6 +803,171 @@ async function main() {
 
   t = ga.currentEnd + 1
   check('after the end date the plan has ended', ((await call('GET', '/subscription', undefined, 'wa1')).body as RzEntity).status === 'expired')
+
+  /* ── billing v2 ─────────────────────────────────────────────────────────── */
+  console.log('\nbilling v2: price list and price lock')
+  const USAGE_KEY = 'usage-key-0123456789'
+  const full = createBillingService({ store, razorpay: fake.rz, keyId: 'rzp_test_x', webhookSecret: WEBHOOK, gstPercent: 18, supplierStateCode: '27', admin: ADMIN, usageKey: USAGE_KEY, now: () => t })
+  const callF = (method: string, path: string, body?: Record<string, unknown>, ws = 'v2', headers: Record<string, string> = {}) =>
+    full.handle({ method, path, body, headers, workspaceId: ws, ip: '203.0.113.9', userAgent: 'smoke-test' })
+  // Sessions last 12 hours and these tests jump weeks ahead, so staff sign in afresh each time.
+  const admF = async (method: string, path: string, body?: Record<string, unknown>) => {
+    const tok = ((await callF('POST', '/admin/login', { email: ADMIN.email, password: ADMIN.password })).body as RzEntity).token as string
+    return callF(method, path, body, 'ignored', { 'x-admin-token': tok })
+  }
+  const statusF = async (ws: string) => (await callF('GET', '/subscription', undefined, ws)).body as RzEntity
+  const tickF = async () => { await full.runDue(); await full.runDue() }
+  const payF = async (ws: string, co: RzEntity) => {
+    const pay = fake.pay(co.orderId, co.amount)
+    return (await callF('POST', '/verify', { razorpay_payment_id: pay, razorpay_order_id: co.orderId, razorpay_signature: sign(co.orderId, pay) }, ws)).body as RzEntity
+  }
+  async function activateF(ws: string, plan = 'pro', period = 'monthly') {
+    await callF('PUT', '/profile', good, ws)
+    const co = (await callF('POST', '/checkout', { plan, period, mode: 'autopay', consent: true }, ws)).body as RzEntity
+    const tokenId = `token_${++tokenN}`
+    const payId = fake.pay(co.orderId, co.amount, { status: 'authorized', token_id: tokenId, customer_id: co.customerId })
+    const v = await callF('POST', '/verify', { razorpay_payment_id: payId, razorpay_order_id: co.orderId, razorpay_signature: sign(co.orderId, payId) }, ws)
+    return { co, tokenId, sum: v.body as RzEntity }
+  }
+  async function payOnceF(ws: string, plan: string, period: string) {
+    await callF('PUT', '/profile', good, ws)
+    return payF(ws, (await callF('POST', '/checkout', { plan, period, mode: 'once' }, ws)).body as RzEntity)
+  }
+
+  const L = await activateF('v2lock')                                     // Pro monthly, card autopay, ₹6,500
+  const cat = ((await admF('GET', '/admin/catalog')).body as RzEntity).catalog as Catalog
+  const edited = structuredClone(cat)
+  edited.plans.find((p) => p.id === 'pro')!.monthly = 7000
+  r = await admF('PUT', '/admin/catalog', { catalog: edited })
+  check('an admin edits a price; the price list gets a new version', r.status === 200 && (r.body as RzEntity).catalog.version === cat.version + 1, r.body)
+  await callF('PUT', '/profile', good, 'v2new')
+  q = (await callF('POST', '/quote', { plan: 'pro', period: 'monthly' }, 'v2new')).body as RzEntity
+  check('new sales pay the new price (₹7,000 + GST = ₹8,260)', q.charge.total === 8260, q.charge)
+  let sF = await statusF('v2lock')
+  check('an existing customer keeps the price they bought at (₹7,670)', sF.charge.total === 7670 && sF.autopay.next.total === 7670, [sF.charge, sF.autopay.next])
+  t = (L.sum.currentEnd as number) - 48 * HOUR; await tickF(); t = L.sum.currentEnd as number; await tickF()
+  check('…and their renewal is debited at it', fake.debits.slice(-1)[0]!.amount === 767000, fake.debits.slice(-1)[0])
+  await callF('POST', '/autopay', { enabled: false }, 'v2lock')
+  r = await admF('PUT', '/admin/catalog', { catalog: { ...edited, plans: edited.plans.filter((p) => p.id !== 'broadcast') } })
+  check('a plan cannot be deleted — only archived', r.status === 400 && /archive/.test((r.body as RzEntity).message), r.body)
+
+  console.log('\nbilling v2: private plans, custom terms, offline payments')
+  const priv = structuredClone(edited)
+  priv.plans.push({ ...structuredClone(priv.plans.find((p) => p.id === 'standard')!), id: 'standard-partner', name: 'Standard (Partner)', monthly: 2500, yearly: 25000, visibility: 'private' })
+  r = await admF('PUT', '/admin/catalog', { catalog: priv })
+  check('a private plan is created', r.status === 200, r.body)
+  check('it is hidden from customers', !((await callF('GET', '/config', undefined, 'v2new')).body as RzEntity).catalog.plans.some((p: RzEntity) => p.id === 'standard-partner'))
+  r = await callF('POST', '/checkout', { plan: 'standard-partner', period: 'monthly', mode: 'once' }, 'v2new')
+  check('…and they cannot buy it', r.status === 409 && (r.body as RzEntity).error === 'plan_unavailable', r.body)
+  await callF('PUT', '/profile', good, 'v2off')
+  r = await admF('POST', '/admin/plan', { workspaceId: 'v2off', plan: 'standard-partner', months: 6, payment: { type: 'offline', amount: 17000, method: 'bank_transfer', reference: 'UTR998877' }, note: 'Partner deal' })
+  const off = r.body as RzEntity
+  check('staff give a private plan for a custom 6-month term, paid offline', r.status === 200 && off.planName === 'Standard (Partner)' && off.termMonths === 6 && off.currentEnd === addPeriod(t, 'monthly', 6) && off.planValue === 15000, off)
+  check('the client sees their private plan', ((await callF('GET', '/config', undefined, 'v2off')).body as RzEntity).catalog.plans.some((p: RzEntity) => p.id === 'standard-partner'))
+  sF = await statusF('v2off')
+  check('allowances cover the whole term (30,000 × 6 service messages)', sF.usage.items.find((i: RzEntity) => i.metric === 'wa_service')?.limit === 180000, sF.usage.items)
+  const offInv = ((await callF('GET', '/invoices', undefined, 'v2off')).body as RzEntity).items[0]
+  const offPage = String((await callF('GET', `/invoices/${offInv.id}/view`, undefined, 'v2off')).body)
+  check('the offline payment is invoiced: the 6-month term, the agreed price as an adjustment, ₹17,000 in all', offInv.amountPaise === 1700000 && offPage.includes('6 months') && offPage.includes('Special price') && offPage.includes('₹17,000.00'), offInv)
+  const offDetail = (await admF('GET', '/admin/customers/v2off')).body as RzEntity
+  check('the payment is marked offline, with its reference and who recorded it', offDetail.payments[0].offline?.reference === 'UTR998877' && offDetail.payments[0].offline?.by === ADMIN.email, offDetail.payments[0])
+
+  const anOff = (await admF('GET', '/admin/analytics')).body as RzEntity
+  check('offline money shows in analytics in the month it came in', anOff.monthly.slice(-1)[0].offline === 17000, anOff.monthly.slice(-1)[0])
+
+  console.log('\nbilling v2: add-on expiry and proration')
+  const A10 = await payOnceF('v2add', 'standard', 'monthly')
+  t = (A10.currentEnd as number) - 10 * 86400
+  q = (await callF('POST', '/quote', { plan: 'standard', period: 'monthly', addons: [{ id: 'extra-live-agent', qty: 1 }], addonsOnly: true, term: 'monthly' }, 'v2add')).body as RzEntity
+  check('a 30-day add-on bought 10 days before the plan ends runs until the plan ends, priced for 10 days (₹333.33)', q.until === A10.currentEnd && q.charge.base === 333.33, q)
+  const Y = await payOnceF('v2year', 'standard', 'yearly')
+  t = (Y.currentEnd as number) - 73 * 86400
+  q = (await callF('POST', '/quote', { plan: 'standard', period: 'yearly', addons: [{ id: 'extra-live-agent', qty: 1 }], addonsOnly: true, term: 'plan' }, 'v2year')).body as RzEntity
+  check('"until the plan ends" on a yearly plan is the yearly rate for the days left (₹9,600 × 73/365 = ₹1,920)', q.charge.base === 1920 && q.until === Y.currentEnd, q.charge)
+  q = (await callF('POST', '/quote', { plan: 'standard', period: 'yearly', addons: [{ id: 'extra-live-agent', qty: 1 }], addonsOnly: true, term: 'monthly' }, 'v2year')).body as RzEntity
+  check('a yearly plan can still buy a full 30 days at the monthly rate (₹1,000)', q.charge.base === 1000 && q.until === t + 30 * 86400, q)
+
+  console.log('\nbilling v2: recurring add-ons on autopay')
+  const RA = await activateF('v2rec', 'standard')                         // ₹3,500 → ₹4,130
+  t = (RA.sum.currentEnd as number) - 15 * 86400
+  r = await callF('POST', '/addons/checkout', { addons: [{ id: 'crm', qty: 1 }], term: 'recurring' }, 'v2rec')
+  check('adding CRM to the plan with 15 days left charges half a month now (₹500 + GST = ₹590)', r.status === 200 && (r.body as RzEntity).amount === 59000, r.body)
+  sF = await payF('v2rec', r.body as RzEntity)
+  check('it is on the plan now and renews with it (next renewal ₹4,500 + GST = ₹5,310)', sF.addons.some((a: RzEntity) => a.id === 'crm' && a.renews) && sF.autopay.next.total === 5310, [sF.addons, sF.autopay.next])
+  const recInv = ((await callF('GET', '/invoices', undefined, 'v2rec')).body as RzEntity).items[0]
+  check('its invoice says it renews with the plan', String((await callF('GET', `/invoices/${recInv.id}/view`, undefined, 'v2rec')).body).includes('renew with the plan'))
+  t = (RA.sum.currentEnd as number) - 48 * HOUR; await tickF(); t = RA.sum.currentEnd as number; await tickF()
+  check('the renewal debits plan + add-on (₹5,310)', fake.debits.slice(-1)[0]!.amount === 531000, fake.debits.slice(-1)[0])
+  sF = (await callF('POST', '/addons/remove', { id: 'crm' }, 'v2rec')).body as RzEntity
+  check('removing it keeps it to the end of the period and leaves it out of the next renewal', sF.addons.some((a: RzEntity) => a.id === 'crm' && !a.renews) && sF.autopay.next.total === 4130, sF.autopay.next)
+  r = await callF('POST', '/addons/checkout', { addons: [{ id: 'crm', qty: 1 }], term: 'recurring' }, 'v2year')
+  check('recurring add-ons need card autopay', r.status === 409 && (r.body as RzEntity).error === 'recurring_needs_autopay', r.body)
+  await callF('POST', '/autopay', { enabled: false }, 'v2rec')
+
+  console.log('\nbilling v2: upgrades')
+  const U = await payOnceF('v2up', 'standard', 'monthly')
+  t = (U.currentStart as number) + Math.round(((U.currentEnd as number) - (U.currentStart as number)) / 2)
+  r = await callF('POST', '/checkout', { plan: 'pro', period: 'monthly', mode: 'once' }, 'v2up')
+  check('paying once for a bigger plan mid-period is sent to Upgrade', r.status === 409 && (r.body as RzEntity).error === 'use_upgrade', r.body)
+  q = (await callF('POST', '/upgrade/quote', { plan: 'pro', period: 'monthly' }, 'v2up')).body as RzEntity
+  check('upgrade quote credits the unused half (₹7,000 − ₹1,750 = ₹5,250 + GST = ₹6,195)', q.credit === 1750 && q.charge.base === 5250 && q.charge.total === 6195, q)
+  sF = await payF('v2up', (await callF('POST', '/upgrade/checkout', { plan: 'pro', period: 'monthly' }, 'v2up')).body as RzEntity)
+  check('after paying they are on Pro from today for a full month', sF.plan === 'pro' && sF.currentStart === t && sF.currentEnd === addPeriod(t, 'monthly'), sF)
+  const upInv = ((await callF('GET', '/invoices', undefined, 'v2up')).body as RzEntity).items[0]
+  const upPage = String((await callF('GET', `/invoices/${upInv.id}/view`, undefined, 'v2up')).body)
+  check('the invoice shows the credit line', upPage.includes('Credit for') && upPage.includes('−₹1,750.00') && upInv.amountPaise === 619500, upInv)
+  r = await callF('POST', '/upgrade/quote', { plan: 'standard', period: 'monthly' }, 'v2up')
+  check('moving back down is not offered online', r.status === 409 && (r.body as RzEntity).error === 'downgrade_contact_sales', r.body)
+  const UT = await activateF('v2upt', 'standard')
+  t += 10 * 86400
+  sF = await payF('v2upt', (await callF('POST', '/upgrade/checkout', { plan: 'pro', period: 'monthly' }, 'v2upt')).body as RzEntity)
+  check('card autopay carries on after an upgrade, at the new plan price (₹8,260)', sF.plan === 'pro' && sF.autopay.on && sF.autopay.next.plan === 'pro' && sF.autopay.next.total === 8260 && sF.autopay.next.dueAt === sF.currentEnd, sF.autopay)
+
+  console.log('\nbilling v2: cancelling')
+  const C1 = await payOnceF('v2can', 'standard', 'monthly')
+  sF = (await callF('POST', '/cancel', { when: 'period_end' }, 'v2can')).body as RzEntity
+  check('cancel at the end of the period: still active, ends on the date shown', sF.status === 'active' && sF.cancelAt === C1.currentEnd, sF)
+  t = (C1.currentEnd as number) + 60
+  check('…and after that date it is cancelled', (await statusF('v2can')).status === 'cancelled')
+  const C2 = await activateF('v2can2', 'standard')
+  sF = (await callF('POST', '/cancel', { when: 'now' }, 'v2can2')).body as RzEntity
+  check('cancel now: access ends straight away, autopay stops, the saved card is removed', sF.status === 'cancelled' && sF.autopay.on === false && fake.deletedTokens.includes(C2.tokenId), sF)
+
+  console.log('\nbilling v2: usage and downgrade impact')
+  r = await admF('POST', '/admin/customers/numbers', { workspaceId: 'v2upt', numbers: ['1098765432'] })
+  check('staff link a client to their WhatsApp number', r.status === 200 && (r.body as RzEntity).whatsappNumbers[0] === '1098765432', r.body)
+  r = await admF('POST', '/admin/customers/numbers', { workspaceId: 'v2up', numbers: ['1098765432'] })
+  check('a number can belong to one client only', r.status === 409, r.body)
+  r = await callF('POST', '/usage', { events: [{ phoneNumberId: '1098765432', metric: 'wa_service', qty: 40000 }] })
+  check('reporting usage needs the usage key', r.status === 401)
+  r = await callF('POST', '/usage', {
+    events: [{ phoneNumberId: '1098765432', metric: 'wa_service', qty: 40000 }, { phoneNumberId: '555', metric: 'wa_bi', qty: 5 }, { workspaceId: 'v2upt', metric: 'chatbots', qty: 1 }],
+    state: [{ workspaceId: 'v2upt', counts: { chatbots: 7, agents: 2 }, features: { 'facebook-messenger': true, voice: false } }],
+  }, 'x', { 'x-usage-key': USAGE_KEY })
+  check('usage is accepted for known numbers; unknown numbers and gauges sent as events are skipped', (r.body as RzEntity).accepted === 2 && (r.body as RzEntity).skipped === 2, r.body)
+  const uItems = (await statusF('v2upt')).usage.items as RzEntity[]
+  check('the customer sees usage against the allowance (40,000 of 1,00,000; 7 of 10 chatbots)', uItems.find((i) => i.metric === 'wa_service')?.used === 40000 && uItems.find((i) => i.metric === 'wa_service')?.limit === 100000 && uItems.find((i) => i.metric === 'chatbots')?.used === 7, uItems)
+  const imp = (await admF('POST', '/admin/impact', { workspaceId: 'v2upt', plan: 'standard', period: 'monthly' })).body as RzEntity
+  check('impact: it is a downgrade, and not safe', imp.kind === 'downgrade' && imp.safe === false, imp.kind)
+  check('Facebook Messenger is in use and would stop; voice is reported unused', imp.lost.find((l: RzEntity) => l.key === 'facebook-messenger')?.inUse === true && imp.lost.find((l: RzEntity) => l.key === 'voice')?.inUse === false, imp.lost)
+  check('usage above the smaller plan is flagged (40,000 > 30,000 messages; 7 > 5 chatbots)', imp.limits.find((l: RzEntity) => l.metric === 'wa_service')?.over && imp.limits.find((l: RzEntity) => l.metric === 'chatbots')?.over, imp.limits)
+  check('it lists what to do', imp.actions.some((a: string) => a.includes('Facebook Messenger')) && imp.actions.some((a: string) => a.includes('autopay will be stopped')), imp.actions)
+  r = await admF('POST', '/admin/plan', { workspaceId: 'v2upt', plan: 'standard', period: 'monthly' })
+  check('changing a client on autopay needs the stop to be confirmed', r.status === 409 && (r.body as RzEntity).error === 'autopay_running', r.body)
+  r = await admF('POST', '/admin/plan', { workspaceId: 'v2upt', plan: 'standard', period: 'monthly', stopAutopay: true })
+  check('…then the plan changes and their autopay is stopped', r.status === 200 && (r.body as RzEntity).planName === 'Standard' && (r.body as RzEntity).autopay === false, r.body)
+
+  console.log('\nbilling v2: extend, analytics, activity')
+  const E = await activateF('v2ext', 'standard')
+  r = await admF('POST', '/admin/extend', { workspaceId: 'v2ext', until: (E.sum.currentEnd as number) + 10 * 86400, note: 'Goodwill' })
+  check('extend moves the end date, and the card renewal with it', r.status === 200 && (r.body as RzEntity).currentEnd === (E.sum.currentEnd as number) + 10 * 86400 && (await statusF('v2ext')).autopay.next.dueAt === (E.sum.currentEnd as number) + 10 * 86400, r.body)
+  const an = (await admF('GET', '/admin/analytics')).body as RzEntity
+  check('analytics: MRR, money collected and the plan mix', an.kpis.mrr > 0 && an.kpis.collected > 0 && an.byPlan.length > 0 && an.monthly.length === 12, an.kpis)
+  check('free plans add nothing to MRR', an.byPlan.every((p: RzEntity) => p.mrr >= 0) && an.kpis.freeClients >= 1, an.kpis)
+  const act = ((await admF('GET', '/admin/activity')).body as RzEntity).items as RzEntity[]
+  check('the activity log records who changed what', ['Updated price list', 'Changed plan', 'Extended plan', 'Set WhatsApp numbers'].every((a) => act.some((x) => x.action === a && x.by === ADMIN.email)), act.slice(0, 6))
+  await callF('POST', '/autopay', { enabled: false }, 'v2ext')
+  applyCatalog(DEFAULT_CATALOG)                                             // leave the shared catalog as found
 
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed')
   process.exit(failures ? 1 : 0)

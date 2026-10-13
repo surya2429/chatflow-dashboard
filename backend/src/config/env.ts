@@ -68,6 +68,8 @@ const EnvSchema = z.object({
   // Login for the admin panel (/admin/plans) that assigns plans without payment. Unset = panel disabled.
   BILLING_ADMIN_EMAIL: z.string().email().optional(),
   BILLING_ADMIN_PASSWORD: z.string().min(8).optional(),
+  // Shared secret other services send (x-usage-key) to report usage to POST /api/billing/usage.
+  BILLING_USAGE_KEY: z.string().min(16).optional(),
 })
 
 export type Env = z.infer<typeof EnvSchema>

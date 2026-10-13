@@ -57,6 +57,21 @@ export const pgBillingStore: BillingStore = {
       [key, JSON.stringify(value)],
     )
   },
+  async addUsage(workspaceId, day, metric, qty) {
+    await query(
+      `INSERT INTO billing_usage (workspace_id, day, metric, value) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (workspace_id, day, metric) DO UPDATE SET value = billing_usage.value + EXCLUDED.value`,
+      [workspaceId, day, metric, qty],
+    )
+  },
+  async usage(fromDay, workspaceId) {
+    const rows = await query<{ workspace_id: string; day: string; metric: string; value: string }>(
+      `SELECT workspace_id, to_char(day, 'YYYY-MM-DD') AS day, metric, value FROM billing_usage
+       WHERE day >= $1::date AND ($2::text IS NULL OR workspace_id = $2)`,
+      [fromDay, workspaceId ?? null],
+    )
+    return rows.map((r) => ({ workspaceId: r.workspace_id, day: r.day, metric: r.metric, value: Number(r.value) }))
+  },
   /* One atomic statement: concurrent payments can never be handed the same number. */
   async nextSequence(key) {
     const rows = await query<{ value: string }>(

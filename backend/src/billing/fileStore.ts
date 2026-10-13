@@ -7,6 +7,7 @@ import type { BillingRecord, BillingStore } from './types.js'
 
 const COUNTERS = '__counters'
 const DOCS = '__docs'
+const USAGE = '__usage'
 
 export function createFileBillingStore(file: string): BillingStore {
   const read = (): Record<string, unknown> => {
@@ -34,6 +35,20 @@ export function createFileBillingStore(file: string): BillingStore {
       const all = read()
       all[DOCS] = { ...(all[DOCS] as object | undefined), [key]: value }
       write(all)
+    },
+    // Layout: "__usage": { "<workspaceId>|<day>|<metric>": number }
+    async addUsage(workspaceId, day, metric, qty) {
+      const all = read()
+      const u = (all[USAGE] as Record<string, number> | undefined) ?? {}
+      const k = `${workspaceId}|${day}|${metric}`
+      u[k] = (u[k] ?? 0) + qty
+      all[USAGE] = u
+      write(all)
+    },
+    async usage(fromDay, workspaceId) {
+      return Object.entries((read()[USAGE] as Record<string, number> | undefined) ?? {})
+        .map(([k, value]) => { const [ws, day, metric] = k.split('|') as [string, string, string]; return { workspaceId: ws, day, metric, value } })
+        .filter((r) => r.day >= fromDay && (!workspaceId || r.workspaceId === workspaceId))
     },
     // Single dev process, synchronous read-modify-write: no two callers can interleave.
     async nextSequence(key) {

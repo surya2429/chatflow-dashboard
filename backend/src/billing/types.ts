@@ -1,4 +1,4 @@
-import type { AddonSel, Period, PlanId } from './catalog.js'
+import type { AddonSel, Period, PlanId, PriceLine, PriceLock } from './catalog.js'
 import type { BillingProfile } from './india.js'
 
 /* 'past_due' and 'suspended' are ours: a failed renewal is past due while we are still
@@ -27,6 +27,10 @@ export interface PaymentLogEntry {
   method?: string
   /** coupon code used on this payment */
   coupon?: string
+  /** what it paid for */
+  kind?: Invoice['kind']
+  /** recorded by staff: paid outside Razorpay (bank transfer, cheque, cash …) */
+  offline?: { method: string; reference: string; by: string }
 }
 
 /** Proof that the customer agreed to recurring charges: what, how much, when, from where. */
@@ -98,6 +102,14 @@ export interface PendingCheckout {
   startAt?: number
   /** pay-once only: the coupon and the ₹ it took off before GST */
   coupon?: { code: string; discount: number }
+  /** upgrade = a new plan starting now, unused time credited · addon_recurring = add-ons added to an autopay plan */
+  purpose?: 'upgrade' | 'addon_recurring'
+  /** exactly what is being charged — the invoice prints these lines */
+  lines?: PriceLine[]
+  /** add-ons bought once: when they end (worked out at checkout, so the price matches) */
+  until?: number
+  /** the exact amount Razorpay must report — decided at checkout, so a price edit meanwhile can't break it */
+  amountPaise?: number
   createdAt: number
 }
 
@@ -152,9 +164,11 @@ export interface Invoice {
   total: number
   amountPaise: number
   method?: string
-  kind: 'purchase' | 'renewal' | 'dunning_recovery' | 'addon'
+  kind: 'purchase' | 'renewal' | 'dunning_recovery' | 'addon' | 'upgrade'
   /** coupon taken off before GST */
   discount?: { code: string; amount: number }
+  /** a custom term in months */
+  months?: number
 }
 
 /* ── dunning (failed-renewal recovery) ─────────────────────────────────── */
@@ -201,9 +215,12 @@ export interface ExtraAddon {
   at: number
   until: number
   paymentId: string
-  /** 'monthly' = bought for one month on a yearly plan */
+  /** 'monthly' = bought for one month (30 days, never past the plan's end) */
   term?: Period
 }
+
+/** A note staff keep on a client (calls, promises, context). */
+export interface StaffNote { at: number; by: string; text: string }
 
 /** A plan given to a customer from the admin panel — paid offline, or free. No Razorpay payment, no invoice. */
 export interface AdminGrant {
@@ -261,8 +278,24 @@ export interface BillingRecord {
   pending?: PendingCheckout | null
   /** plans assigned from the admin panel, newest first */
   grants?: AdminGrant[]
+  /** the prices this customer bought at; renewals keep them when the list price changes */
+  priceLock?: PriceLock | null
+  /** a custom term (in months) for the current period, e.g. 6 — priced monthly × months */
+  termMonths?: number | null
+  /** ₹ before GST paid for the current period (0 for a free plan) — what an upgrade credits back */
+  periodPaid?: number | null
+  /** cancellation booked for the end of the period (unix seconds) */
+  cancelAt?: number | null
+  cancelledAt?: number | null
+  /** Meta phone_number_ids of their WhatsApp numbers — how message usage is matched to them */
+  whatsappNumbers?: string[]
+  notes?: StaffNote[]
   updatedAt: number
 }
+
+export interface UsageRow { workspaceId: string; day: string; metric: string; value: number }
+/** One metric for the current period: used (null = not reported) against the limit (null = unlimited, 0 = not included). */
+export interface UsageItem { metric: string; label: string; kind: 'count' | 'gauge'; used: number | null; limit: number | null; pct: number | null }
 
 /** Where billing state lives. A JSON file in dev, Postgres in production. */
 export interface BillingStore {
@@ -275,9 +308,13 @@ export interface BillingStore {
   listTokenAutopay(): Promise<BillingRecord[]>
   /** Every record, most recently changed first — the admin panel's customer list. */
   list(): Promise<BillingRecord[]>
-  /** Small shared documents for the admin console: 'staff' and 'coupons'. */
+  /** Small shared documents for the admin console: 'staff', 'coupons', 'catalog', 'audit' … */
   getDoc<T>(key: string): Promise<T | null>
   putDoc(key: string, value: unknown): Promise<void>
+  /** Add to a usage counter atomically — one row per workspace, IST day ('YYYY-MM-DD') and metric. */
+  addUsage(workspaceId: string, day: string, metric: string, qty: number): Promise<void>
+  /** Usage rows from `fromDay` on (inclusive), for one workspace or for everyone. */
+  usage(fromDay: string, workspaceId?: string): Promise<UsageRow[]>
   /** Atomic counter (invoice numbers must be gapless and never repeat, across all customers). */
   nextSequence(key: string): Promise<number>
 }

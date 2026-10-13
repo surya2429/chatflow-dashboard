@@ -23,6 +23,7 @@ const billing = createBillingService({
   supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE,
   autopayEngine: env.BILLING_AUTOPAY_ENGINE,
   admin: env.BILLING_ADMIN_EMAIL && env.BILLING_ADMIN_PASSWORD ? { email: env.BILLING_ADMIN_EMAIL, password: env.BILLING_ADMIN_PASSWORD } : undefined,
+  usageKey: env.BILLING_USAGE_KEY,
   seller: {
     ...(env.BILLING_SELLER_NAME && { name: env.BILLING_SELLER_NAME }),
     ...(env.BILLING_SELLER_ADDRESS && { address: env.BILLING_SELLER_ADDRESS }),
@@ -47,7 +48,7 @@ billingRouter.all('/billing/*', async (req, res) => {
       path: req.path.replace(/^\/billing/, '') || '/',
       body: req.body as Record<string, unknown>,
       rawBody: req.rawBody,        // exact bytes, captured in app.ts — webhook signatures need them
-      headers: { 'x-razorpay-signature': req.header('x-razorpay-signature'), 'x-admin-token': req.header('x-admin-token') },
+      headers: { 'x-razorpay-signature': req.header('x-razorpay-signature'), 'x-admin-token': req.header('x-admin-token'), 'x-usage-key': req.header('x-usage-key') },
       workspaceId: req.header('x-workspace-id') || DEFAULT_WORKSPACE,
       ip: req.ip,
       userAgent: req.header('user-agent'),

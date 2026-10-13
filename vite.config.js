@@ -210,6 +210,7 @@ function devBillingApi(env) {
     supplierStateCode: env.BILLING_SUPPLIER_STATE_CODE || '36',
     autopayEngine: ['auto', 'token', 'subscription'].includes(env.BILLING_AUTOPAY_ENGINE) ? env.BILLING_AUTOPAY_ENGINE : 'auto',
     admin: env.BILLING_ADMIN_EMAIL && env.BILLING_ADMIN_PASSWORD ? { email: env.BILLING_ADMIN_EMAIL, password: env.BILLING_ADMIN_PASSWORD } : undefined,
+    usageKey: env.BILLING_USAGE_KEY || undefined,
     seller: {
       ...(env.BILLING_SELLER_NAME && { name: env.BILLING_SELLER_NAME }),
       ...(env.BILLING_SELLER_ADDRESS && { address: env.BILLING_SELLER_ADDRESS }),
@@ -242,7 +243,7 @@ function devBillingApi(env) {
               path: req.url.split('?')[0].replace(/^\/api\/billing/, '') || '/',
               body,
               rawBody,
-              headers: { 'x-razorpay-signature': req.headers['x-razorpay-signature'], 'x-admin-token': req.headers['x-admin-token'] },
+              headers: { 'x-razorpay-signature': req.headers['x-razorpay-signature'], 'x-admin-token': req.headers['x-admin-token'], 'x-usage-key': req.headers['x-usage-key'] },
               workspaceId: String(req.headers['x-workspace-id'] || 'default'),
               ip: req.socket.remoteAddress,
               userAgent: req.headers['user-agent'],

@@ -9,7 +9,7 @@
 //
 // It is NOT legal advice: the supplier details and SAC code below come from
 // configuration and must be confirmed with your CA before relying on these invoices.
-import { PLAN_CATALOG, addonLines, chargeFor, type AddonSel, type Period, type PlanId } from './catalog.js'
+import { PLAN_CATALOG, chargeFor, type AddonSel, type Period, type PlanId, type PriceLine } from './catalog.js'
 import { stateName, type BillingProfile } from './india.js'
 import type { Invoice, InvoiceItem } from './types.js'
 
@@ -68,6 +68,10 @@ export interface BuildInvoiceInput {
   addonsOnly?: boolean
   /** price list used for the add-ons */
   addonPeriod?: Period
+  /** a custom term in months */
+  months?: number
+  /** the exact lines that were charged (plan, add-ons, credit, discount …); rebuilt from the above if missing */
+  lines?: PriceLine[]
   method?: string
   kind: Invoice['kind']
 }
@@ -75,34 +79,43 @@ export interface BuildInvoiceInput {
 const num = (n: number) => n.toLocaleString('en-IN')
 
 /* What the plan's message allowance is — printed as a note, specific to this invoice. */
-export function allowanceNote(plan: PlanId, period: Period): string {
+export function allowanceNote(plan: PlanId, period: Period, months?: number): string {
   const p = PLAN_CATALOG[plan]
-  const k = period === 'yearly' ? 12 : 1
-  const when = period === 'yearly' ? 'for the year, credited upfront as one pool' : 'per month'
-  return `Included in the ${p.name} plan: ${num(p.serviceMsgs * k)} WhatsApp service messages and ${num(p.biMsgs * k)} WhatsApp BI messages ${when}${plan === 'broadcast' ? '.' : '; Website and Instagram messages are unlimited.'}`
+  if (!p) return ''
+  const k = months ?? (period === 'yearly' ? 12 : 1)
+  const when = k > 1 ? `for the ${months ? `${months}-month term` : 'year'}, credited upfront as one pool` : 'per month'
+  const svc = p.limits.wa_service ?? 0, bi = p.limits.wa_bi ?? 0
+  const chats = p.limits.web_chats === null ? '; Website and Instagram messages are unlimited.' : '.'
+  return `Included in the ${p.name} plan: ${num(svc * k)} WhatsApp service messages and ${num(bi * k)} WhatsApp BI messages ${when}${chats}`
 }
 
 export function buildInvoice(i: BuildInvoiceInput): Invoice {
-  const c = chargeFor(i.plan, i.period, i.gstPercent, { supplier: i.seller.stateCode, customer: i.buyer.address.stateCode }, i.addons, i.addonsOnly, i.addonPeriod, i.discount?.amount)
+  const place = { supplier: i.seller.stateCode, customer: i.buyer.address.stateCode }
+  const c = i.lines?.length
+    ? (() => {
+        // Re-total the given lines so the tax split is labelled for this buyer.
+        const base = Math.round(i.lines.reduce((n, l) => n + l.amount, 0) * 100) / 100
+        const r = chargeFor(i.plan, i.period, i.gstPercent, { place, addonsOnly: true, adjustment: base, adjustmentLabel: '' })
+        return { ...r, lines: i.lines }
+      })()
+    : chargeFor(i.plan, i.period, i.gstPercent, {
+        place, addons: i.addons, addonsOnly: i.addonsOnly, addonPeriod: i.addonPeriod, months: i.months,
+        ...(i.discount ? { discount: i.discount.amount, discountLabel: `Discount — coupon ${i.discount.code}` } : {}),
+      })
   const taxKind = c.tax.kind === 'intra' ? 'intra' : 'inter'
-  // If the price has changed since this was paid, the invoice must show what was actually charged.
+  // If the lines don't add up to what was actually paid, the invoice shows the payment as one line.
   const repriced = Boolean(i.amountPaise && i.amountPaise !== c.totalPaise)
-  if (i.amountPaise && i.amountPaise !== c.totalPaise) {
-    const total = i.amountPaise / 100
+  if (repriced) {
+    const total = i.amountPaise! / 100
     const base = Math.round((total / (1 + i.gstPercent / 100)) * 100) / 100
     const gst = Math.round((total - base) * 100) / 100
     const half = Math.round((gst * 100) / 2) / 100
     Object.assign(c, { base, gst, total, totalPaise: i.amountPaise, tax: taxKind === 'intra' ? { kind: 'intra', cgst: half, sgst: Math.round((gst - half) * 100) / 100, igst: 0 } : { kind: 'inter', cgst: 0, sgst: 0, igst: gst } })
   }
-  const planName = PLAN_CATALOG[i.plan].name
-  const unit = i.period === 'yearly' ? 'year' : 'month'
-  const lines = addonLines(i.addons, i.addonPeriod ?? i.period)
-  // One row for the plan and one per add-on — unless the amount was re-derived, when the rows wouldn't add up.
-  const items: InvoiceItem[] | undefined = repriced ? undefined : [
-    ...(i.addonsOnly ? [] : [{ description: `SmatBot ${planName} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription`, qty: 1, unit, rate: PLAN_CATALOG[i.plan][i.period], taxable: PLAN_CATALOG[i.plan][i.period] }]),
-    ...lines.map((l) => ({ description: `Add-on: ${l.name} (${l.unit})${i.addonsOnly ? ((i.addonPeriod ?? i.period) === 'monthly' ? ' · 1 month' : ' · yearly rate') : ''}`, qty: l.qty, unit: l.unit, rate: l.rate, taxable: l.amount })),
-    ...(i.discount ? [{ description: `Discount — coupon ${i.discount.code}`, qty: 1, unit: '', rate: -i.discount.amount, taxable: -i.discount.amount }] : []),
-  ]
+  const planName = PLAN_CATALOG[i.plan]?.name ?? i.plan
+  const items: InvoiceItem[] | undefined = repriced ? undefined
+    : c.lines.map((l) => ({ description: l.description, qty: l.qty, unit: l.unit, rate: l.rate, taxable: l.amount }))
+  const term = i.months ? `${i.months}-month` : i.period === 'monthly' ? 'Monthly' : 'Yearly'
   return {
     id: invoiceId(i.number),
     number: i.number,
@@ -114,7 +127,8 @@ export function buildInvoice(i: BuildInvoiceInput): Invoice {
     period: i.period,
     periodStart: i.periodStart,
     periodEnd: i.periodEnd,
-    description: i.addonsOnly ? 'SmatBot add-ons — one-time purchase' : `SmatBot ${planName} Plan — ${i.period === 'monthly' ? 'Monthly' : 'Yearly'} subscription${lines.length ? ' + add-ons' : ''}`,
+    description: i.addonsOnly ? 'SmatBot add-ons' : `SmatBot ${planName} Plan — ${term} subscription${i.addons?.length ? ' + add-ons' : ''}`,
+    ...(i.months ? { months: i.months } : {}),
     qty: 1,
     rate: c.base,
     items,
@@ -157,9 +171,12 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   const rows = (inv.items?.length ? inv.items : [{ description: inv.description, qty: inv.qty ?? 1, unit: inv.period === 'yearly' ? 'year' : 'month', rate: inv.rate ?? inv.taxable, taxable: inv.taxable }])
     .map((it, n) => `<tr><td>${n + 1}</td><td><b>${esc(it.description)}</b>${n === 0 ? dates : ''}</td><td class="n">${esc(inv.sac)}</td><td class="r">${it.qty}${n === 0 ? ' ' + esc(it.unit) : ''}</td><td class="r">${inr(it.rate)}</td><td class="r">${inr(it.taxable)}</td></tr>`).join('')
   const contact = [emails.length ? `Email: ${emails.map(esc).join(' or ')}` : '', seller?.phone ? `Phone: ${esc(seller.phone)}` : ''].filter(Boolean).join(' &nbsp;·&nbsp; ')
+  const recurring = inv.items?.some((it) => it.description.includes('renews with it'))
   const allNotes = inv.kind === 'addon'
-    ? [...notes, 'One-time add-on purchase: it does not renew, and ends when your current plan period ends.']
-    : [...notes, allowanceNote(inv.plan, inv.period)]
+    ? [...notes, recurring
+      ? 'These add-ons were added to your plan: this payment covers the rest of the current period, and they renew with the plan from the next renewal.'
+      : 'One-time add-on purchase: it does not renew, and never runs past the end of your current plan period.']
+    : [...notes, allowanceNote(inv.plan, inv.period, inv.months)].filter(Boolean)
   const taxRows = inv.taxKind === 'intra'
     ? `<tr><td>CGST @ ${half}%</td><td class="r">${inr(inv.cgst)}</td></tr><tr><td>SGST @ ${half}%</td><td class="r">${inr(inv.sgst)}</td></tr>`
     : `<tr><td>IGST @ ${inv.gstPercent}%</td><td class="r">${inr(inv.igst)}</td></tr>`
