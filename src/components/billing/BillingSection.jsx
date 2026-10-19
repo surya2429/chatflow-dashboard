@@ -511,11 +511,11 @@ export default function BillingSection() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setTab('plans')} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white text-slate-900 text-xs font-bold hover:bg-slate-100 transition-colors">
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button onClick={() => setTab('plans')} className="inline-flex items-center justify-center gap-1.5 h-9 w-32 rounded-lg bg-white text-slate-900 text-xs font-bold whitespace-nowrap hover:bg-slate-100 transition-colors">
                     Change plan <ArrowUpRight size={13}/>
                   </button>
-                  <button onClick={() => setTab('invoices')} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/10 text-white text-xs font-semibold hover:bg-white/20 transition-colors">Invoices</button>
+                  <button onClick={() => setTab('invoices')} className="inline-flex items-center justify-center gap-1.5 h-9 w-32 rounded-lg bg-white/10 text-white text-xs font-semibold whitespace-nowrap hover:bg-white/20 transition-colors">Invoices</button>
                 </div>
               </div>
               <div className="relative mt-5">
