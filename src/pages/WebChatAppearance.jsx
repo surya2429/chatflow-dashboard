@@ -23,7 +23,7 @@ import { GOOGLE_FONTS, FONT_CATEGORIES, fontStack } from '../constants/googleFon
 import { getBotId, useBotId } from '../constants/webchat'
 import { usePublishSection, useLoadSection, SECTION_APPEARANCE } from '../lib/liveConfig'
 import { AnswerControl, CountryDialPicker, COUNTRIES, useDetectedCountry } from '../components/webchat/AnswerControls'
-import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
+import PhoneCountrySettings, { useFloatingPos } from '../components/webchat/PhoneCountrySettings'
 import PopupShell, { PopupSection, PopupFooter } from '../components/webchat/PopupShell'
 import CompanyEmailSetting from '../components/webchat/CompanyEmailSetting'
 import { isFreeEmail, COMPANY_EMAIL_MESSAGE } from '../lib/emailDomains'
@@ -2906,7 +2906,9 @@ function TimezoneSelect({ value: rawValue, onChange, dark, className, style, sug
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
   const ref = useRef(null)
+  const triggerRef = useRef(null)
   const listRef = useRef(null)
+  const pos = useFloatingPos(triggerRef, open, () => setOpen(false))
   useEffect(() => {
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
     document.addEventListener('mousedown', onDoc)
@@ -2935,15 +2937,15 @@ function TimezoneSelect({ value: rawValue, onChange, dark, className, style, sug
 
   return (
     <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(o => !o)} aria-label="Time zone" aria-haspopup="listbox" aria-expanded={open}
+      <button ref={triggerRef} type="button" onClick={() => setOpen(o => !o)} aria-label="Time zone" aria-haspopup="listbox" aria-expanded={open}
         className={clsx(className, 'flex items-center gap-2 text-left')} style={style}>
         <Globe size={13} style={{ color: mute, flexShrink: 0 }}/>
         <span className="flex-1 min-w-0 truncate">{current ? `${current.city}${current.region ? ` · ${current.region}` : ''}` : value}</span>
         <span className="text-[10px] flex-shrink-0" style={{ color: mute }}>{current?.gmt}</span>
         <ChevronDown size={12} className={clsx('flex-shrink-0 transition-transform', open && 'rotate-180')} style={{ color: mute }}/>
       </button>
-      {open && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl overflow-hidden shadow-xl" style={{ ...panel, animation: 'wcMenuIn 0.16s cubic-bezier(0.16,1,0.3,1) both' }}>
+      {open && pos && (
+        <div data-floating className="rounded-xl overflow-hidden shadow-xl" style={{ ...pos, ...panel, animation: 'wcMenuIn 0.16s cubic-bezier(0.16,1,0.3,1) both' }}>
           <div className="flex items-center gap-1.5 px-2.5 py-2 border-b" style={{ borderColor: dark ? '#334155' : '#eef1f6' }}>
             <Search size={12} style={{ color: mute }}/>
             <input autoFocus value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey} placeholder="Search city, country or GMT+5:30…"
@@ -3009,7 +3011,7 @@ function BookingPopup({ cfg, onSave, onClose }) {
   })
   const upd = (k, v) => setD(p => ({ ...p, [k]: v }))
   return (
-    <PopupShell icon={CalendarCheck2} color="#10b981" title="Booking" badge="Book tab" width={680} overflowVisible
+    <PopupShell icon={CalendarCheck2} color="#10b981" title="Booking" badge="Book tab" width={680}
       meta={<span>What visitors give, and when slots are offered</span>} onClose={onClose}
       footer={<PopupFooter onCancel={onClose} onSave={() => { onSave(d); onClose() }}/>}>
       <PopupSection title="Visitor details" hint="All three are required before a booking can be confirmed, so the confirmation email can be sent.">

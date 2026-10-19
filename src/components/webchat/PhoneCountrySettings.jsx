@@ -4,16 +4,39 @@
 //   • Show country based on IP address — preselect the visitor's country from their IP (off by default)
 // Shared by the Phone question type (flow builder) and the Book tab popup (widget Behavior settings),
 // so both behave and look the same. The matching runtime is `useDetectedCountry(...)` in AnswerControls.
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import clsx from 'clsx'
 import { Search, Check, ChevronDown, X, Info } from 'lucide-react'
 import { COUNTRIES } from './AnswerControls'
+
+/* Where to put a dropdown so it is never cut off: it is drawn with position:fixed (so a scrolling popup body
+   can't clip it), under its trigger — or above it when there isn't room below. Closes if anything scrolls. */
+export function useFloatingPos(triggerRef, open, close, need = 300) {
+  const [pos, setPos] = useState(null)
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) { setPos(null); return }
+    const r = triggerRef.current.getBoundingClientRect()
+    const below = window.innerHeight - r.bottom
+    const up = below < need && r.top > below
+    setPos({ position: 'fixed', zIndex: 90, left: r.left, width: Math.max(r.width, 220), ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }) })
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!open) return
+    const onScroll = (e) => { if (!e.target?.closest?.('[data-floating]')) close() }
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', close)
+    return () => { window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', close) }
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  return pos
+}
 
 /* A small searchable dropdown — single choice, or multi with chips + "Select all / Clear". */
 export function CountryPicker({ multi, value, onChange, options, placeholder }) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const ref = useRef(null)
+  const triggerRef = useRef(null)
+  const pos = useFloatingPos(triggerRef, open, () => setOpen(false))
   useEffect(() => {
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
     document.addEventListener('mousedown', onDoc)
@@ -28,7 +51,7 @@ export function CountryPicker({ multi, value, onChange, options, placeholder }) 
   const one = !multi ? options.find(c => c.code === value) : null
   return (
     <div className="relative" ref={ref}>
-      <div role="button" tabIndex={0} onClick={() => setOpen(o => !o)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setOpen(o => !o))}
+      <div ref={triggerRef} role="button" tabIndex={0} onClick={() => setOpen(o => !o)} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setOpen(o => !o))}
         className="input flex items-center gap-1.5 flex-wrap min-h-[38px] cursor-pointer pr-8 relative">
         {multi ? (
           value.length === 0
@@ -47,8 +70,8 @@ export function CountryPicker({ multi, value, onChange, options, placeholder }) 
         )}
         <ChevronDown size={14} className={clsx('absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 transition-transform', open && 'rotate-180')}/>
       </div>
-      {open && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-white rounded-xl border border-surface-border shadow-xl overflow-hidden min-w-[220px]">
+      {open && pos && (
+        <div data-floating style={pos} className="bg-white rounded-xl border border-surface-border shadow-xl overflow-hidden">
           <div className="flex items-center gap-1.5 px-2.5 py-2 border-b border-surface-border">
             <Search size={12} className="text-slate-400"/>
             <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search country or code…" className="flex-1 bg-transparent outline-none text-[11px] text-slate-700 placeholder-slate-400"/>

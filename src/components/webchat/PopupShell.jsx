@@ -21,7 +21,7 @@ const CSS = `
 export default function PopupShell({
   icon: Icon, color = '#0066ff', title, badge, meta, onClose, children, footer,
   tabs, activeTab, onTab,
-  width = 640, tall = false, overflowVisible = false,
+  width = 640, tall = false,
 }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
@@ -34,7 +34,7 @@ export default function PopupShell({
       style={{ background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(4px)' }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.() }}>
       <style>{CSS}</style>
-      <div role="dialog" aria-label={title} className={clsx('wc-popup bg-white rounded-xl shadow-2xl flex flex-col', overflowVisible ? 'overflow-visible' : 'overflow-hidden')}
+      <div role="dialog" aria-label={title} className="wc-popup bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden"
         style={{ width: `min(${width}px, calc(100vw - 24px))`, ...(tall ? { height: 'min(92vh, 820px)' } : { maxHeight: '92vh' }), animation: 'wcPopupIn .22s cubic-bezier(.22,1,.36,1)' }}>
 
         {/* Header */}
@@ -78,7 +78,7 @@ export default function PopupShell({
         )}
 
         {/* Body */}
-        <div className={clsx('flex-1 min-h-0', overflowVisible ? 'overflow-visible' : 'overflow-y-auto')}>
+        <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="p-5 space-y-4">{children}</div>
         </div>
 
@@ -101,7 +101,7 @@ export function PopupSection({ title, hint, children, className }) {
 
 export function PopupFooter({ onCancel, onSave, saveLabel = 'Save changes', cancelLabel = 'Cancel', onDelete, disabled, left }) {
   return (
-    <div className="px-4 py-2.5 border-t border-slate-100 flex-shrink-0 flex items-center gap-2 bg-white rounded-b-xl">
+    <div className="px-4 py-2.5 border-t border-slate-100 flex-shrink-0 flex items-center gap-2 bg-white">
       {onDelete && (
         <button type="button" onClick={onDelete} title="Delete" aria-label="Delete" className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 transition-colors"><Trash2 size={14}/></button>
       )}
