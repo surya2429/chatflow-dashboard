@@ -8,7 +8,7 @@
 //         cancel any time).
 // Nothing is charged until they confirm here and then finish Razorpay Checkout.
 //
-// kinds: new · change (switch plan on an autopay subscription) · autopay-off · update-card · addons-once (extras bought once on the running plan)
+// kinds: new · upgrade (new plan today, unused days credited) · change (switch plan on an autopay subscription) · autopay-off · update-card · addons-once (extras bought once on the running plan)
 import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { X, ShieldCheck, Info, AlertCircle, Loader2, Repeat, CreditCard, Pencil, BellRing, Ban, Plus, Minus, Puzzle, Tag } from 'lucide-react'
@@ -166,6 +166,7 @@ export default function PaymentDialog({
   else if (kind === 'autopay-off') { title = 'Turn off autopay?'; cta = 'Turn off autopay'; tone = 'danger' }
   else if (kind === 'update-card') { title = 'Change payment card'; cta = 'Add new card' }
   else if (addonsOnly) { title = 'Buy add-ons'; cta = `Pay ${money(charge?.total ?? 0)}` }
+  else if (kind === 'upgrade') { title = `Upgrade to ${p.name}`; cta = `Pay ${money(quote?.charge?.total ?? 0)}` }
   else if (kind === 'change') { title = `${upgrade && !cardChange ? 'Upgrade' : 'Switch'} to ${p.name}`; cta = upgrade && !cardChange ? 'Upgrade now' : 'Schedule change' }
   else if (startAtCycleEnd) { title = `Continue ${p.name} with autopay`; cta = 'Authorise autopay' }
   else { title = mode === 'autopay' ? `Subscribe to ${p.name}` : `Pay for ${p.name}`; cta = mode === 'autopay' ? 'Authorise & continue' : `Pay ${money(charge?.total ?? 0)}` }
@@ -178,7 +179,8 @@ export default function PaymentDialog({
   const lineRows = shortLines
     ? [{ id: 'many', name: `Add-ons × ${lines.reduce((n, l) => n + l.qty, 0)}`, amount: lines.reduce((n, l) => n + l.amount, 0), unit: lines.map((l) => l.name).join(', ') }]
     : lines.map((l) => ({ ...l, name: `${l.name}${l.qty > 1 ? ` × ${l.qty}` : ''}` }))
-  const canConfirm = !busy && (!isAutopayNew || consent) && (kind !== 'update-card' || consent) && (!addonsOnly || selected.length > 0)
+  const upgradeReady = kind !== 'upgrade' || (!!quote && quote.plan === plan && quote.period === period)
+  const canConfirm = !busy && upgradeReady && (!isAutopayNew || consent) && (kind !== 'update-card' || consent) && (!addonsOnly || selected.length > 0)
     && !(dialog?.coupon && (couponErr || couponPending))
 
   return (
@@ -311,7 +313,7 @@ export default function PaymentDialog({
 
               {error && (
                 <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-2.5 space-y-1.5">
-                  <p className="flex items-start gap-2"><AlertCircle size={13} className="flex-shrink-0 mt-0.5"/> <span>{error.message}</span></p>
+                  <p className="flex items-start gap-2"><AlertCircle size={13} className="flex-shrink-0 mt-0.5"/> <span>{error.code === 'razorpay_unauthorized' && startAtCycleEnd ? "Autopay for this amount can't be set up yet. Your plan keeps running until it ends — please contact our team to arrange renewal." : error.message}</span></p>
                   {error.code === 'razorpay_unauthorized' && onPayOnceInstead && (
                     <button onClick={onPayOnceInstead} className="font-semibold text-red-800 underline">Pay once instead (no autopay)</button>
                   )}
@@ -353,6 +355,28 @@ export default function PaymentDialog({
                       I authorise SmatBot to charge <b>{money(sub?.autopay?.next?.total ?? sub?.charge?.total ?? 0)}</b> every {(sub?.autopay?.next?.period ?? sub?.period) === 'yearly' ? 'year' : 'month'} to this new card through Razorpay until I turn autopay off. At checkout, tick <i>"Save this card as per RBI guidelines"</i>.
                     </span>
                   </label>
+                </div>
+              ) : kind === 'upgrade' ? (
+                <div className="space-y-3">
+                  {upgradeReady ? (
+                    <>
+                      <div className="rounded-xl border border-surface-border bg-slate-50/60 px-4 py-2.5 divide-y divide-slate-100">
+                        {quote.charge.lines.map((l, i) => (
+                          <Row key={i} k={l.description} v={`${l.amount < 0 ? '−' : ''}${money(Math.abs(l.amount))}`} />
+                        ))}
+                        <TaxRows charge={quote.charge}/>
+                        <Row k="Total today" v={money(quote.charge.total)} strong />
+                      </div>
+                      <p className="flex items-start gap-2 text-xs text-slate-600 leading-relaxed">
+                        <Info size={13} className="text-slate-400 flex-shrink-0 mt-0.5"/>
+                        <span>
+                          <b>{p.name}</b> starts <b>today</b> and runs until <b>{fmtDate(quote.endsAt)}</b>; the unused days of {sub?.planName} are credited.
+                          {quote.autopayContinues && quote.renewal != null ? <> Your saved card is then charged <b>{money(quote.renewal)}</b> at renewal.</> : " It doesn't renew on its own — you can turn on autopay later."}
+                          {quote.droppedAddons?.length > 0 && <> {quote.droppedAddons.map(a => a.name).join(', ')} {quote.droppedAddons.length > 1 ? "aren't" : "isn't"} available on {p.name} and will be removed.</>}
+                        </span>
+                      </p>
+                    </>
+                  ) : !error && <p className="text-xs text-slate-400 flex items-center gap-2 py-4 justify-center"><Loader2 size={13} className="animate-spin"/> Working out your credit…</p>}
                 </div>
               ) : kind === 'autopay-off' ? (
                 <p className="text-xs text-slate-600 leading-relaxed">
@@ -468,7 +492,7 @@ export default function PaymentDialog({
 
               {error && (
                 <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 space-y-2">
-                  <p className="flex items-start gap-2"><AlertCircle size={13} className="flex-shrink-0 mt-0.5"/> <span>{error.message}</span></p>
+                  <p className="flex items-start gap-2"><AlertCircle size={13} className="flex-shrink-0 mt-0.5"/> <span>{error.code === 'razorpay_unauthorized' && startAtCycleEnd ? "Autopay for this amount can't be set up yet. Your plan keeps running until it ends — please contact our team to arrange renewal." : error.message}</span></p>
                   {error.code === 'razorpay_unauthorized' && onPayOnceInstead && (
                     <button onClick={onPayOnceInstead} className="font-semibold text-red-800 underline">Pay once instead (no autopay)</button>
                   )}

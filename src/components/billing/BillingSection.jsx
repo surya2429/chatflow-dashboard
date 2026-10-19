@@ -183,6 +183,11 @@ export default function BillingSection() {
   useEffect(() => {
     if (!dialog?.plan) { setQuote(null); return }
     let off = false
+    if (dialog.kind === 'upgrade') {
+      setQuote(null)
+      billing.upgradeQuote({ plan: dialog.plan, period: dialog.period }).then(q => !off && setQuote(q)).catch(e => !off && setDlgError(e))
+      return () => { off = true }
+    }
     billing.quote({ plan: dialog.plan, period: dialog.period, addons: dialog.addons || [], addonsOnly: dialog.kind === 'addons-once', term: dialog.term || (dialog.period === 'yearly' ? 'monthly' : 'plan'), coupon: dialog.coupon || undefined }).then(q => !off && setQuote(q)).catch(() => !off && setQuote(null))
     return () => { off = true }
   }, [dialog?.plan, dialog?.period, dialog?.kind, dialog?.term, dialog?.coupon, JSON.stringify(dialog?.addons || []), profile?.address?.stateCode])
@@ -227,6 +232,27 @@ export default function BillingSection() {
       const invoiceNote = !d.startAtCycleEnd && result.latestInvoice ? ` Invoice ${result.latestInvoice.number} is ready under Invoices.` : ''
       flash((d.startAtCycleEnd ? 'Autopay authorised — it starts when your current plan ends.' : d.mode === 'autopay' ? 'Autopay is set up. Welcome aboard!' : 'Payment received — your plan is active.') + invoiceNote)
       if (['authenticated', 'created'].includes(result.status)) waitUntilActive()
+    } catch (e) {
+      if (e.code === 'dismissed') flash('Checkout closed — nothing was charged.', 'info')
+      else if (e.code === 'payment_failed') flash(e.message, 'error')
+      else setDlgError(e)
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }
+
+  /* Upgrade now: the new plan starts today and the unused days of the old one are credited. */
+  async function runUpgrade(d) {
+    setBusy(true); setDlgError(null)
+    try {
+      const session = await billing.upgradeCheckout({ plan: d.plan, period: d.period })
+      const response = await payWithRazorpay(session, profile
+        ? { name: profile.contactName, email: profile.email, contact: `+91${profile.phone}` }
+        : { name: currentUser?.name, email: currentUser?.email })
+      const result = await billing.verify(response)
+      setSubscription(result)
+      setDialog(null)
+      flash(`You're now on ${result.planName}.${result.latestInvoice ? ` Invoice ${result.latestInvoice.number} is ready under Invoices.` : ''}`)
     } catch (e) {
       if (e.code === 'dismissed') flash('Checkout closed — nothing was charged.', 'info')
       else if (e.code === 'payment_failed') flash(e.message, 'error')
@@ -298,30 +324,39 @@ export default function BillingSection() {
     finally { if (mounted.current) setBusy(false) }
   }
 
-  const confirm = (extras) => (dialog.kind === 'autopay-off' ? runAutopayOff() : dialog.kind === 'update-card' ? runUpdateCard() : dialog.kind === 'addons-once' ? runAddonsOnce(dialog) : dialog.kind === 'change' ? runChange(dialog) : runCheckout({ ...dialog, consent: !!extras?.consent }))
+  const confirm = (extras) => (dialog.kind === 'autopay-off' ? runAutopayOff() : dialog.kind === 'update-card' ? runUpdateCard() : dialog.kind === 'addons-once' ? runAddonsOnce(dialog) : dialog.kind === 'change' ? runChange(dialog) : dialog.kind === 'upgrade' ? runUpgrade(dialog) : runCheckout({ ...dialog, consent: !!extras?.consent }))
+
+  /* Mirrors the server (changeKind): a bigger plan, or the same plan on a longer term, is an upgrade; anything smaller is sales-only. */
+  function changeKind(planId, period) {
+    const cur = sub.termMonths ?? (sub.period === 'yearly' ? 12 : 1), next = period === 'yearly' ? 12 : 1
+    if (planId === sub.plan) return next === cur ? 'same' : next > cur ? 'upgrade' : 'downgrade'
+    const rank = (id) => config?.prices?.[id]?.monthly?.base ?? PLANS.findIndex(p => p.id === id)
+    return rank(planId) > rank(sub.plan) && next >= cur ? 'upgrade' : 'downgrade'
+  }
 
   /* What a plan card's button does, given where the customer is today. */
   function actionFor(plan, i, period) {
     const price = config?.prices?.[plan.id]?.[period]
-    const same = hasSub && sub.plan === plan.id && sub.period === period
     if (!configured) return { label: 'Payments unavailable', disabled: true }
     if (!live) {
       return { label: payMode === 'autopay' ? 'Subscribe with autopay' : `Pay ${price ? money(price.total) : ''} once`, open: { kind: 'new', plan: plan.id, period, mode: payMode } }
     }
-    if (sub.mode === 'autopay' && sub.autopay.on) {
-      if (same) return { label: 'Your current plan', disabled: true }
-      const card = sub.autopay.engine === 'token'
-      if (card && sub.autopay.next?.plan === plan.id && sub.autopay.next?.period === period) return { label: sub.autopay.next.changed ? 'Starts at renewal' : 'Your current plan', disabled: true }
-      const upgrade = price && price.total > sub.charge.total
-      return { label: card ? `Switch to ${plan.name} at renewal` : `${upgrade ? 'Upgrade' : 'Switch'} to ${plan.name}`, open: { kind: 'change', plan: plan.id, period, upgrade: upgrade && !card } }
+    const kind = changeKind(plan.id, period)
+    if (kind === 'downgrade') {
+      const to = config?.salesEmail || sub.salesEmail
+      return { label: 'Contact sales', href: `mailto:${to}?subject=${encodeURIComponent(`Change my plan to ${plan.name} (${period})`)}` }
     }
-    // Live, but one-time or autopay switched off: the plan will simply end.
-    if (payMode === 'autopay') {
-      return { label: same ? 'Turn on autopay' : `Start ${plan.name} at renewal`, open: { kind: 'new', plan: plan.id, period, mode: 'autopay', startAtCycleEnd: true } }
+    if (kind === 'upgrade') {
+      // Razorpay-managed autopay changes its own subscription; every other plan upgrades with a prorated payment.
+      if (sub.autopay?.on && sub.autopay.engine !== 'token') return { label: `Upgrade to ${plan.name}`, open: { kind: 'change', plan: plan.id, period, upgrade: true } }
+      return { label: `Upgrade to ${plan.name}`, open: { kind: 'upgrade', plan: plan.id, period } }
     }
-    return { label: same ? 'Renew now' : `Switch now`, open: { kind: 'new', plan: plan.id, period, mode: 'once' } }
+    if (sub.mode === 'autopay' && sub.autopay.on) return { label: 'Your current plan', disabled: true }
+    // The same plan with autopay off or paid once: turn autopay on for the renewal, or pay again to extend.
+    if (payMode === 'autopay') return { label: 'Turn on autopay', open: { kind: 'new', plan: plan.id, period, mode: 'autopay', startAtCycleEnd: true } }
+    return { label: 'Renew now', open: { kind: 'new', plan: plan.id, period, mode: 'once' } }
   }
-  const openAction = (a) => { setDlgError(null); setDialog(a.open) }
+  const openAction = (a) => { if (a.href) { window.location.href = a.href; return } setDlgError(null); setDialog(a.open) }
   /* The "change my card" button, whatever state the customer is in:
      saved-card autopay → swap the card (₹1 check, plan untouched);
      any other live plan → set autopay up (again) with a new card from the next renewal. */
@@ -610,7 +645,6 @@ export default function BillingSection() {
                     </p>
                   )}
                   <div className="flex items-center gap-4 flex-wrap">
-                    {sub.autopay.canUpdateCard && <button onClick={() => { setDlgError(null); setDialog({ kind: 'update-card' }) }} className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"><CreditCard size={12}/> Update payment method</button>}
                     <button onClick={() => { setDlgError(null); setDialog({ kind: 'autopay-off' }) }} className="text-xs font-semibold text-red-600 hover:underline">Turn off autopay</button>
                   </div>
                 </div>
@@ -1042,7 +1076,7 @@ export default function BillingSection() {
       <PaymentDialog dialog={dialog} config={config} sub={sub} profile={profile} defaults={accountDefaults} quote={quote} busy={busy} error={dlgError}
         web={web} onAddonsChange={(addons) => setDialog(d => (d ? { ...d, addons } : d))} onTermChange={(term) => setDialog(d => (d ? { ...d, term } : d))}
         onCouponChange={(coupon) => setDialog(d => (d ? { ...d, coupon } : d))} onSaveProfile={saveProfile} onConfirm={confirm} onClose={() => { if (!busy) setDialog(null) }}
-        onPayOnceInstead={() => { setPayMode('once'); setDlgError(null); setDialog(d => ({ ...d, mode: 'once', startAtCycleEnd: false })) }}
+        onPayOnceInstead={dialog?.startAtCycleEnd ? undefined : () => { setPayMode('once'); setDlgError(null); setDialog(d => ({ ...d, mode: 'once', startAtCycleEnd: false })) }}
         onStartAtRenewal={() => { setDlgError(null); setDialog(d => ({ kind: 'new', plan: d.plan, period: d.period, mode: 'autopay', startAtCycleEnd: true })) }}/>
 
       {toast && (
