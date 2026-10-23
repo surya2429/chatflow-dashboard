@@ -1572,7 +1572,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         /* ── Open: the widget itself, fixed and centred ── */
         <div className={clsx('flex flex-col overflow-hidden relative',
             isMobile && 'ring-8 ring-slate-900/90',
-            cfg.borderLight && 'wc-lightborder')}
+            cfg.borderLight && ['wc-lightborder', `wc-bl-${cfg.borderAnim || 'spin'}`])}
           key={device}
           style={{
             width: deviceW,
@@ -1712,6 +1712,8 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
            returns home instead of showing a seam where the gradient wraps. */
         @property --wc-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
         @keyframes wcBorderSpin { to { --wc-angle: 360deg } }
+        @keyframes wcBorderPulse { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+        @keyframes wcBorderShift { to { filter: hue-rotate(360deg) } }
 
         /* ── Ambient loops ── */
         @keyframes bounce    { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-4px)} }
@@ -1790,6 +1792,19 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
           pointer-events: none;
           z-index: 30;
         }
+        /* Other looks for the same ring (Border Lighting → Animation). */
+        .wc-bl-comet::before {   /* one bright streak chasing round the edge */
+          background: conic-gradient(from var(--wc-angle), transparent 0deg 200deg, ${cfg.color}66 270deg, ${cfg.color} 335deg, ${cfg.colorEnd || '#8B5CF6'} 360deg);
+          animation-duration: 2.8s;
+        }
+        .wc-bl-pulse::before {   /* the brand gradient breathing in and out */
+          background: linear-gradient(135deg, ${cfg.color}, ${cfg.colorEnd || '#8B5CF6'});
+          animation: wcBorderPulse 2.4s ease-in-out infinite;
+        }
+        .wc-bl-shift::before {   /* the colours slide round the wheel while the ring stays put */
+          animation: wcBorderShift 8s linear infinite;
+        }
+        .wc-bl-static::before { animation: none; }
 
         /* ── Opening choreography ── */
         .wc-sheen { animation: wcSheen 1.25s cubic-bezier(.3,0,.2,1) .16s both; }
@@ -2338,6 +2353,19 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                             <div className="w-full h-full rounded-sm bg-white"/>
                           </div>},
                         ]}/>
+                      {cfg.borderLight && (
+                        <div className="mt-2">
+                          <label className="label text-[10.5px]">Animation</label>
+                          <Segmented value={cfg.borderAnim || 'spin'} onChange={v=>set('borderAnim', v)}
+                            options={[
+                              {v:'spin',   l:'Rotate'},
+                              {v:'comet',  l:'Comet'},
+                              {v:'pulse',  l:'Pulse'},
+                              {v:'shift',  l:'Colour shift'},
+                              {v:'static', l:'Still'},
+                            ]}/>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label className="label text-[10.5px] flex items-center gap-1">Shadow &amp; Depth
@@ -3662,7 +3690,7 @@ export default function WebChatAppearance() {
     // Bubble surfaces — "question" is the bot's, "answer" is the visitor's
     botBubbleBg: '', botBubbleText: '', userBubbleBg: '', userBubbleText: '', chatBackground: '#ffffff',
     bubbleShadow: 'soft', density: 'comfortable', quickReplyStyle: 'pill',
-    borderLight: true, depthEffect: true,
+    borderLight: true, borderAnim: 'spin', depthEffect: true,
     msgAnimation: 'slide', showSenderName: true, timestampMode: 'grouped',
     // Branding
     botName: 'ChatBot', tagline: 'We reply instantly',
