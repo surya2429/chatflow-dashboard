@@ -1516,7 +1516,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
        switcher above this stage invisible (it was being centered *over*, not
        just next to); a properly-bounded height makes that class of bug
        impossible rather than just mitigated. */
-    <div className="flex items-center justify-center w-full h-full">
+    <div className={clsx('flex items-center justify-center w-full h-full', cfg.depthEffect === false && 'wc-flat')}>
       {!isOpen ? (
         /* ── Closed: just the launcher, centred ── */
         <div className="flex flex-col items-center gap-3.5" style={{ animation:'wcLauncherIn 0.4s cubic-bezier(0.16,1,0.3,1) both' }}>
@@ -1759,6 +1759,9 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         .wc-send:active { transform: scale(.92); }
 
         .wc-composer:focus-within { border-color: ${cfg.color} !important; box-shadow: 0 0 0 3px ${cfg.color}22; }
+        /* Depth effect off: no drop shadows or glows anywhere in the widget (the keyboard focus ring stays). */
+        .wc-flat *, .wc-flat *::before, .wc-flat *::after { box-shadow: none !important; }
+        .wc-flat .wc-composer:focus-within { box-shadow: 0 0 0 3px ${cfg.color}22 !important; }
 
         .wc-launcher { transition: transform .24s cubic-bezier(.16,1,.3,1), box-shadow .24s ease; }
         .wc-launcher:hover { transform: scale(1.07) translateY(-2px); }
@@ -2334,6 +2337,16 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
                           {v:'on',  l:'On',  swatch:<div className="w-6 h-3 rounded" style={{padding:1.5, background:'conic-gradient(#0066ff,#8B5CF6,#22d3ee,#34d399,#facc15,#fb7185,#0066ff)'}}>
                             <div className="w-full h-full rounded-sm bg-white"/>
                           </div>},
+                        ]}/>
+                    </div>
+                    <div>
+                      <label className="label text-[10.5px] flex items-center gap-1">Shadow &amp; Depth
+                        <InfoTip text="Drop shadows and glow on the whole widget: launcher, chat window, header, messages and cards. Turn off for a flat look."/>
+                      </label>
+                      <Segmented value={cfg.depthEffect === false ? 'off' : 'on'} onChange={v=>set('depthEffect', v === 'on')}
+                        options={[
+                          {v:'off', l:'Flat', swatch:<div className="w-6 h-3 bg-slate-300 rounded"/>},
+                          {v:'on',  l:'Depth', swatch:<div className="w-6 h-3 bg-white border border-slate-200 rounded shadow-md"/>},
                         ]}/>
                     </div>
                   </div>
@@ -3649,7 +3662,7 @@ export default function WebChatAppearance() {
     // Bubble surfaces — "question" is the bot's, "answer" is the visitor's
     botBubbleBg: '', botBubbleText: '', userBubbleBg: '', userBubbleText: '', chatBackground: '#ffffff',
     bubbleShadow: 'soft', density: 'comfortable', quickReplyStyle: 'pill',
-    borderLight: true,
+    borderLight: true, depthEffect: true,
     msgAnimation: 'slide', showSenderName: true, timestampMode: 'grouped',
     // Branding
     botName: 'ChatBot', tagline: 'We reply instantly',
