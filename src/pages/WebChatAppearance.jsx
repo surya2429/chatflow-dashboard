@@ -334,7 +334,7 @@ export function useWidgetTheme(cfg) {
   }
 }
 
-export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQType, activeTab, setActiveTab, simThread, simComposerBanner, simComposerControl, simInlineControl, simInlineMsgId, setScreen: setScreenProp, onVoiceCall, onVideoCall, onRestartChat }) {
+export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQType, activeTab, setActiveTab, simThread, simComposerBanner, simComposerControl, simInlineControl, simInlineMsgId, setScreen: setScreenProp, onVoiceCall, onVideoCall, onRestartChat, fullscreen }) {
   useGoogleFont(cfg.fontFamily)
   // `setScreen` is only meaningful to callers that actually own a "screen"
   // state to transition (the Appearance page's own live preview) — callers
@@ -1498,15 +1498,16 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
      mobile renders the true full-bleed phone experience (no rounded corners, safe-area
      padding), tablet/desktop keep the floating rounded window. */
   const isMobile = device === 'mobile'
-  const deviceW = isMobile ? 340 : device === 'tablet' ? 372 : winW
-  const shellRadius = isMobile ? 0 : cornerR
+  // `fullscreen` = a real phone (the embed on a visitor's mobile site): fill the screen edge to edge, no frame, no halo.
+  const deviceW = fullscreen ? '100%' : isMobile ? 340 : device === 'tablet' ? 372 : winW
+  const shellRadius = isMobile || fullscreen ? 0 : cornerR
   /* Trimmed from 620 to 580 (desktop/non-maximized) — combined with the switcher
      row and padding above it, 620 was routinely taller than the actual available
      browser viewport height once tabs/bookmarks/taskbar chrome is subtracted on
      a typical laptop screen, forcing a scroll just to see the rest of the widget
      even with minimal padding. 580 is still a realistic, substantial chat-widget
      height. */
-  const shellMaxH = isMobile ? 660 : maximized ? 700 : 580
+  const shellMaxH = fullscreen ? 'none' : isMobile ? 660 : maximized ? 700 : 580
 
   return (
     /* items-center is safe here now: the shell's own height is set to 100% of
@@ -1592,11 +1593,11 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                one-shot animation hands back control. The third layer is the
                ambient one: brand-tinted and very wide, it reads as the panel
                casting light on the page rather than as a drop shadow. */
-            boxShadow: `0 32px 70px -16px rgba(15,23,42,0.30), 0 10px 24px -8px rgba(15,23,42,0.14), 0 0 64px -12px ${cfg.color}42`,
+            boxShadow: fullscreen ? 'none' : `0 32px 70px -16px rgba(15,23,42,0.30), 0 10px 24px -8px rgba(15,23,42,0.14), 0 0 64px -12px ${cfg.color}42`,
             /* Grow out of whichever corner the launcher occupies. */
             transformOrigin: PANEL_ORIGIN[cfg.position] || '100% 100%',
             transition: 'width 0.3s cubic-bezier(0.16,1,0.3,1), height 0.3s cubic-bezier(0.16,1,0.3,1), max-height 0.3s cubic-bezier(0.16,1,0.3,1)',
-            animation: 'wcWindowIn 0.46s cubic-bezier(0.16,1,0.3,1) both, wcBloom 1.5s ease-out both',
+            animation: fullscreen ? 'wcWindowIn 0.3s cubic-bezier(0.16,1,0.3,1) both' : 'wcWindowIn 0.46s cubic-bezier(0.16,1,0.3,1) both, wcBloom 1.5s ease-out both',
           }}>
           {isMobile && (
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-slate-900 rounded-b-2xl z-40"/>

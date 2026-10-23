@@ -76,6 +76,9 @@ function openBox(cfg) {
   }
 }
 
+/* Viewports this narrow get the full-screen chat (same cut-off as public/widget.js). */
+const PHONE_MAX_W = 480
+
 export const EMBED_MESSAGE_NAMESPACE = 'chatflow-widget'
 
 export default function WebChatEmbed() {
@@ -116,6 +119,15 @@ function EmbedShell({ botId, cfg, flow, allFlows }) {
   const [screen, setScreen] = useState('closed')
   const [activeTab, setActiveTab] = useState('home')
   const [visitorId] = useState(() => getOrCreateVisitorId(botId))
+  // Phone: the loader says so (its viewport is what counts). Opened directly, our own width is the viewport.
+  const direct = window.parent === window
+  const [phone, setPhone] = useState(() => direct && window.innerWidth <= PHONE_MAX_W)
+  useEffect(() => {
+    if (!direct) return
+    const onResize = () => setPhone(window.innerWidth <= PHONE_MAX_W)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [direct])
   const { cornerR, fs, dark } = useWidgetTheme(cfg)
 
   const call = useVisitorCall(visitorId)
@@ -147,7 +159,8 @@ function EmbedShell({ botId, cfg, flow, allFlows }) {
   useEffect(() => {
     function onMessage(e) {
       if (!e.data || e.data.__chatflow !== EMBED_MESSAGE_NAMESPACE) return
-      if (e.data.type === 'open') setScreen(s => (s === 'closed' ? 'chat' : s))
+      if (e.data.type === 'layout') setPhone(!!e.data.mobile)
+      else if (e.data.type === 'open') setScreen(s => (s === 'closed' ? 'chat' : s))
       else if (e.data.type === 'close') setScreen('closed')
     }
     window.addEventListener('message', onMessage)
@@ -196,7 +209,7 @@ function EmbedShell({ botId, cfg, flow, allFlows }) {
       {/* No padding: WidgetPreview centres the panel in whatever box it gets, so
           the box being GLOW_HALO bigger than the panel IS the halo margin. */}
       <div className="w-full h-full">
-        <WidgetPreview cfg={cfg} screen={screen} device="desktop"
+        <WidgetPreview cfg={cfg} screen={screen} device="desktop" fullscreen={phone && open}
           activeTab={activeTab} setActiveTab={setActiveTab} setScreen={setScreen}
           simThread={hasFlow ? sim.messages : undefined}
           simComposerBanner={simComposerBanner}

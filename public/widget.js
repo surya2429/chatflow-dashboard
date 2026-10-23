@@ -177,14 +177,31 @@
     // Clamped so an open panel can never be taller or wider than the viewport
     // it is sitting in — the widget must not force the page to scroll, and on
     // a phone it has to fit rather than hang off the edge.
-    var maxW = 'calc(100vw - ' + (sideGap * 2) + 'px)';
-    var maxH = 'calc(100vh - ' + (edgeGap * 2) + 'px)';
-    important(host, {
-      width:  'min(' + box.w + 'px, ' + maxW + ')',
-      height: 'min(' + box.h + 'px, ' + maxH + ')'
-    });
+    var phone = isOpen && window.innerWidth <= PHONE_MAX_W;
+    if (phone) {
+      // A phone has no room for a floating panel: the open chat fills the
+      // screen. 100vh first, then 100dvh (ignored where unsupported) so the
+      // browser's collapsing address bar can't push the composer off-screen.
+      important(host, { top: '0', left: '0', right: '0', bottom: '0', width: '100vw', height: '100vh' });
+      important(host, { height: '100dvh' });
+    } else {
+      var maxW = 'calc(100vw - ' + (sideGap * 2) + 'px)';
+      var maxH = 'calc(100vh - ' + (edgeGap * 2) + 'px)';
+      important(host, {
+        top:    isBottom ? 'auto' : edgeGap + 'px',
+        bottom: isBottom ? edgeGap + 'px' : 'auto',
+        left:   isRight ? 'auto' : sideGap + 'px',
+        right:  isRight ? sideGap + 'px' : 'auto',
+        width:  'min(' + box.w + 'px, ' + maxW + ')',
+        height: 'min(' + box.h + 'px, ' + maxH + ')'
+      });
+    }
+    if (phone !== wasPhone) { wasPhone = phone; send({ type: 'layout', mobile: phone }); }
   }
+  var wasPhone = false;
+  var PHONE_MAX_W = 480;
   applyBox();
+  window.addEventListener('resize', applyBox);
 
   window.addEventListener('message', function (e) {
     // Only this iframe, only our namespace. Anything else on the page posting
@@ -194,6 +211,7 @@
     if (e.data.type === 'state') {
       isOpen = !!e.data.open;
       box = { w: e.data.w || CLOSED.w, h: e.data.h || CLOSED.h };
+      wasPhone = null;   // the iframe may have just (re)loaded: tell it the layout again
       applyBox();
     }
   });
