@@ -196,9 +196,26 @@
         height: 'min(' + box.h + 'px, ' + maxH + ')'
       });
     }
-    if (phone !== wasPhone) { wasPhone = phone; send({ type: 'layout', mobile: phone }); }
+    // Notch / home-bar sizes, read where env() works (this page); the iframe pads itself with them.
+    var inset = phone ? insets() : null;
+    var key = phone + ':' + (inset ? [inset.t, inset.r, inset.b, inset.l].join(',') : '');
+    if (key !== wasLayout) { wasLayout = key; send({ type: 'layout', mobile: phone, inset: inset }); }
   }
-  var wasPhone = false;
+  var wasLayout = '';
+  var probe;
+  function insets() {
+    if (!probe) {
+      probe = document.createElement('div');
+      important(probe, {
+        position: 'absolute', visibility: 'hidden', 'pointer-events': 'none', width: '0', height: '0', border: '0', margin: '0',
+        'padding-top': 'env(safe-area-inset-top, 0px)', 'padding-right': 'env(safe-area-inset-right, 0px)',
+        'padding-bottom': 'env(safe-area-inset-bottom, 0px)', 'padding-left': 'env(safe-area-inset-left, 0px)'
+      });
+      root.appendChild(probe);
+    }
+    var cs = window.getComputedStyle(probe);
+    return { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+  }
   var PHONE_MAX_W = 480;
   applyBox();
   window.addEventListener('resize', applyBox);
@@ -211,7 +228,7 @@
     if (e.data.type === 'state') {
       isOpen = !!e.data.open;
       box = { w: e.data.w || CLOSED.w, h: e.data.h || CLOSED.h };
-      wasPhone = null;   // the iframe may have just (re)loaded: tell it the layout again
+      wasLayout = '';   // the iframe may have just (re)loaded: tell it the layout again
       applyBox();
     }
   });

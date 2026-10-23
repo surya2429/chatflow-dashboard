@@ -334,7 +334,7 @@ export function useWidgetTheme(cfg) {
   }
 }
 
-export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQType, activeTab, setActiveTab, simThread, simComposerBanner, simComposerControl, simInlineControl, simInlineMsgId, setScreen: setScreenProp, onVoiceCall, onVideoCall, onRestartChat, fullscreen }) {
+export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrollToQType, activeTab, setActiveTab, simThread, simComposerBanner, simComposerControl, simInlineControl, simInlineMsgId, setScreen: setScreenProp, onVoiceCall, onVideoCall, onRestartChat, fullscreen, insets }) {
   useGoogleFont(cfg.fontFamily)
   // `setScreen` is only meaningful to callers that actually own a "screen"
   // state to transition (the Appearance page's own live preview) — callers
@@ -1578,6 +1578,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
           style={{
             width: deviceW,
             maxWidth: '100%',
+            ...(fullscreen && { paddingLeft: `max(${insets?.l || 0}px, env(safe-area-inset-left, 0px))`, paddingRight: `max(${insets?.r || 0}px, env(safe-area-inset-right, 0px))` }),
             /* height: 100% of its wrapper, capped by maxHeight — not a fixed pixel
                number. The wrapper immediately around <WidgetPreview> is now
                `flex-1 min-h-0`, so it always receives exactly "the stage's real
@@ -1599,6 +1600,8 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
             transition: 'width 0.3s cubic-bezier(0.16,1,0.3,1), height 0.3s cubic-bezier(0.16,1,0.3,1), max-height 0.3s cubic-bezier(0.16,1,0.3,1)',
             animation: fullscreen ? 'wcWindowIn 0.3s cubic-bezier(0.16,1,0.3,1) both' : 'wcWindowIn 0.46s cubic-bezier(0.16,1,0.3,1) both, wcBloom 1.5s ease-out both',
           }}>
+          {/* Phone notch / status bar: the header colour runs up under it, so no white band shows. */}
+          {fullscreen && <div className="flex-shrink-0" style={{ height: `max(${insets?.t || 0}px, env(safe-area-inset-top, 0px))`, background: headerBg }}/>}
           {isMobile && (
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-slate-900 rounded-b-2xl z-40"/>
           )}
@@ -1638,6 +1641,8 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
               </button>
             </div>
           )}
+          {/* Home bar: keep the composer and "Powered by" clear of it. */}
+          {fullscreen && <div className="flex-shrink-0" style={{ height: `max(${insets?.b || 0}px, env(safe-area-inset-bottom, 0px))`, background: dark ? '#0b1220' : '#fff' }}/>}
           {isMobile && (
             <div className={clsx('flex-shrink-0 flex justify-center py-2', dark ? 'bg-slate-900' : 'bg-white')}>
               <span className={clsx('w-28 h-1 rounded-full', dark ? 'bg-slate-700' : 'bg-slate-300')}/>

@@ -122,6 +122,7 @@ function EmbedShell({ botId, cfg, flow, allFlows }) {
   // Phone: the loader says so (its viewport is what counts). Opened directly, our own width is the viewport.
   const direct = window.parent === window
   const [phone, setPhone] = useState(() => direct && window.innerWidth <= PHONE_MAX_W)
+  const [insets, setInsets] = useState(null)
   useEffect(() => {
     if (!direct) return
     const onResize = () => setPhone(window.innerWidth <= PHONE_MAX_W)
@@ -159,7 +160,7 @@ function EmbedShell({ botId, cfg, flow, allFlows }) {
   useEffect(() => {
     function onMessage(e) {
       if (!e.data || e.data.__chatflow !== EMBED_MESSAGE_NAMESPACE) return
-      if (e.data.type === 'layout') setPhone(!!e.data.mobile)
+      if (e.data.type === 'layout') { setPhone(!!e.data.mobile); setInsets(e.data.inset || null) }
       else if (e.data.type === 'open') setScreen(s => (s === 'closed' ? 'chat' : s))
       else if (e.data.type === 'close') setScreen('closed')
     }
@@ -209,7 +210,7 @@ function EmbedShell({ botId, cfg, flow, allFlows }) {
       {/* No padding: WidgetPreview centres the panel in whatever box it gets, so
           the box being GLOW_HALO bigger than the panel IS the halo margin. */}
       <div className="w-full h-full">
-        <WidgetPreview cfg={cfg} screen={screen} device="desktop" fullscreen={phone && open}
+        <WidgetPreview cfg={cfg} screen={screen} device="desktop" fullscreen={phone && open} insets={insets}
           activeTab={activeTab} setActiveTab={setActiveTab} setScreen={setScreen}
           simThread={hasFlow ? sim.messages : undefined}
           simComposerBanner={simComposerBanner}
