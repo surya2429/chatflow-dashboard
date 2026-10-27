@@ -1,6 +1,6 @@
 # SmatBot admin panel
 
-SmatBot's staff panel: clients, renewals, coupons and the team. It's a separate app from the customer
+SmatBot's staff panel: dashboard, all clients, active clients, add subscription, renewals, coupons and the team. It's a separate app from the customer
 dashboard (the ChatFlow app in the folder above). It has no server of its own: every call goes to
 the billing API (`/api/billing/admin/*`, in `backend/src/billing/adminApi.ts`), which checks each
 staff member's sign-in and role.

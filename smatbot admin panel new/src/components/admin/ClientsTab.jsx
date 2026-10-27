@@ -1,92 +1,71 @@
-// ClientsTab.jsx — every customer at a glance: who they are, what they're on, what it's worth,
-// and how SmatBot sells to them (direct, reseller, white label …).
-import { useMemo, useState } from 'react'
-import { Search, LogIn, Eye, Plus, RefreshCw } from 'lucide-react'
-import { PLANS } from '../../constants/pricing'
-import Select from '../Select'
-import {
-  Kpi, Chips, StatusPill, STATUS_OPTIONS, CUSTOMER_TYPES, customerTypeLabel, fmtDate, fmtRel, rupees, num,
-  btnPrimary, downloadCsv, btnGhost, daysFromNow,
-} from './ui'
+// ClientsTab.jsx — every customer at a glance (or, with activeOnly, those on a live plan): who they
+// are, what they're on, what it's worth, how they pay and how SmatBot sells to them.
+import { useMemo } from 'react'
+import { LogIn, Eye, Plus, RefreshCw } from 'lucide-react'
+import { Kpi, StatusPill, customerTypeLabel, fmtDate, fmtRel, rupees, num, btnPrimary, downloadCsv, btnGhost, daysFromNow } from './ui'
+import { ClientFilterBar, useClientFilters, STATUS_FILTERS } from './ClientFilters'
 
 const live = (c) => c.status === 'active' || c.status === 'past_due'
 const termLabel = (c) => (c.period === 'yearly' && c.termMonths % 12 === 0 ? `${c.termMonths / 12} years` : `${c.termMonths} months`)
+const SOURCE = { staff: 'Manual', dashboard: 'Dashboard' }
 const th = 'px-3 py-2.5 font-semibold whitespace-nowrap'
 const td = 'px-3 py-3'
 
-export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLoginAs }) {
-  const [query, setQuery] = useState('')
-  const [plan, setPlan] = useState('all')
-  const [type, setType] = useState('all')
-  const [status, setStatus] = useState('all')
-  const [autopay, setAutopay] = useState('all')
+export default function ClientsTab({ customers, activeOnly, initialFilters, canEdit, onOpen, onAssign, onLoginAs }) {
+  const rows = useMemo(() => (activeOnly ? customers.filter(live) : customers), [customers, activeOnly])
+  const filters = useClientFilters(rows, initialFilters)
+  const { shown } = filters
 
   const nameOf = useMemo(() => Object.fromEntries(customers.map((c) => [c.workspaceId, c.customer || c.workspaceId])), [customers])
 
   const kpi = useMemo(() => {
-    const live = customers.filter((c) => c.status === 'active' || c.status === 'past_due')
-    const soon = customers.filter((c) => c.renewal && daysFromNow(c.renewal.at) >= 0 && daysFromNow(c.renewal.at) <= 30)
+    const soon = shown.filter((c) => c.renewal && daysFromNow(c.renewal.at) >= 0 && daysFromNow(c.renewal.at) <= 30)
     return {
-      live: live.length,
-      collected: customers.reduce((n, c) => n + c.paidTotal, 0),
+      live: shown.filter(live).length,
+      mrr: shown.reduce((n, c) => n + (c.monthlyValue || 0), 0),
+      autopay: shown.filter((c) => c.autopay).length,
+      collected: shown.reduce((n, c) => n + c.paidTotal, 0),
       soon: soon.length,
       soonValue: soon.reduce((n, c) => n + c.renewal.total, 0),
-      attention: customers.filter((c) => c.status === 'past_due' || c.status === 'suspended').length,
+      attention: shown.filter((c) => c.status === 'past_due' || c.status === 'suspended').length,
     }
-  }, [customers])
-
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return customers.filter((c) =>
-      (!q || [c.workspaceId, c.customer, c.contactName, c.email, c.phone, c.gstin, c.city].some((v) => v?.toLowerCase().includes(q)))
-      && (plan === 'all' || (plan === 'none' ? !c.plan : c.plan === plan))
-      && (type === 'all' || c.customerType === type)
-      && (status === 'all' || c.status === status)
-      && (autopay === 'all' || (autopay === 'on') === c.autopay))
-  }, [customers, query, plan, type, status, autopay])
+  }, [shown])
 
   function exportCsv() {
-    downloadCsv('smatbot-clients.csv', [
-      ['Client name', 'Contact', 'Email', 'Phone', 'Plan name', 'Plan type', 'Start date', 'End date', 'Plan value excl. GST (₹)', 'Customer type', 'Partner', 'Status', 'Autopay', 'Workspace', 'GSTIN', 'Paid to date (₹)'],
-      ...shown.map((c) => [c.customer || c.workspaceId, c.contactName, c.email, c.phone, c.planName, c.period, fmtDate(c.currentStart), fmtDate(c.currentEnd),
-        c.planValue ?? '', customerTypeLabel(c.customerType), c.partner ? nameOf[c.partner] : '', c.status, c.autopay ? 'on' : 'off', c.workspaceId, c.gstin, c.paidTotal]),
+    downloadCsv(activeOnly ? 'smatbot-active-clients.csv' : 'smatbot-clients.csv', [
+      ['Client name', 'Contact', 'Email', 'Phone', 'Plan name', 'Cycle', 'Start date', 'End date', 'Plan value excl. GST (₹)', 'Customer type', 'Partner', 'Status', 'Payment', 'Subscription', 'Workspace', 'GSTIN', 'Paid to date (₹)'],
+      ...shown.map((c) => [c.customer || c.workspaceId, c.contactName, c.email, c.phone, c.planName, c.termMonths ? termLabel(c) : c.period, fmtDate(c.currentStart), fmtDate(c.currentEnd),
+        c.planValue ?? '', customerTypeLabel(c.customerType), c.partner ? nameOf[c.partner] : '', c.status, c.plan ? (c.autopay ? 'Autopay' : 'Pay once') : '',
+        c.source ? SOURCE[c.source] : '', c.workspaceId, c.gstin, c.paidTotal]),
     ])
   }
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <Kpi label="Clients" value={num(customers.length)} sub={`${num(customers.filter((c) => c.plan).length)} have had a plan`}/>
-        <Kpi label="On a live plan" value={num(kpi.live)}/>
-        <Kpi label="Collected" value={rupees(kpi.collected)} sub="incl. GST, all time"/>
-        <Kpi label="Due in 30 days" value={num(kpi.soon)} sub={`${rupees(kpi.soonValue)} incl. GST`}/>
-        <Kpi label="Need attention" value={num(kpi.attention)} sub="past due or suspended" warn={kpi.attention > 0}/>
-      </div>
+      {activeOnly ? (
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <Kpi label="Active clients" value={num(shown.length)} sub={`of ${num(rows.length)} on a live plan`}/>
+          <Kpi label="Monthly value" value={rupees(kpi.mrr)} sub="before GST, these clients"/>
+          <Kpi label="On autopay" value={num(kpi.autopay)} sub={shown.length ? `${Math.round((kpi.autopay / shown.length) * 100)}% of them` : ''}/>
+          <Kpi label="Renewing in 30 days" value={num(kpi.soon)} sub={`${rupees(kpi.soonValue)} incl. GST`}/>
+          <Kpi label="Past due" value={num(kpi.attention)} sub="payment failed or suspended" warn={kpi.attention > 0}/>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <Kpi label="Clients" value={num(shown.length)} sub={shown.length === rows.length ? `${num(rows.filter((c) => c.plan).length)} have had a plan` : `of ${num(rows.length)}`}/>
+          <Kpi label="On a live plan" value={num(kpi.live)}/>
+          <Kpi label="Collected" value={rupees(kpi.collected)} sub="incl. GST, all time"/>
+          <Kpi label="Due in 30 days" value={num(kpi.soon)} sub={`${rupees(kpi.soonValue)} incl. GST`}/>
+          <Kpi label="Need attention" value={num(kpi.attention)} sub="past due or suspended" warn={kpi.attention > 0}/>
+        </div>
+      )}
 
       <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-        <div className="p-4 border-b border-slate-100 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-              <input aria-label="Search clients" placeholder="Search name, email, phone, GSTIN, workspace…" value={query} onChange={(e) => setQuery(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg pl-9 pr-3 py-2 text-sm outline-none focus:border-primary"/>
-            </div>
-            <div className="w-36">
-              <Select size="sm" value={plan} onChange={setPlan}
-                options={[{ value: 'all', label: 'All plans' }, ...PLANS.map((p) => ({ value: p.id, label: p.name })), { value: 'none', label: 'No plan' }]}/>
-            </div>
-            <div className="w-52">
-              <Select size="sm" value={type} onChange={setType}
-                options={[{ value: 'all', label: 'All customer types' }, ...CUSTOMER_TYPES.map(([value, label]) => ({ value, label }))]}/>
-            </div>
+        <ClientFilterBar filters={filters} statusOptions={activeOnly ? STATUS_FILTERS.slice(0, 2) : STATUS_FILTERS}
+          actions={<>
             <button type="button" onClick={exportCsv} className={btnGhost}>Export CSV</button>
-            {canEdit && <button type="button" onClick={() => onAssign(null)} className={btnPrimary}><Plus size={14}/> New client</button>}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <Chips label="Status" value={status} onChange={setStatus} options={[['all', 'Any status'], ...STATUS_OPTIONS]}/>
-            <Chips label="Autopay" value={autopay} onChange={setAutopay} options={[['all', 'Any payment'], ['on', 'Autopay'], ['off', 'Manual']]}/>
-          </div>
-        </div>
+            {canEdit && !activeOnly && <button type="button" onClick={() => onAssign(null)} className={btnPrimary}><Plus size={14}/> New client</button>}
+          </>}/>
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[1290px]">
@@ -124,7 +103,7 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
                   </td>
                   <td className={`${td} whitespace-nowrap`}>
                     <div className="text-slate-700 capitalize">{c.termMonths ? termLabel(c) : c.period || <span className="text-slate-300">—</span>}</div>
-                    {c.plan && <div className="text-[11px] text-slate-400">{c.autopay ? 'Autopay' : 'Manual'}</div>}
+                    {c.plan && <div className="text-[11px] text-slate-400">{c.autopay ? 'Autopay' : 'Pay once'}{c.source && ` · ${SOURCE[c.source]}`}</div>}
                   </td>
                   <td className={`${td} whitespace-nowrap text-slate-600`}>{fmtDate(c.currentStart)}</td>
                   <td className={`${td} whitespace-nowrap`}>
@@ -172,7 +151,7 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
               ))}
               {!shown.length && (
                 <tr><td colSpan={11} className="px-4 py-12 text-center text-sm text-slate-400">
-                  {customers.length ? 'No client matches these filters.' : 'No clients yet. A client appears once they add billing details or you assign them a plan.'}
+                  {rows.length ? 'No client matches these filters.' : activeOnly ? 'No client is on a live plan right now.' : 'No clients yet. A client appears once they add billing details or you assign them a plan.'}
                 </td></tr>
               )}
             </tbody>

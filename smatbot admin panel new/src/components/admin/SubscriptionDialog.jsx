@@ -1,7 +1,8 @@
 // SubscriptionDialog.jsx — staff set up a client's subscription in one go: who they are (billing
 // details for the GST invoice), the plan and add-ons, how many billing cycles from which start date,
 // any discount (per item or on the total), and how it was paid (free, or offline). The price on the
-// right is the server's own quote — exactly what will be invoiced. Admins only.
+// right is the server's own quote — exactly what will be invoiced. Admins only. A dialog, or (inline)
+// a card on the Add subscription page.
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Loader2 } from 'lucide-react'
@@ -44,7 +45,21 @@ function Field({ id, label, error, optional, children }) {
   )
 }
 
-export default function SubscriptionDialog({ token, initial, plans: allPlans, addonDefs, states, onDone, onClose }) {
+/* The Add subscription page shows the form as a card instead of a dialog. */
+function Card({ title, subtitle, children }) {
+  return (
+    <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100">
+        <h2 className="text-base font-bold text-slate-900">{title}</h2>
+        {subtitle && <div className="text-xs text-slate-500 mt-0.5">{subtitle}</div>}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+export default function SubscriptionDialog({ token, initial, plans: allPlans, addonDefs, states, onDone, onClose, inline }) {
+  const Shell = inline ? Card : Modal
   // Plans on sale (public or private), plus the one the client is on even if it is archived.
   const plans = allPlans.filter((p) => p.status === 'active' || p.id === initial?.plan)
   const isNew = !initial?.workspaceId
@@ -145,7 +160,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
   const blocked = saving || !ws.trim() || !quote || (autopayOn && !stopAutopay) || (payType === 'offline' && !(Number(amount) >= 1))
 
   return (
-    <Modal wide title={isNew ? 'Add a client and their subscription' : `Subscription · ${initial.customer || initial.workspaceId}`}
+    <Shell wide title={isNew ? 'Add a client and their subscription' : `Subscription · ${initial.customer || initial.workspaceId}`}
       subtitle="Paid offline or free. Prices are worked out by the server; every offline payment gets a GST invoice." onClose={onClose}>
       <form onSubmit={submit} className="grid lg:grid-cols-[minmax(0,1fr)_340px] min-h-full">
         <div className="p-5 space-y-6 min-w-0">
@@ -350,6 +365,6 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
           </div>
         </aside>
       </form>
-    </Modal>
+    </Shell>
   )
 }

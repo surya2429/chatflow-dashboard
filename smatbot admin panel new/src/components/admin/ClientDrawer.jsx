@@ -38,7 +38,7 @@ function InvoiceViewer({ invoice, onClose }) {
   )
 }
 
-/* Direct / reseller / white label … and, for a partner's client, which partner. */
+/* Direct / white label / partner … and, for a partner's client, which partner. */
 function CustomerType({ token, c, customers, canEdit, onSaved }) {
   const [type, setType] = useState(c.customerType)
   const [partner, setPartner] = useState(c.partner || '')
@@ -67,7 +67,7 @@ function CustomerType({ token, c, customers, canEdit, onSaved }) {
           </div>
           {partnerType && (
             <div className="w-60">
-              <Select size="sm" value={partner} onChange={setPartner} placeholder={partners.length ? `Under which ${partnerType === 'reseller' ? 'reseller' : 'partner'}?` : `No ${partnerType === 'reseller' ? 'resellers' : 'white label partners'} yet`}
+              <Select size="sm" value={partner} onChange={setPartner} placeholder={partners.length ? 'Under which partner?' : 'No partners yet'}
                 disabled={!partners.length} options={partners.map((x) => ({ value: x.workspaceId, label: x.customer || x.workspaceId }))}/>
             </div>
           )}
@@ -77,7 +77,7 @@ function CustomerType({ token, c, customers, canEdit, onSaved }) {
         <p className="text-sm text-slate-800">{customerTypeLabel(c.customerType)}{c.partner && <span className="text-slate-500"> · under {nameOf(c.partner)}</span>}</p>
       )}
       {error && <div className="mt-2"><ErrorNote>{error}</ErrorNote></div>}
-      {(c.customerType === 'reseller' || c.customerType === 'white_label') && (
+      {c.customerType === 'partner' && (
         <p className="text-xs text-slate-500 mt-2">
           Their clients ({theirClients.length}){theirClients.length ? `: ${theirClients.map((x) => x.customer || x.workspaceId).join(', ')}` : ' — set a client\'s type to link it here.'}
         </p>

@@ -42,6 +42,8 @@ export const billingAdmin = {
   me:           (t)       => call('GET', '/admin/me', undefined, as(t)),
   customers:    (t)       => call('GET', '/admin/customers', undefined, as(t)),
   customer:     (t, ws)   => call('GET', wsPath(ws), undefined, as(t)),
+  /** Revenue, clients, renewals and usage for the dashboard. */
+  analytics:    (t)       => call('GET', '/admin/analytics', undefined, as(t)),
   /** A subscription: plan, add-ons, cycles, start date, discounts, client details and payment. */
   plan:         (t, body) => call('POST', '/admin/plan', body, as(t)),
   /** Its price line by line, before saving. */
