@@ -967,6 +967,29 @@ async function main() {
   const act = ((await admF('GET', '/admin/activity')).body as RzEntity).items as RzEntity[]
   check('the activity log records who changed what', ['Updated price list', 'Changed plan', 'Extended plan', 'Set WhatsApp numbers'].every((a) => act.some((x) => x.action === a && x.by === ADMIN.email)), act.slice(0, 6))
   await callF('POST', '/autopay', { enabled: false }, 'v2ext')
+  console.log('\nbilling v2: subscriptions set up by staff — cycles, start date, discounts, client details')
+  q = (await admF('POST', '/admin/quote', { plan: 'standard', period: 'yearly', cycles: 2 })).body as RzEntity
+  check('2 yearly cycles cost the yearly price × 2 (₹70,000) and run 2 years', q.listPrice === 70000 && q.charge.base === 70000 && q.end === addPeriod(t, 'yearly', 24), q)
+  check('3 yearly cycles is the most (36 months)', (await admF('POST', '/admin/quote', { plan: 'standard', period: 'yearly', cycles: 4 })).status === 400)
+  const ITEM = [{ target: 'plan', type: 'percent', value: 10 }, { target: 'crm', type: 'flat', value: 500 }]
+  q = (await admF('POST', '/admin/quote', { plan: 'standard', period: 'monthly', cycles: 3, addons: [{ id: 'crm', qty: 1 }], discounts: ITEM })).body as RzEntity
+  check('item-wise: 10% off the plan (₹10,500 → −₹1,050) and ₹500 off CRM (₹3,000) = ₹11,950', q.listPrice === 13500 && q.discountTotal === 1550 && q.charge.base === 11950, q)
+  q = (await admF('POST', '/admin/quote', { plan: 'standard', period: 'monthly', cycles: 3, discounts: [{ target: 'total', type: 'percent', value: 20 }] })).body as RzEntity
+  check('on the total: 20% off ₹10,500 = ₹8,400', q.charge.base === 8400, q.charge)
+  r = await admF('POST', '/admin/quote', { plan: 'standard', period: 'monthly', discounts: [{ target: 'crm', type: 'flat', value: 100 }] })
+  check('a discount on something not in the subscription is refused', r.status === 400 && (r.body as RzEntity).error === 'invalid_discount', r.body)
+  check('a start date more than a year back is refused', (await admF('POST', '/admin/quote', { plan: 'standard', period: 'monthly', startDate: t - 400 * 86400 })).status === 400)
+  const SUB = { workspaceId: 'v2sub', plan: 'standard', period: 'monthly', cycles: 3, startDate: t - 10 * 86400, addons: [{ id: 'crm', qty: 1 }], discounts: ITEM }
+  const prof = { ...good, legalName: 'Sharma Traders', address: { ...good.address, pincode: '400002' } }
+  r = await admF('POST', '/admin/plan', { ...SUB, profile: { ...prof, address: { ...prof.address, pincode: '12' } }, payment: { type: 'offline', amount: 14101, method: 'upi', reference: 'UPI123' } })
+  check('client details are checked in the same step (bad PIN → field error, nothing saved)', r.status === 422 && !!(r.body as RzEntity).fields?.['address.pincode'] && !(await store.get('v2sub')), r.body)
+  r = await admF('POST', '/admin/plan', { ...SUB, profile: prof, payment: { type: 'offline', amount: 14101, method: 'upi', reference: 'UPI123' } })
+  const sb = r.body as RzEntity
+  check('a new client gets their details and a backdated 3-month subscription in one go', r.status === 200 && sb.customer === 'Sharma Traders' && sb.currentStart === t - 10 * 86400 && sb.currentEnd === addPeriod(t - 10 * 86400, 'monthly', 3) && sb.termMonths === 3, sb)
+  const subInv = ((await callF('GET', '/invoices', undefined, 'v2sub')).body as RzEntity).items[0]
+  const subPage = String((await callF('GET', `/invoices/${subInv.id}/view`, undefined, 'v2sub')).body)
+  check('its invoice lists each discount and totals ₹14,101 (₹11,950 + GST)', subInv.amountPaise === 1410100 && subPage.includes('Discount on Standard plan (10%)') && subPage.includes('Discount on CRM') && !subPage.includes('Price adjustment'), subInv)
+
   console.log('\nbilling v2: "log in as customer" from the separate admin app')
   const tk = ((await admF('POST', '/admin/impersonate', { workspaceId: 'v2off' })).body as RzEntity).ticket as string
   r = await callF('POST', '/impersonate/redeem', { ticket: tk })

@@ -387,8 +387,11 @@ export interface PriceOpts {
   addonsOnly?: boolean
   /** price list for the add-ons — a yearly plan can buy them at the monthly rate */
   addonPeriod?: Period
-  /** a custom term: monthly price × months, for the plan and its add-ons */
+  /** a term of several months, for the plan and its add-ons: on a yearly plan in whole years it is the
+      yearly price × years (yearly cycles), otherwise the monthly price × months */
   months?: number
+  /** staff discounts before GST: on one item ('plan' or an add-on id) or on the 'total' */
+  discounts?: Discount[]
   /** share of the period actually sold (0–1), e.g. add-ons cut short by the plan's end */
   fraction?: number
   /** text for a prorated line, e.g. "12 of 30 days" */
@@ -405,25 +408,46 @@ export interface PriceOpts {
   lock?: PriceLock | null
 }
 
+export interface Discount { target: string; type: 'percent' | 'flat'; value: number }
+
 const r2 = (n: number) => Math.round(n * 100) / 100
-const termWord = (period: Period, months?: number) => (months ? `${months} month${months > 1 ? 's' : ''}` : period === 'yearly' ? 'Yearly' : 'Monthly')
+const inYears = (period: Period, months?: number) => Boolean(months && period === 'yearly' && months % 12 === 0)
+const termWord = (period: Period, months?: number) => (inYears(period, months) ? `${months! / 12} years`
+  : months ? `${months} month${months > 1 ? 's' : ''}` : period === 'yearly' ? 'Yearly' : 'Monthly')
 
 export function chargeFor(plan: PlanId, period: Period, gstPercent: number, o: PriceOpts = {}): Charge {
   const lines: PriceLine[] = []
   const f = o.fraction ?? 1
-  const per = o.months ?? 1
-  const pricePeriod: Period = o.months ? 'monthly' : period
+  const years = inYears(period, o.months)
+  const per = o.months ? (years ? o.months / 12 : o.months) : 1
+  const pricePeriod: Period = o.months && !years ? 'monthly' : period
   const note = f < 1 && o.prorateNote ? ` · prorated, ${o.prorateNote}` : ''
+  const term = o.months ? ` · ${termWord(period, o.months)}` : ''
   if (!o.addonsOnly) {
     const rate = r2(planRate(plan, pricePeriod, o.lock) * per * f)
     lines.push({ kind: 'plan', id: plan, description: `SmatBot ${planName(plan)} Plan — ${termWord(period, o.months)} subscription${note}`, qty: 1, unit: o.months ? 'term' : period === 'yearly' ? 'year' : 'month', rate, amount: rate })
   }
-  const ap: Period = o.months ? 'monthly' : (o.addonPeriod ?? period)
+  const ap: Period = o.months ? pricePeriod : (o.addonPeriod ?? period)
   for (const a of o.addons ?? []) {
     const def = ADDON_BY_ID.get(a.id)
     if (!def) continue
     const rate = r2(addonRate(a.id, ap, o.lock) * per * f)
-    lines.push({ kind: 'addon', id: a.id, description: `Add-on: ${def.name} (${def.unit})${o.months ? ` · ${o.months} months` : ''}${note}`, qty: a.qty, unit: def.unit, rate, amount: r2(rate * a.qty) })
+    lines.push({ kind: 'addon', id: a.id, description: `Add-on: ${def.name} (${def.unit})${term}${note}`, qty: a.qty, unit: def.unit, rate, amount: r2(rate * a.qty) })
+  }
+  // Staff discounts: each item's first, then one on what is left.
+  const pct = (d: Discount) => (d.type === 'percent' ? ` (${d.value}%)` : '')
+  for (const d of o.discounts ?? []) {
+    const item = d.target === 'total' ? undefined : lines.find((l) => (d.target === 'plan' ? l.kind === 'plan' : l.kind === 'addon' && l.id === d.target))
+    if (!item) continue
+    const off = r2(Math.min(item.amount, d.type === 'percent' ? (item.amount * d.value) / 100 : d.value))
+    const name = item.kind === 'plan' ? `${planName(plan)} plan` : ADDON_BY_ID.get(item.id!)?.name ?? item.id
+    if (off > 0) lines.push({ kind: 'discount', id: d.target, description: `Discount on ${name}${pct(d)}`, qty: 1, unit: '', rate: -off, amount: -off })
+  }
+  const onTotal = o.discounts?.find((d) => d.target === 'total')
+  if (onTotal) {
+    const sub = r2(lines.reduce((n, l) => n + l.amount, 0))
+    const off = r2(Math.min(sub, onTotal.type === 'percent' ? (sub * onTotal.value) / 100 : onTotal.value))
+    if (off > 0) lines.push({ kind: 'discount', id: 'total', description: `Discount on the total${pct(onTotal)}`, qty: 1, unit: '', rate: -off, amount: -off })
   }
   const gross = r2(lines.reduce((n, l) => n + l.amount, 0))
   const credit = Math.min(o.credit ?? 0, gross)

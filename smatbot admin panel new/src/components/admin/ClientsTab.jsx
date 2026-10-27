@@ -1,7 +1,7 @@
 // ClientsTab.jsx — every customer at a glance: who they are, what they're on, what it's worth,
 // and how SmatBot sells to them (direct, reseller, white label …).
 import { useMemo, useState } from 'react'
-import { Search, LogIn, Eye, Plus } from 'lucide-react'
+import { Search, LogIn, Eye, Plus, RefreshCw } from 'lucide-react'
 import { PLANS } from '../../constants/pricing'
 import Select from '../Select'
 import {
@@ -9,6 +9,8 @@ import {
   btnPrimary, downloadCsv, btnGhost, daysFromNow,
 } from './ui'
 
+const live = (c) => c.status === 'active' || c.status === 'past_due'
+const termLabel = (c) => (c.period === 'yearly' && c.termMonths % 12 === 0 ? `${c.termMonths / 12} years` : `${c.termMonths} months`)
 const th = 'px-3 py-2.5 font-semibold whitespace-nowrap'
 const td = 'px-3 py-3'
 
@@ -78,7 +80,7 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
                 options={[{ value: 'all', label: 'All customer types' }, ...CUSTOMER_TYPES.map(([value, label]) => ({ value, label }))]}/>
             </div>
             <button type="button" onClick={exportCsv} className={btnGhost}>Export CSV</button>
-            {canEdit && <button type="button" onClick={() => onAssign(null)} className={btnPrimary}><Plus size={14}/> New customer</button>}
+            {canEdit && <button type="button" onClick={() => onAssign(null)} className={btnPrimary}><Plus size={14}/> New client</button>}
           </div>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <Chips label="Status" value={status} onChange={setStatus} options={[['all', 'Any status'], ...STATUS_OPTIONS]}/>
@@ -87,7 +89,7 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[1150px]">
+          <table className="w-full text-sm min-w-[1290px]">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 bg-slate-50">
                 <th className={`${th} pl-4`}>Client name</th>
@@ -99,6 +101,7 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
                 <th className={th}>End date</th>
                 <th className={`${th} text-right`}>Plan value</th>
                 <th className={th}>Customer type</th>
+                <th className={th}>Subscription</th>
                 <th className={`${th} pr-4 text-right`}>Action</th>
               </tr>
             </thead>
@@ -120,7 +123,7 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
                     <div className="mt-0.5"><StatusPill status={c.status}/></div>
                   </td>
                   <td className={`${td} whitespace-nowrap`}>
-                    <div className="text-slate-700 capitalize">{c.period || <span className="text-slate-300">—</span>}</div>
+                    <div className="text-slate-700 capitalize">{c.termMonths ? termLabel(c) : c.period || <span className="text-slate-300">—</span>}</div>
                     {c.plan && <div className="text-[11px] text-slate-400">{c.autopay ? 'Autopay' : 'Manual'}</div>}
                   </td>
                   <td className={`${td} whitespace-nowrap text-slate-600`}>{fmtDate(c.currentStart)}</td>
@@ -129,16 +132,31 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
                     {c.currentEnd && <div className="text-[11px] text-slate-400">{fmtRel(c.currentEnd)}</div>}
                   </td>
                   <td className={`${td} text-right whitespace-nowrap`}>
-                    {c.planValue != null ? (
-                      <>
-                        <div className="tabular-nums font-semibold text-slate-800">{rupees(c.planValue)}</div>
-                        <div className="text-[11px] text-slate-400">+ GST / {c.period === 'yearly' ? 'yr' : 'mo'}</div>
-                      </>
-                    ) : <span className="text-slate-300">—</span>}
+                    {c.free ? <span className="text-xs font-semibold text-slate-500">Free</span>
+                      : c.periodPaid > 0 ? (
+                        // what they actually paid for this term (after any discount)
+                        <>
+                          <div className="tabular-nums font-semibold text-slate-800">{rupees(c.periodPaid)}</div>
+                          <div className="text-[11px] text-slate-400">+ GST · {c.termMonths ? termLabel(c) : c.period === 'yearly' ? 'year' : 'month'}</div>
+                        </>
+                      ) : c.planValue != null ? (
+                        <>
+                          <div className="tabular-nums font-semibold text-slate-800">{rupees(c.planValue)}</div>
+                          <div className="text-[11px] text-slate-400">+ GST / {c.period === 'yearly' ? 'yr' : 'mo'}</div>
+                        </>
+                      ) : <span className="text-slate-300">—</span>}
                   </td>
                   <td className={`${td} max-w-[190px]`}>
                     <div className="text-slate-700 text-xs font-semibold">{customerTypeLabel(c.customerType)}</div>
                     {c.partner && <div className="text-[11px] text-slate-400 truncate">under {nameOf[c.partner] || c.partner}</div>}
+                  </td>
+                  <td className={`${td} whitespace-nowrap`}>
+                    {canEdit ? (
+                      <button type="button" onClick={() => onAssign(c)} aria-label={`${live(c) ? 'Change subscription for' : 'Add a subscription for'} ${c.customer || c.workspaceId}`}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-primary border border-primary/30 hover:bg-primary/5">
+                        {live(c) ? <><RefreshCw size={12}/> Change</> : <><Plus size={12}/> Add subscription</>}
+                      </button>
+                    ) : <span className="text-slate-300">—</span>}
                   </td>
                   <td className={`${td} pr-4 text-right whitespace-nowrap`}>
                     <button type="button" onClick={() => onLoginAs(c)} aria-label={`Log in as ${c.customer || c.workspaceId}`}
@@ -153,7 +171,7 @@ export default function ClientsTab({ customers, canEdit, onOpen, onAssign, onLog
                 </tr>
               ))}
               {!shown.length && (
-                <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-slate-400">
+                <tr><td colSpan={11} className="px-4 py-12 text-center text-sm text-slate-400">
                   {customers.length ? 'No client matches these filters.' : 'No clients yet. A client appears once they add billing details or you assign them a plan.'}
                 </td></tr>
               )}

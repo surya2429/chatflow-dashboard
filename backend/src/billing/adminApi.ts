@@ -10,7 +10,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import {
   ADDON_CATALOG, FEATURES, METRICS, PLAN_CATALOG, addPeriod, addonDef, addonLines, currentCatalog, eligibleAddons, isPeriod, isPlanId,
   mergeAddons, normalizeAddons, planName, validateCatalog, DAY, AFA_LIMIT_RUPEES,
-  type AddonSel, type Catalog, type Period, type PlanId, type PriceLine, type PriceOpts, type Charge,
+  type AddonSel, type Catalog, type Discount, type Period, type PlanId, type PriceLine, type PriceOpts, type Charge,
 } from './catalog.js'
 import {
   PARTNER_TYPE, checkPassword, hashPassword, isCustomerType, isStaffRole, parseCoupon, readSession, signSession,
@@ -251,6 +251,8 @@ export function createAdminApi(ctx: AdminCtx) {
       /** plan + add-ons for the current term, ₹ before GST, at their prices */
       planValue: r.plan && r.period ? ctx.chargeOf(r.plan, r.period, r, { addons: r.addons, months: r.termMonths ?? undefined }).base : null,
       monthlyValue: r2(monthlyValue(r)),
+      /** ₹ before GST actually paid for the current term (after discounts); 0 = free */
+      periodPaid: r.periodPaid ?? null,
       free: r.periodPaid === 0,
       autopay: autopayRunning(r),
       engine: r.engine ?? (r.mode === 'autopay' ? 'subscription' : null),
@@ -384,31 +386,100 @@ export function createAdminApi(ctx: AdminCtx) {
   }
   const offlineId = () => `offline_${now()}_${randomBytes(3).toString('hex')}`
 
+  /* Discounts staff give: one per item ('plan' or an add-on in this subscription) and/or one on the total. */
+  function parseDiscounts(v: unknown, addons: AddonSel[]): { ok: true; discounts: Discount[] } | { ok: false; res: BillingResponse } {
+    const fail = (message: string) => ({ ok: false as const, res: err(400, 'invalid_discount', message) })
+    if (v == null) return { ok: true, discounts: [] }
+    if (!Array.isArray(v) || v.length > 41) return fail('Discounts must be a list.')
+    const out: Discount[] = []
+    for (const raw of v) {
+      const d = (raw ?? {}) as Record<string, unknown>
+      const target = String(d.target ?? '')
+      if (target !== 'total' && target !== 'plan' && !addons.some((a) => a.id === target)) return fail('A discount is on something that is not in this subscription.')
+      if (d.type !== 'percent' && d.type !== 'flat') return fail('A discount is a percentage or an amount in ₹.')
+      const value = Number(d.value)
+      if (!Number.isFinite(value) || value <= 0 || (d.type === 'percent' ? value > 100 : value > 10_000_000)) return fail('Discounts: a percentage up to 100, or an amount in ₹.')
+      if (out.some((x) => x.target === target)) return fail('One discount per item.')
+      out.push({ target, type: d.type, value: r2(value) })
+    }
+    return { ok: true, discounts: out }
+  }
+
+  /* A subscription staff are setting up, checked — shared by the live quote and the change itself.
+     cycles     how many billing periods it covers, billed upfront: monthly × 3 = 3 months, yearly × 2 =
+                2 years (yearly price × years); up to 36 months. (months = the older custom-term field.)
+     start      'now' (optionally backdated by startDate, up to a year) · 'after_current' (the same plan
+                continues from the current end) · 'renewal' (card autopay: the next renewal changes) */
+  function parseSubscription(b: Record<string, unknown>, rec: BillingRecord) {
+    const fail = (res: BillingResponse) => ({ ok: false as const, res })
+    const { plan } = b
+    if (!isPlanId(plan)) return fail(err(400, 'invalid_plan', 'Choose a plan.'))
+    const basePeriod: Period = isPeriod(b.period) ? b.period : 'monthly'
+    const num = (v: unknown) => (v == null || v === '' ? undefined : Number(v))
+    const cycles = num(b.cycles), monthsIn = num(b.months)
+    const perCycle = basePeriod === 'yearly' ? 12 : 1
+    if (cycles !== undefined && !(Number.isInteger(cycles) && cycles >= 1 && cycles * perCycle <= 36)) return fail(err(400, 'invalid_cycles', 'Up to 36 months: 1–36 monthly cycles, or 1–3 yearly ones.'))
+    if (monthsIn !== undefined && !(Number.isInteger(monthsIn) && monthsIn >= 1 && monthsIn <= 36)) return fail(err(400, 'invalid_months', 'A custom term is 1 to 36 months.'))
+    const months = cycles !== undefined ? (cycles > 1 ? cycles * perCycle : undefined) : monthsIn
+    const period: Period = cycles === undefined && monthsIn ? 'monthly' : basePeriod
+    const sel = normalizeAddons(b.addons, plan, true)
+    if (!sel.ok) return fail(err(400, 'invalid_addons', sel.message))
+    const disc = parseDiscounts(b.discounts, sel.addons)
+    if (!disc.ok) return fail(disc.res)
+    const start = b.start === 'after_current' || b.start === 'renewal' ? b.start : 'now'
+    const t = now()
+    let from = t
+    if (start === 'after_current') {
+      if (!ctx.isLive(rec) || rec.plan !== plan) return fail(err(409, 'not_same_plan', 'To change plan, start the new one now. "After the current period" continues the plan they are on.'))
+      from = rec.currentEnd!
+    } else if (start === 'now' && num(b.startDate) !== undefined) {
+      const sd = num(b.startDate)!
+      if (!Number.isInteger(sd) || sd > t + 3600 || sd < t - 366 * DAY) return fail(err(400, 'invalid_start', 'The start date can be today or up to a year back. To continue the plan they are on, start it after the current period.'))
+      from = Math.min(sd, t)
+    }
+    const untilIn = num(b.until)
+    const end = untilIn ?? addPeriod(from, period, months)
+    if (!Number.isInteger(end) || end <= t || end > from + 5 * 366 * DAY) return fail(err(400, 'invalid_until', 'This subscription would already be over — pick a later start date or more cycles.'))
+    return { ok: true as const, plan, period, months, cycles: cycles ?? 1, addons: sel.addons, discounts: disc.discounts, start, from, end }
+  }
+
+  /* The price of a subscription being set up, line by line — what the form shows before saving. */
+  async function quote(req: BillingRequest): Promise<BillingResponse> {
+    const b = body(req)
+    const ws = typeof b.workspaceId === 'string' && WS_RE.test(b.workspaceId.trim()) ? b.workspaceId.trim() : '__quote'
+    const rec = (ws === '__quote' ? null : await store.get(ws)) ?? ctx.blank(ws)
+    const s = parseSubscription(b, rec)
+    if (!s.ok) return s.res
+    const c = ctx.chargeOf(s.plan, s.period, s.start === 'after_current' ? rec : null, { addons: s.addons, months: s.months, discounts: s.discounts })
+    const listPrice = r2(c.lines.filter((l) => l.kind !== 'discount').reduce((n, l) => n + l.amount, 0))
+    return reply(200, {
+      charge: c, listPrice, discountTotal: r2(listPrice - c.base), from: s.from, end: s.end, period: s.period, months: s.months ?? null, cycles: s.cycles,
+      autopayRunning: autopayRunning(rec), hasProfile: Boolean(rec.profile),
+    })
+  }
+
   /* ── plan changes by staff ───────────────────────────────────────────────
-     start = 'now'            the new plan starts today (replaces the current one; autopay is stopped)
-             'after_current'  the same plan continues after the current period (a renewal paid offline)
-             'renewal'        saved-card autopay: the next automatic renewal moves to this plan
-     months = a custom term (1–36), priced monthly × months; it never renews automatically. */
+     A subscription (see parseSubscription) paid free or offline, with optional discounts and the
+     client's billing details saved in the same step. Custom terms never renew automatically. */
   async function changePlan(req: BillingRequest, me: Staff): Promise<BillingResponse> {
     const b = body(req)
     const ws = typeof b.workspaceId === 'string' ? b.workspaceId.trim() : ''
     if (!WS_RE.test(ws)) return err(400, 'invalid_workspace', 'Workspace id: 1–64 letters, digits or . _ - @')
-    const { plan } = b
-    if (!isPlanId(plan)) return err(400, 'invalid_plan', 'Choose a plan.')
-    const months = b.months == null || b.months === '' ? undefined : Number(b.months)
-    if (months !== undefined && !(Number.isInteger(months) && months >= 1 && months <= 36)) return err(400, 'invalid_months', 'A custom term is 1 to 36 months.')
-    const period: Period = months ? 'monthly' : isPeriod(b.period) ? b.period : 'monthly'
-    const sel = normalizeAddons(b.addons, plan, true)
-    if (!sel.ok) return err(400, 'invalid_addons', sel.message)
-    const start = b.start === 'after_current' || b.start === 'renewal' ? b.start : 'now'
+    const profile = b.profile == null ? null : validateProfile(b.profile as Parameters<typeof validateProfile>[0], now())
+    if (profile && !profile.ok) return reply(422, { error: 'invalid_profile', message: 'Some client details need fixing.', fields: profile.fields })
     const pay = paymentIn(b.payment)
     if (!pay.ok) return pay.res
     const note = typeof b.note === 'string' ? b.note.trim().slice(0, 500) : ''
     const t = now()
     const rec = (await store.get(ws)) ?? ctx.blank(ws)
+    const s = parseSubscription(b, rec)
+    if (!s.ok) return s.res
+    const { plan, period, months, start, from, end, discounts } = s
+    const sel = { addons: s.addons }
 
     if (start === 'renewal') {
       if (months) return err(400, 'invalid_months', "A custom term can't renew automatically. Start it now instead.")
+      if (discounts.length) return err(400, 'invalid_discount', 'Discounts apply to subscriptions staff bill now, not to automatic renewals.')
       if (rec.engine !== 'token' || !rec.mandate || !rec.renewal) return err(409, 'no_card_autopay', 'Only customers on card autopay have a renewal to change.')
       if (rec.renewal.orderId) return err(409, 'notice_sent', 'Their renewal notice has already gone out. Change it after it renews, or start the new plan now.')
       if (ctx.chargeOf(plan, period, rec, { addons: sel.addons }).total > AFA_LIMIT_RUPEES) return err(409, 'autopay_limit', `That renewal would be above the ₹${AFA_LIMIT_RUPEES.toLocaleString('en-IN')} card-autopay limit.`)
@@ -423,23 +494,16 @@ export function createAdminApi(ctx: AdminCtx) {
     if (autopayRunning(rec) && b.stopAutopay !== true) {
       return err(409, 'autopay_running', 'This customer is on autopay. Confirm that their autopay should stop — otherwise they would be charged for this period as well.')
     }
-    if (pay.p.type === 'offline' && !rec.profile) return err(409, 'billing_details_required', 'Add their billing details first — every payment gets a GST invoice.')
+    if (pay.p.type === 'offline' && !(profile?.ok ? profile.profile : rec.profile)) return err(409, 'billing_details_required', 'Add their billing details first — every payment gets a GST invoice.')
+    if (profile?.ok) rec.profile = profile.profile
 
     const extend = start === 'after_current'
-    if (extend) {
-      if (!ctx.isLive(rec) || rec.plan !== plan) return err(409, 'not_same_plan', 'To change plan, start the new one now. "After the current period" continues the plan they are on.')
-    }
-    const from = extend ? rec.currentEnd! : t
-    const untilIn = b.until == null || b.until === '' ? undefined : Number(b.until)
-    const end = untilIn ?? addPeriod(from, period, months)
-    if (!Number.isInteger(end) || end <= from || end > from + 5 * 366 * DAY) return err(400, 'invalid_until', 'The end date must be after the start and within 5 years.')
-
     // Priced like a sale: list prices for a new plan; their own (locked) prices when it continues.
-    const c = ctx.chargeOf(plan, period, extend ? rec : null, { addons: sel.addons, months })
+    const c = ctx.chargeOf(plan, period, extend ? rec : null, { addons: sel.addons, months, discounts })
     if (autopayRunning(rec)) await ctx.stopAutopay(rec)
     const paid = pay.p.type === 'offline' ? ctx.paidValue(linesFor(c, pay.p)) : 0
     ctx.startPeriod(rec, {
-      plan, period, months: months ?? null, addons: sel.addons, start: extend ? rec.currentStart! : t, end,
+      plan, period, months: months ?? null, addons: sel.addons, start: extend ? rec.currentStart! : from, end,
       paid: (extend ? rec.periodPaid ?? 0 : 0) + paid, relock: !extend,
     })
     rec.mode = 'once'; rec.engine = undefined; rec.subscriptionId = undefined; rec.nextChargeAt = null; rec.renewal = null
@@ -453,7 +517,8 @@ export function createAdminApi(ctx: AdminCtx) {
     rec.grants = [{ at: t, plan, period, addons: sel.addons, until: end, note: [pay.p.type === 'offline' ? `Paid offline ₹${(pay.p.amountPaise / 100).toLocaleString('en-IN')} (${pay.p.method}${pay.p.reference ? ` ${pay.p.reference}` : ''})` : 'Free', note].filter(Boolean).join(' — '), by: me.email }, ...(rec.grants ?? [])]
     rec.updatedAt = t
     await store.put(rec)
-    await audit(me, extend ? 'Renewed plan' : 'Changed plan', ws, `${planName(plan)} ${months ? `${months} months` : period} until ${new Date(end * 1000).toISOString().slice(0, 10)} · ${pay.p.type}${note ? ` — ${note}` : ''}`)
+    const off = r2(-c.lines.filter((l) => l.kind === 'discount').reduce((n, l) => n + l.amount, 0))
+    await audit(me, extend ? 'Renewed plan' : 'Changed plan', ws, `${planName(plan)} ${months ? `${months} months` : period}${off ? ` · ₹${off.toLocaleString('en-IN')} discount` : ''} until ${new Date(end * 1000).toISOString().slice(0, 10)} · ${pay.p.type}${note ? ` — ${note}` : ''}`)
     return reply(200, row(rec))
   }
 
@@ -792,6 +857,7 @@ export function createAdminApi(ctx: AdminCtx) {
       case 'GET /admin/activity':  return reply(200, { items: ((await store.getDoc<AuditEntry[]>('audit')) ?? []).slice(0, 500) })
       case 'POST /admin/notes':    return await addNote(req, me)
       case 'POST /admin/impact':   return await impact(req)
+      case 'POST /admin/quote':    return await quote(req)
       case 'POST /admin/impersonate': {
         const rec = await getRec(body(req).workspaceId)
         if (!rec) return err(404, 'not_found', 'No such customer.')

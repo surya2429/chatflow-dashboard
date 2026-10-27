@@ -11,7 +11,7 @@ import RenewalsTab from '../components/admin/RenewalsTab'
 import CouponsTab from '../components/admin/CouponsTab'
 import TeamTab from '../components/admin/TeamTab'
 import ClientDrawer from '../components/admin/ClientDrawer'
-import AssignPlanDialog from '../components/admin/AssignPlanDialog'
+import SubscriptionDialog from '../components/admin/SubscriptionDialog'
 import { inputCls, labelCls, fmtDate } from '../components/admin/ui'
 
 const TOKEN_KEY = 'smatbot-admin-token'
@@ -31,6 +31,8 @@ export default function AdminConsole() {
   const [me, setMe]               = useState(null)
   const [customers, setCustomers] = useState(null)
   const [addonDefs, setAddonDefs] = useState([])
+  const [plans, setPlans]         = useState([])
+  const [states, setStates]       = useState([])
   const [loading, setLoading]     = useState(false)
   const [loadError, setLoadError] = useState('')
   const [email, setEmail]         = useState('')
@@ -49,8 +51,9 @@ export default function AdminConsole() {
   async function load(t) {
     setLoading(true); setLoadError('')
     try {
-      const [who, list, cfg] = await Promise.all([billingAdmin.me(t), billingAdmin.customers(t), billing.config()])
-      setMe(who); setCustomers(list.items); setAddonDefs(cfg.addons || [])
+      const [who, list, cfg, cat] = await Promise.all([billingAdmin.me(t), billingAdmin.customers(t), billing.config(), billingAdmin.catalog(t)])
+      setMe(who); setCustomers(list.items); setStates(cfg.states || [])
+      setPlans(cat.catalog.plans); setAddonDefs(cat.catalog.addons)
       setToken(t); saveToken(t)
     } catch (e) {
       signOut(e.status === 401 ? 'Your session has ended. Please sign in again.' : e.message)
@@ -164,7 +167,7 @@ export default function AdminConsole() {
           onClose={() => setOpenWs(null)} onAssign={setAssigning} onLoginAs={loginAsCustomer} onChanged={reload}/>
       )}
       {assigning !== undefined && (
-        <AssignPlanDialog token={token} initial={assigning} addonDefs={addonDefs} onClose={() => setAssigning(undefined)}
+        <SubscriptionDialog token={token} initial={assigning} plans={plans} addonDefs={addonDefs} states={states} onClose={() => setAssigning(undefined)}
           onDone={(row) => {
             setAssigning(undefined)
             reload()

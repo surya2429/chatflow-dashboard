@@ -42,7 +42,12 @@ export const billingAdmin = {
   me:           (t)       => call('GET', '/admin/me', undefined, as(t)),
   customers:    (t)       => call('GET', '/admin/customers', undefined, as(t)),
   customer:     (t, ws)   => call('GET', wsPath(ws), undefined, as(t)),
-  assign:       (t, body) => call('POST', '/admin/assign', body, as(t)),
+  /** A subscription: plan, add-ons, cycles, start date, discounts, client details and payment. */
+  plan:         (t, body) => call('POST', '/admin/plan', body, as(t)),
+  /** Its price line by line, before saving. */
+  quote:        (t, body) => call('POST', '/admin/quote', body, as(t)),
+  /** The full price list: every plan and add-on, private and archived ones too. */
+  catalog:      (t)       => call('GET', '/admin/catalog', undefined, as(t)),
   setCustomerType: (t, body) => call('POST', '/admin/customers/type', body, as(t)),
   /** A 2-minute ticket the customer dashboard swaps for that customer (logged as "Opened customer dashboard"). */
   impersonate:  (t, ws)   => call('POST', '/admin/impersonate', { workspaceId: ws }, as(t)),
