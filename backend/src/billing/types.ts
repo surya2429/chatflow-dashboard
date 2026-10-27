@@ -1,4 +1,4 @@
-import type { AddonSel, Period, PlanId, PriceLine, PriceLock } from './catalog.js'
+import type { AddonSel, Discount, Period, PlanId, PriceLine, PriceLock } from './catalog.js'
 import type { BillingProfile } from './india.js'
 
 /* 'past_due' and 'suspended' are ours: a failed renewal is past due while we are still
@@ -169,6 +169,10 @@ export interface Invoice {
   discount?: { code: string; amount: number }
   /** a custom term in months */
   months?: number
+  /** paid offline and recorded by staff */
+  offline?: boolean
+  /** subscription number, reference and remarks staff put on the subscription */
+  extra?: { subscription?: string; reference?: string; remarks?: string }
 }
 
 /* ── dunning (failed-renewal recovery) ─────────────────────────────────── */
@@ -234,6 +238,25 @@ export interface AdminGrant {
   by?: string
 }
 
+/** A subscription staff set up in the admin panel. Like a recurring invoice: one cycle is billed when it
+    is set up and each next one when staff record its payment (Renewals), at the same prices — and the same
+    discounts when they apply on every renewal — until `cycles` have been billed (null = until cancelled). */
+export interface StaffSub {
+  number: string                 // SUB-00001
+  cycles: number | null
+  billed: number
+  discounts: Discount[]
+  discountRenews: boolean
+  reference?: string
+  /** staff email */
+  salesperson?: string
+  remarks?: string
+  startedAt: number
+  by: string
+}
+
+export interface ClientDocument { id: string; name: string; type: string; size: number; at: number; by: string }
+
 /** How SmatBot sells to this customer (set in the admin console). Unset = direct. white_label = a
     white-label client; a partner_client belongs to a partner. Older records may still hold reseller /
     reseller_client / white_label_client — admin.ts customerTypeOf reads them as today's types. */
@@ -244,6 +267,10 @@ export interface BillingRecord {
   customerType?: CustomerType
   /** who set up the current subscription: SmatBot staff (admin panel) or the customer paying in their dashboard */
   source?: 'staff' | 'dashboard'
+  /** the subscription staff set up, billed one cycle at a time (see adminApi.ts) */
+  staffSub?: StaffSub | null
+  /** files staff attached to this client (a PO, the agreement …); the content is in the doc `file:<id>` */
+  documents?: ClientDocument[]
   /** for a partner client: the partner's workspaceId */
   partner?: string | null
   plan: PlanId | null

@@ -9,16 +9,16 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import {
   ADDON_CATALOG, FEATURES, METRICS, PLAN_CATALOG, addPeriod, addonDef, addonLines, currentCatalog, eligibleAddons, isPeriod, isPlanId,
-  mergeAddons, normalizeAddons, planName, validateCatalog, DAY, AFA_LIMIT_RUPEES,
-  type AddonSel, type Catalog, type Discount, type Period, type PlanId, type PriceLine, type PriceOpts, type Charge,
+  lockPrices, mergeAddons, normalizeAddons, planName, validateCatalog, DAY, AFA_LIMIT_RUPEES,
+  type AddonSel, type Catalog, type Discount, type Period, type PlanId, type PriceLine, type PriceLock, type PriceOpts, type Charge,
 } from './catalog.js'
 import {
   PARTNER_TYPE, checkPassword, customerTypeOf, hashPassword, isCustomerType, isStaffRole, parseCoupon, readSession, signSession,
   type Coupon, type StaffMember, type StaffRole,
 } from './admin.js'
-import { stateName, validateProfile } from './india.js'
+import { stateName, validateProfile, type BillingProfile } from './india.js'
 import { renderInvoiceHtml, type SellerInfo } from './invoice.js'
-import type { BillingRecord, BillingRequest, BillingResponse, BillingStore, Invoice, UsageItem } from './types.js'
+import type { BillingRecord, BillingRequest, BillingResponse, BillingStore, Invoice, StaffSub, UsageItem } from './types.js'
 
 type Staff = { email: string; name: string; role: 'owner' | StaffRole }
 type Usage = { reported: boolean; lastReportAt: number | null; items: UsageItem[]; features?: Record<string, boolean> | null }
@@ -40,7 +40,7 @@ export interface AdminCtx {
   paidValue: (lines: PriceLine[]) => number
   recordPayment: (rec: BillingRecord, p: {
     paymentId: string; plan: PlanId; period: Period; amountPaise: number; addons?: AddonSel[]; addonsOnly?: boolean; method?: string; at?: number
-    periodStart: number; periodEnd: number; kind: Invoice['kind']; lines?: PriceLine[]; months?: number; offline?: { method: string; reference: string; by: string }
+    periodStart: number; periodEnd: number; kind: Invoice['kind']; lines?: PriceLine[]; months?: number; offline?: { method: string; reference: string; by: string }; extra?: Invoice['extra']
   }) => Promise<Invoice | null>
   cancelPlan: (rec: BillingRecord, when: 'now' | 'period_end') => Promise<void>
   stopAutopay: (rec: BillingRecord) => Promise<void>
@@ -209,18 +209,26 @@ export function createAdminApi(ctx: AdminCtx) {
       : r.mode === 'autopay' && r.engine !== 'token' && !r.cancelAtCycleEnd && !ctx.terminal.has(r.status)
       ? { at: r.nextChargeAt ?? r.currentEnd, type: 'autopay', plan: sc?.plan ?? r.plan, period: sc?.period ?? r.period, addons: sc?.addons ?? r.addons, months: undefined }
       : { at: r.currentEnd, type: 'manual', plan: r.plan, period: r.period, addons: r.addons, months: r.termMonths ?? undefined }
+    const sub = next.type === 'manual' ? r.staffSub : null
+    if (sub && sub.cycles !== null && sub.billed >= sub.cycles) return null      // every cycle billed: it ends
     return {
-      at: next.at, type: next.type as 'autopay' | 'manual', plan: next.plan, planName: planName(next.plan), period: next.period, months: next.months ?? null,
-      total: ctx.chargeOf(next.plan, next.period, r, { addons: next.addons, months: next.months }).total,
+      at: next.at, type: next.type as 'autopay' | 'manual', plan: next.plan, planName: planName(next.plan), period: next.period, months: sub ? null : next.months ?? null,
+      total: (sub ? subCharge(r, sub) : ctx.chargeOf(next.plan, next.period, r, { addons: next.addons, months: next.months })).total,
+      ...(sub ? { cycle: sub.billed + 1, cycles: sub.cycles } : {}),
     }
   }
 
   const statusOf = (r: BillingRecord) => (r.dunning?.state === 'active' ? 'past_due'
     : r.status === 'active' && r.currentEnd && r.currentEnd < now() && !autopayRunning(r) ? (r.cancelAt ? 'cancelled' : 'expired') : r.status)
 
+  /** One cycle of a staff subscription: their own (locked) prices, and its discounts if they renew. */
+  const subCharge = (r: BillingRecord, sub: StaffSub) =>
+    ctx.chargeOf(r.plan!, r.period!, r, { addons: r.addons, discounts: sub.discountRenews ? sub.discounts : [], lock: r.priceLock })
+
   /** ₹ per month this client brings in (plan + add-ons, before GST) — 0 while not live or on a free plan. */
   function monthlyValue(r: BillingRecord): number {
     if (!ctx.isLive(r) || !r.plan || !r.period || r.periodPaid === 0) return 0
+    if (r.staffSub && r.mode !== 'autopay') return subCharge(r, r.staffSub).base / (r.period === 'yearly' ? 12 : 1)
     return ctx.chargeOf(r.plan, r.period, r, { addons: r.addons, months: r.termMonths ?? undefined }).base / ctx.termOf(r)
   }
 
@@ -267,6 +275,9 @@ export function createAdminApi(ctx: AdminCtx) {
       lastPaymentAt: paid[0]?.at ?? null,
       lastGrant: r.grants?.[0] ?? null,
       whatsappNumbers: r.whatsappNumbers ?? [],
+      subscription: r.staffSub && r.mode !== 'autopay'
+        ? { number: r.staffSub.number, cycles: r.staffSub.cycles, billed: r.staffSub.billed, discountRenews: r.staffSub.discountRenews, reference: r.staffSub.reference ?? null, salesperson: r.staffSub.salesperson ?? null }
+        : null,
       updatedAt: r.updatedAt,
     }
   }
@@ -285,6 +296,8 @@ export function createAdminApi(ctx: AdminCtx) {
       invoices: (r.invoices ?? []).map((i) => ({ id: i.id, number: i.number, at: i.issuedAt, amountPaise: i.amountPaise, kind: i.kind })),
       grants: r.grants ?? [],
       notes: r.notes ?? [],
+      staffSub: r.staffSub && r.mode !== 'autopay' ? r.staffSub : null,
+      documents: r.documents ?? [],
       usage: await ctx.usageOf(r),
       allowances: ctx.allowancesOf(r),
       dunning: d?.state === 'active' ? { attempts: d.attempts.length, maxAttempts: ctx.maxDunningAttempts, deadline: d.deadline, nextAttemptAt: d.nextAttemptAt, amountPaise: d.amountPaise } : null,
@@ -382,7 +395,7 @@ export function createAdminApi(ctx: AdminCtx) {
   }
   /** The charged lines with the amount actually received: any difference becomes an adjustment line. */
   function linesFor(c: Charge, received: PaymentIn): PriceLine[] {
-    const base = r2(received.amountPaise / 100 / (1 + gstPercent / 100))
+    const base = r2(received.amountPaise / 100 / (1 + c.gstPercent / 100))
     const diff = r2(base - c.base)
     return Math.abs(diff) < 0.01 ? c.lines : [...c.lines, { kind: 'adjustment', description: diff < 0 ? 'Special price (discount agreed)' : 'Price adjustment', qty: 1, unit: '', rate: diff, amount: diff }]
   }
@@ -402,7 +415,8 @@ export function createAdminApi(ctx: AdminCtx) {
       const value = Number(d.value)
       if (!Number.isFinite(value) || value <= 0 || (d.type === 'percent' ? value > 100 : value > 10_000_000)) return fail('Discounts: a percentage up to 100, or an amount in ₹.')
       if (out.some((x) => x.target === target)) return fail('One discount per item.')
-      out.push({ target, type: d.type, value: r2(value) })
+      const name = target === 'total' && typeof d.name === 'string' ? d.name.trim().slice(0, 60) : ''
+      out.push({ target, type: d.type, value: r2(value), ...(name ? { name } : {}) })
     }
     return { ok: true, discounts: out }
   }
@@ -411,7 +425,11 @@ export function createAdminApi(ctx: AdminCtx) {
      cycles     how many billing periods it covers, billed upfront: monthly × 3 = 3 months, yearly × 2 =
                 2 years (yearly price × years); up to 36 months. (months = the older custom-term field.)
      start      'now' (optionally backdated by startDate, up to a year) · 'after_current' (the same plan
-                continues from the current end) · 'renewal' (card autopay: the next renewal changes) */
+                continues from the current end) · 'renewal' (card autopay: the next renewal changes)
+     expiresAfter  cycles in all (null = until cancelled); each one after the first is billed when staff
+                record its payment (POST /admin/renew)
+     prices     ₹ per cycle before GST, for 'plan' and add-on ids — locked in, so renewals use them too
+     discountRenews  the discounts apply to every renewal (default) or only to this first bill */
   function parseSubscription(b: Record<string, unknown>, rec: BillingRecord) {
     const fail = (res: BillingResponse) => ({ ok: false as const, res })
     const { plan } = b
@@ -442,7 +460,42 @@ export function createAdminApi(ctx: AdminCtx) {
     const untilIn = num(b.until)
     const end = untilIn ?? addPeriod(from, period, months)
     if (!Number.isInteger(end) || end <= t || end > from + 5 * 366 * DAY) return fail(err(400, 'invalid_until', 'This subscription would already be over — pick a later start date or more cycles.'))
-    return { ok: true as const, plan, period, months, cycles: cycles ?? 1, addons: sel.addons, discounts: disc.discounts, start, from, end }
+    const expiresAfter = num(b.expiresAfter) ?? null
+    if (expiresAfter !== null && !(Number.isInteger(expiresAfter) && expiresAfter >= (cycles ?? 1) && expiresAfter <= 120)) {
+      return fail(err(400, 'invalid_expiry', `Expires after ${cycles ?? 1} to 120 cycles — or never.`))
+    }
+    const prices = pricesIn(b.prices, plan, period, sel.addons, start === 'after_current' ? rec.priceLock : null)
+    if (!prices.ok) return fail(prices.res)
+    return {
+      ok: true as const, plan, period, months, cycles: cycles ?? 1, addons: sel.addons, discounts: disc.discounts, start, from, end,
+      expiresAfter, discountRenews: b.discountRenews !== false, lock: prices.lock,
+    }
+  }
+
+  /* Prices staff typed (₹ per cycle, before GST) over the list prices — or over the client's own
+     locked prices when the plan continues. */
+  function pricesIn(v: unknown, plan: PlanId, period: Period, addons: AddonSel[], keep: PriceLock | null | undefined) {
+    const fail = (message: string) => ({ ok: false as const, res: err(400, 'invalid_price', message) })
+    const lock = lockPrices(plan, addons, now(), keep ?? null)
+    if (v == null) return { ok: true as const, lock }
+    if (typeof v !== 'object' || Array.isArray(v)) return fail('Prices must be given per item.')
+    for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
+      const price = Number(raw)
+      if (raw === '' || !Number.isFinite(price) || price < 0 || price > 10_000_000) return fail('A price is ₹0 to ₹1,00,00,000.')
+      if (k === 'plan') lock.plans[plan] = { ...lock.plans[plan]!, [period]: r2(price) }
+      else if (addons.some((a) => a.id === k)) lock.addons[k] = { ...lock.addons[k]!, [period]: r2(price) }
+      else return fail('A price is for something that is not in this subscription.')
+    }
+    return { ok: true as const, lock }
+  }
+
+  /** The client as a price sees them — their state (CGST + SGST or IGST) and tax exemption — taken
+      from the form while staff are still filling it in. */
+  function asPriced(rec: BillingRecord, p: unknown): BillingRecord {
+    if (p == null || typeof p !== 'object') return rec
+    const f = p as { taxExempt?: unknown; address?: { stateCode?: unknown } }
+    const stateCode = typeof f.address?.stateCode === 'string' && f.address.stateCode ? f.address.stateCode : rec.profile?.address.stateCode ?? ''
+    return { ...rec, profile: { ...(rec.profile ?? {}), address: { ...(rec.profile?.address ?? {}), stateCode }, taxExempt: f.taxExempt === true } as BillingProfile }
   }
 
   /* The price of a subscription being set up, line by line — what the form shows before saving. */
@@ -452,11 +505,15 @@ export function createAdminApi(ctx: AdminCtx) {
     const rec = (ws === '__quote' ? null : await store.get(ws)) ?? ctx.blank(ws)
     const s = parseSubscription(b, rec)
     if (!s.ok) return s.res
-    const c = ctx.chargeOf(s.plan, s.period, s.start === 'after_current' ? rec : null, { addons: s.addons, months: s.months, discounts: s.discounts })
+    const priced = asPriced(rec, b.profile)
+    const c = ctx.chargeOf(s.plan, s.period, priced, { addons: s.addons, months: s.months, discounts: s.discounts, lock: s.lock })
     const listPrice = r2(c.lines.filter((l) => l.kind !== 'discount').reduce((n, l) => n + l.amount, 0))
+    // what each later cycle will cost (one period, at these prices; the discounts only if they renew)
+    const renewal = s.expiresAfter === s.cycles ? null
+      : ctx.chargeOf(s.plan, s.period, priced, { addons: s.addons, discounts: s.discountRenews ? s.discounts : [], lock: s.lock }).total
     return reply(200, {
       charge: c, listPrice, discountTotal: r2(listPrice - c.base), from: s.from, end: s.end, period: s.period, months: s.months ?? null, cycles: s.cycles,
-      autopayRunning: autopayRunning(rec), hasProfile: Boolean(rec.profile),
+      expiresAfter: s.expiresAfter, renewal, autopayRunning: autopayRunning(rec), hasProfile: Boolean(rec.profile),
     })
   }
 
@@ -472,6 +529,8 @@ export function createAdminApi(ctx: AdminCtx) {
     const pay = paymentIn(b.payment)
     if (!pay.ok) return pay.res
     const note = typeof b.note === 'string' ? b.note.trim().slice(0, 500) : ''
+    const meta = await subMeta(b)
+    if (!meta.ok) return meta.res
     const t = now()
     const rec = (await store.get(ws)) ?? ctx.blank(ws)
     const s = parseSubscription(b, rec)
@@ -500,8 +559,12 @@ export function createAdminApi(ctx: AdminCtx) {
     if (profile?.ok) rec.profile = profile.profile
 
     const extend = start === 'after_current'
-    // Priced like a sale: list prices for a new plan; their own (locked) prices when it continues.
-    const c = ctx.chargeOf(plan, period, extend ? rec : null, { addons: sel.addons, months, discounts })
+    const prevSub = extend && rec.mode !== 'autopay' ? rec.staffSub : null
+    if (prevSub && s.expiresAfter !== null && prevSub.billed + s.cycles > s.expiresAfter) {
+      return err(400, 'invalid_expiry', `${prevSub.billed} cycles are already billed — it has to run for more cycles than that.`)
+    }
+    // Priced like a sale: list prices (or the ones staff typed) for a new plan; their own when it continues.
+    const c = ctx.chargeOf(plan, period, rec, { addons: sel.addons, months, discounts, lock: s.lock })
     if (autopayRunning(rec)) await ctx.stopAutopay(rec)
     const paid = pay.p.type === 'offline' ? ctx.paidValue(linesFor(c, pay.p)) : 0
     ctx.startPeriod(rec, {
@@ -510,11 +573,17 @@ export function createAdminApi(ctx: AdminCtx) {
     })
     rec.mode = 'once'; rec.engine = undefined; rec.subscriptionId = undefined; rec.nextChargeAt = null; rec.renewal = null
     rec.source = 'staff'
+    rec.priceLock = s.lock
+    rec.staffSub = {
+      number: prevSub?.number ?? `SUB-${String(await store.nextSequence('sub')).padStart(5, '0')}`,
+      cycles: s.expiresAfter, billed: (prevSub?.billed ?? 0) + s.cycles, discounts, discountRenews: s.discountRenews,
+      ...meta.meta, startedAt: prevSub?.startedAt ?? from, by: me.email,
+    }
     if (pay.p.type === 'offline') {
       await ctx.recordPayment(rec, {
         paymentId: offlineId(), plan, period, amountPaise: pay.p.amountPaise, addons: sel.addons, method: pay.p.method, at: pay.p.at,
         periodStart: from, periodEnd: end, kind: extend ? 'renewal' : 'purchase', lines: linesFor(c, pay.p), months,
-        offline: { method: pay.p.method, reference: pay.p.reference, by: me.email },
+        offline: { method: pay.p.method, reference: pay.p.reference, by: me.email }, extra: extraOf(rec.staffSub),
       })
     }
     rec.grants = [{ at: t, plan, period, addons: sel.addons, until: end, note: [pay.p.type === 'offline' ? `Paid offline ₹${(pay.p.amountPaise / 100).toLocaleString('en-IN')} (${pay.p.method}${pay.p.reference ? ` ${pay.p.reference}` : ''})` : 'Free', note].filter(Boolean).join(' — '), by: me.email }, ...(rec.grants ?? [])]
@@ -523,6 +592,101 @@ export function createAdminApi(ctx: AdminCtx) {
     const off = r2(-c.lines.filter((l) => l.kind === 'discount').reduce((n, l) => n + l.amount, 0))
     await audit(me, extend ? 'Renewed plan' : 'Changed plan', ws, `${planName(plan)} ${months ? `${months} months` : period}${off ? ` · ₹${off.toLocaleString('en-IN')} discount` : ''} until ${new Date(end * 1000).toISOString().slice(0, 10)} · ${pay.p.type}${note ? ` — ${note}` : ''}`)
     return reply(200, row(rec))
+  }
+
+  /* Reference, salesperson (someone on the team) and remarks for the invoice. */
+  async function subMeta(b: Record<string, unknown>) {
+    const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
+    const reference = text(b.reference, 50), remarks = text(b.remarks, 500)
+    const salesperson = text(b.salesperson, 254).toLowerCase()
+    if (salesperson && salesperson !== owner!.email && !(await staffList()).some((x) => x.email === salesperson)) {
+      return { ok: false as const, res: err(400, 'invalid_salesperson', 'Pick a salesperson from the team.') }
+    }
+    return { ok: true as const, meta: { ...(reference ? { reference } : {}), ...(salesperson ? { salesperson } : {}), ...(remarks ? { remarks } : {}) } }
+  }
+  const extraOf = (sub: StaffSub): Invoice['extra'] => ({ subscription: sub.number, reference: sub.reference, remarks: sub.remarks })
+
+  /* The next cycle of a staff subscription, paid offline (or free): it continues from the end of the
+     current one, at its own prices — and with its discounts when they apply to every renewal. */
+  async function renewSub(req: BillingRequest, me: Staff): Promise<BillingResponse> {
+    const b = body(req)
+    const rec = await getRec(b.workspaceId)
+    const sub = rec?.mode !== 'autopay' ? rec?.staffSub : null
+    if (!rec || !sub || !rec.plan || !rec.period || !rec.currentEnd) return err(409, 'no_subscription', 'This client has no subscription set up by staff to renew.')
+    if (rec.cancelAt || statusOf(rec) === 'cancelled') return err(409, 'cancelled', 'This subscription was cancelled. Set up a new one instead.')
+    if (sub.cycles !== null && sub.billed >= sub.cycles) return err(409, 'subscription_complete', `All ${sub.cycles} cycles have been billed — it ends on its end date.`)
+    const pay = paymentIn(b.payment)
+    if (!pay.ok) return pay.res
+    if (pay.p.type === 'offline' && !rec.profile) return err(409, 'billing_details_required', 'Add their billing details first — every payment gets a GST invoice.')
+    const note = typeof b.note === 'string' ? b.note.trim().slice(0, 500) : ''
+    const t = now()
+    const from = rec.currentEnd, end = addPeriod(from, rec.period)
+    if (end <= t) return err(409, 'too_late', 'More than a whole cycle has passed since it ended. Set up a new subscription instead.')
+    const c = subCharge(rec, sub)
+    const lock = rec.priceLock
+    const plan = rec.plan, period = rec.period, addons = rec.addons ?? []
+    const paid = pay.p.type === 'offline' ? ctx.paidValue(linesFor(c, pay.p)) : 0
+    ctx.startPeriod(rec, { plan, period, months: null, addons, start: from, end, paid, relock: false })
+    rec.source = 'staff'; rec.priceLock = lock
+    rec.staffSub = { ...sub, billed: sub.billed + 1 }
+    if (pay.p.type === 'offline') {
+      await ctx.recordPayment(rec, {
+        paymentId: offlineId(), plan, period, amountPaise: pay.p.amountPaise, addons, method: pay.p.method, at: pay.p.at,
+        periodStart: from, periodEnd: end, kind: 'renewal', lines: linesFor(c, pay.p),
+        offline: { method: pay.p.method, reference: pay.p.reference, by: me.email }, extra: extraOf(rec.staffSub),
+      })
+    }
+    rec.grants = [{ at: t, plan, period, addons, until: end, note: [`Cycle ${rec.staffSub.billed} of ${sub.number}`, pay.p.type === 'offline' ? `paid offline ₹${(pay.p.amountPaise / 100).toLocaleString('en-IN')} (${pay.p.method})` : 'free', note].filter(Boolean).join(' — '), by: me.email }, ...(rec.grants ?? [])]
+    rec.updatedAt = t
+    await store.put(rec)
+    await audit(me, 'Renewed subscription', rec.workspaceId, `${sub.number} cycle ${rec.staffSub.billed}${sub.cycles ? ` of ${sub.cycles}` : ''} until ${new Date(end * 1000).toISOString().slice(0, 10)} · ${pay.p.type}${note ? ` — ${note}` : ''}`)
+    return reply(200, row(rec))
+  }
+
+  /* Files staff attach to a client (a PO, the signed agreement …), kept as docs.
+     shortcut: up to 2 MB a file in the billing store; move them to object storage if they grow. */
+  const DOC_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'text/plain', 'text/csv', 'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+  const MAX_DOC_BYTES = 2 * 1024 * 1024
+  async function addDocument(req: BillingRequest, me: Staff): Promise<BillingResponse> {
+    const b = body(req)
+    const rec = await getRec(b.workspaceId)
+    if (!rec) return err(404, 'not_found', 'No such customer.')
+    const name = typeof b.name === 'string' ? b.name.trim().replace(/[\\/]/g, '_').slice(0, 120) : ''
+    const type = String(b.type ?? '')
+    if (!name) return err(400, 'invalid_name', 'The file needs a name.')
+    if (!DOC_TYPES.includes(type)) return err(400, 'invalid_type', 'Attach a PDF, image, Word, Excel, CSV or text file.')
+    const data = typeof b.data === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(b.data) ? b.data : ''
+    const size = Math.floor((data.length * 3) / 4) - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0)
+    if (!data || size > MAX_DOC_BYTES) return err(400, 'invalid_file', 'Files can be up to 2 MB.')
+    if ((rec.documents ?? []).length >= 10) return err(409, 'too_many_files', 'Up to 10 files per client — remove one first.')
+    const doc = { id: randomBytes(9).toString('base64url'), name, type, size, at: now(), by: me.email }
+    await store.putDoc(`file:${doc.id}`, { workspaceId: rec.workspaceId, data })
+    rec.documents = [doc, ...(rec.documents ?? [])]
+    rec.updatedAt = now()
+    await store.put(rec)
+    await audit(me, 'Attached a file', rec.workspaceId, name)
+    return reply(200, { documents: rec.documents })
+  }
+  async function getDocument(ws: string, id: string): Promise<BillingResponse> {
+    const rec = await store.get(ws)
+    const doc = rec?.documents?.find((d) => d.id === id)
+    const file = doc ? await store.getDoc<{ workspaceId: string; data: string }>(`file:${id}`) : null
+    if (!doc || !file || file.workspaceId !== ws) return err(404, 'not_found', 'No such file.')
+    return reply(200, { ...doc, data: file.data })
+  }
+  async function removeDocument(req: BillingRequest, me: Staff): Promise<BillingResponse> {
+    const b = body(req)
+    const rec = await getRec(b.workspaceId)
+    const doc = rec?.documents?.find((d) => d.id === b.id)
+    if (!rec || !doc) return err(404, 'not_found', 'No such file.')
+    rec.documents = rec.documents!.filter((d) => d.id !== doc.id)
+    await store.putDoc(`file:${doc.id}`, null)
+    rec.updatedAt = now()
+    await store.put(rec)
+    await audit(me, 'Removed a file', rec.workspaceId, doc.name)
+    return reply(200, { documents: rec.documents })
   }
 
   /* Add-ons given by staff: one-time (30 days, until the plan ends, or until a date — never past the
@@ -850,6 +1014,7 @@ export function createAdminApi(ctx: AdminCtx) {
     const get = req.method.toUpperCase() === 'GET'
     const inv = path.match(/^\/admin\/customers\/([^/]{1,200})\/invoices\/([A-Za-z0-9_-]+)$/)
     const one = path.match(/^\/admin\/customers\/([^/]{1,200})$/)
+    const file = path.match(/^\/admin\/customers\/([^/]{1,200})\/documents\/([A-Za-z0-9_-]+)$/)
     // Anyone signed in: reading, notes, and opening a customer's dashboard (logged).
     switch (route) {
       case 'GET /admin/me':        return reply(200, me)
@@ -872,11 +1037,15 @@ export function createAdminApi(ctx: AdminCtx) {
     }
     if (get && inv) return await invoice(decode(inv[1]!), inv[2]!)
     if (get && one) return await customer(decode(one[1]!))
+    if (get && file) return await getDocument(decode(file[1]!), file[2]!)
     // Everything below moves money or changes who has access.
     if (me.role === 'support') return err(403, 'forbidden', 'Only admins can do that.')
     switch (route) {
       case 'POST /admin/plan':             return await changePlan(req, me)
       case 'POST /admin/assign':           return await changePlan(req, me)      // the first console's name for it
+      case 'POST /admin/renew':            return await renewSub(req, me)
+      case 'POST /admin/documents':        return await addDocument(req, me)
+      case 'POST /admin/documents/remove': return await removeDocument(req, me)
       case 'POST /admin/addons':           return await addAddons(req, me)
       case 'POST /admin/addons/remove':    return await removeAddon(req, me)
       case 'POST /admin/extend':           return await extend(req, me)

@@ -34,7 +34,7 @@ import {
   planKey, planName, planRate, totalCount, type AddonSel, type Catalog, type Period, type PlanId, type PriceLine, type PriceOpts,
 } from './catalog.js'
 import { RazorpayError, verifyWebhookSignature, type Razorpay, type RzEntity } from './razorpay.js'
-import { STATES, stateName, validateProfile } from './india.js'
+import { STAFF_PROFILE_FIELDS, STATES, stateName, validateProfile } from './india.js'
 import { DUNNING_POLICY, assertPolicy, attemptTimes, deadlineFor, type DunningPolicy } from './dunning.js'
 import { buildInvoice, financialYear, invoiceNumber, renderInvoiceHtml, type SellerInfo } from './invoice.js'
 import { DEFAULT_LOGO } from './logo.js'
@@ -114,8 +114,10 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* The charge for a plan, with GST labelled for the customer's state when known, at this customer's
      prices. The TOTAL is the same either way; only CGST/SGST vs IGST changes. */
+  /** GST % on this customer's invoices — none for a client staff marked tax-exempt. */
+  const gstOf = (rec?: BillingRecord | null) => (rec?.profile?.taxExempt ? 0 : gstPercent)
   const chargeOf = (plan: PlanId, period: Period, rec?: BillingRecord | null, o: Omit<PriceOpts, 'place'> = {}) =>
-    chargeFor(plan, period, gstPercent, { place: { supplier, customer: rec?.profile?.address.stateCode }, lock: lockOf(rec), ...o })
+    chargeFor(plan, period, gstOf(rec), { place: { supplier, customer: rec?.profile?.address.stateCode }, lock: lockOf(rec), ...o })
 
   /* The price list is a doc staff can edit; re-read it now and then so every API instance sees edits. */
   let catalogLoadedAt = -1
@@ -236,7 +238,7 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* Copy a Razorpay subscription entity onto our record. */
   async function applySubscription(rec: BillingRecord, sub: RzEntity): Promise<void> {
-    rec.mode = 'autopay'; rec.source = 'dashboard'
+    rec.mode = 'autopay'; rec.source = 'dashboard'; rec.staffSub = null
     rec.subscriptionId = sub.id
     rec.status = sub.status
     rec.currentStart = sub.current_start ?? rec.currentStart ?? null
@@ -273,6 +275,8 @@ export function createBillingService(opts: BillingServiceOptions) {
     lines?: PriceLine[]
     months?: number
     offline?: { method: string; reference: string; by: string }
+    /** printed on the invoice: subscription number, reference, remarks */
+    extra?: Invoice['extra']
   }
 
   /* Idempotent: the same Razorpay payment id is only ever recorded and invoiced once. */
@@ -297,8 +301,8 @@ export function createBillingService(opts: BillingServiceOptions) {
       seller, buyer: rec.profile, number: invoiceNumber(seller.prefix, fy, seq), issuedAt,
       paymentId: p.paymentId, orderId: p.orderId, subscriptionId: p.subscriptionId,
       plan: p.plan, period: p.period, periodStart: p.periodStart, periodEnd: p.periodEnd,
-      gstPercent, amountPaise: p.amountPaise, addons: p.addons, addonsOnly: p.addonsOnly, addonPeriod: p.addonPeriod, method: p.method, kind: p.kind,
-      lines: p.lines, months: p.months,
+      gstPercent: gstOf(rec), amountPaise: p.amountPaise, addons: p.addons, addonsOnly: p.addonsOnly, addonPeriod: p.addonPeriod, method: p.method, kind: p.kind,
+      lines: p.lines, months: p.months, offline: Boolean(p.offline), extra: p.extra,
       ...(p.coupon ? { discount: { code: p.coupon.code, amount: p.coupon.discount } } : {}),
     })
     rec.invoices.unshift(inv)
@@ -314,7 +318,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     rec.status = 'active'; rec.currentStart = o.start; rec.currentEnd = o.end; rec.periodPaid = o.paid
     rec.cancelAtCycleEnd = false; rec.cancelAt = null; rec.scheduledChange = null; rec.upcoming = null
     rec.dunning = null; rec.autopayLapsed = false
-    rec.source = 'dashboard'   // the admin console overrides this after it calls startPeriod
+    rec.source = 'dashboard'; rec.staffSub = null   // the admin console sets both after it calls startPeriod
     if (o.relock || !rec.priceLock) rec.priceLock = lockPrices(o.plan, o.addons, now(), o.relock ? null : rec.priceLock)
     // One-time add-ons never outlive the plan they were bought on (a shorter new period cuts them).
     rec.extraAddons = (rec.extraAddons ?? []).map((e) => (e.until > o.end ? { ...e, until: o.end } : e))
@@ -1496,7 +1500,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       return buildInvoice({
         seller, buyer: inv.buyer, number: inv.number, issuedAt: inv.issuedAt, paymentId: inv.paymentId, orderId: inv.orderId,
         subscriptionId: inv.subscriptionId, plan: inv.plan, period: inv.period, periodStart: inv.periodStart, periodEnd: inv.periodEnd,
-        gstPercent, amountPaise: inv.amountPaise, method: inv.method, kind: inv.kind, discount: inv.discount,
+        gstPercent: inv.gstPercent, amountPaise: inv.amountPaise, method: inv.method, kind: inv.kind, discount: inv.discount, offline: inv.offline, extra: inv.extra,
       })
     })
     return changed
@@ -1593,7 +1597,9 @@ export function createBillingService(opts: BillingServiceOptions) {
     const rec = (await store.get(req.workspaceId)) ?? blank(req.workspaceId)
     // A change of address after a checkout began could change the tax split; start over.
     if (rec.pending && rec.profile?.address.stateCode !== v.profile.address.stateCode) rec.pending = null
-    rec.profile = v.profile
+    // Keep what staff set (tax details, shipping, contacts): the customer's form doesn't show them.
+    const kept = Object.fromEntries(STAFF_PROFILE_FIELDS.filter((k) => rec.profile?.[k] !== undefined).map((k) => [k, rec.profile![k]]))
+    rec.profile = { ...v.profile, ...kept, address: { ...v.profile.address, ...(rec.profile?.address.attention ? { attention: rec.profile.address.attention } : {}) } }
     rec.updatedAt = now()
     await store.put(rec)
     return reply(200, { profile: rec.profile, complete: true })

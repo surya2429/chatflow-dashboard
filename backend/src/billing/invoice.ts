@@ -74,6 +74,9 @@ export interface BuildInvoiceInput {
   lines?: PriceLine[]
   method?: string
   kind: Invoice['kind']
+  /** paid offline and recorded by staff (not through Razorpay) */
+  offline?: boolean
+  extra?: Invoice['extra']
 }
 
 const num = (n: number) => n.toLocaleString('en-IN')
@@ -147,6 +150,8 @@ export function buildInvoice(i: BuildInvoiceInput): Invoice {
     method: i.method,
     kind: i.kind,
     ...(i.discount ? { discount: i.discount } : {}),
+    ...(i.offline ? { offline: true } : {}),
+    ...(i.extra && Object.values(i.extra).some(Boolean) ? { extra: i.extra } : {}),
   }
 }
 
@@ -158,7 +163,10 @@ const methodText = (m?: string) => (m ? m.toUpperCase() : 'Online')
 
 export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): string {
   const b = inv.buyer
-  const addr = [b.address.line1, b.address.line2, `${b.address.city}, ${stateName(b.address.stateCode)} ${b.address.pincode}`, 'India'].filter(Boolean).map(esc).join('<br>')
+  const lines = (a: { attention?: string; line1: string; line2?: string; city: string; stateCode: string; pincode: string }) =>
+    [a.attention && `Attn: ${a.attention}`, a.line1, a.line2, `${a.city}, ${stateName(a.stateCode)} ${a.pincode}`, 'India'].filter(Boolean).map(esc).join('<br>')
+  const addr = lines(b.address)
+  const x = inv.extra ?? {}
   const half = inv.gstPercent / 2
   const dates = `<div class="small muted" style="margin-top:4px">${inv.kind === 'addon' ? 'Valid from' : 'Plan start date'}: <b>${day(inv.periodStart)}</b></div><div class="small muted">${inv.kind === 'addon' ? 'Valid until' : 'Plan end date'}: <b>${day(inv.periodEnd)}</b></div>`
   const qty = inv.qty ?? 1
@@ -177,7 +185,9 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
       ? 'These add-ons were added to your plan: this payment covers the rest of the current period, and they renew with the plan from the next renewal.'
       : 'One-time add-on purchase: it does not renew, and never runs past the end of your current plan period.']
     : [...notes, allowanceNote(inv.plan, inv.period, inv.months)].filter(Boolean)
-  const taxRows = inv.taxKind === 'intra'
+  if (x.remarks) allNotes.push(x.remarks)
+  const taxRows = inv.gstPercent === 0 ? '<tr><td>GST (tax exempt)</td><td class="r">₹0.00</td></tr>'
+    : inv.taxKind === 'intra'
     ? `<tr><td>CGST @ ${half}%</td><td class="r">${inr(inv.cgst)}</td></tr><tr><td>SGST @ ${half}%</td><td class="r">${inr(inv.sgst)}</td></tr>`
     : `<tr><td>IGST @ ${inv.gstPercent}%</td><td class="r">${inr(inv.igst)}</td></tr>`
   return `<!doctype html>
@@ -205,13 +215,14 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   <div class="top">
     <div>${logo ? `<img class="logo" src="${esc(logo)}" alt="${esc(s.brand ?? s.name)}">` : ''}<h1>Tax Invoice</h1><div class="muted">${esc(inv.number)}</div></div>
     <div style="text-align:right"><span class="badge">PAID</span><div class="small muted" style="margin-top:6px">Invoice date: <b>${day(inv.issuedAt)}</b></div>
-    <div class="small muted">Payment ID: ${esc(inv.paymentId)}</div></div>
+    <div class="small muted">Payment ID: ${esc(inv.paymentId)}</div>${x.subscription ? `<div class="small muted">Subscription: <b>${esc(x.subscription)}</b></div>` : ''}${x.reference ? `<div class="small muted">Reference: ${esc(x.reference)}</div>` : ''}</div>
   </div>
   <div class="grid">
     <div class="box"><h3>Supplier</h3><b>${esc(s.name)}</b>${s.brand ? `<br>Product: <b>${esc(s.brand)}</b>` : ''}<br>${esc(s.address).replace(/\n/g, '<br>')}<br>
       ${s.cin ? `CIN: ${esc(s.cin)}<br>` : ''}${s.gstin ? `GSTIN: ${esc(s.gstin)}<br>` : ''}State: ${esc(stateName(s.stateCode))} (${esc(s.stateCode)})</div>
-    <div class="box"><h3>Billed to</h3><b>${esc(b.legalName)}</b><br>${addr}<br>${b.gstin ? `GSTIN: ${esc(b.gstin)}<br>` : 'GSTIN: Unregistered<br>'}
+    <div class="box"><h3>Billed to</h3><b>${esc(b.legalName)}</b><br>${addr}<br>${b.gstin ? `GSTIN: ${esc(b.gstin)}${b.gstTreatment === 'sez' ? ' (SEZ)' : ''}<br>` : `GSTIN: ${b.gstTreatment === 'consumer' ? 'Consumer' : b.gstTreatment === 'overseas' ? 'Overseas' : 'Unregistered'}<br>`}${b.pan ? `PAN: ${esc(b.pan)}<br>` : ''}
       ${esc(b.email)} · +91 ${esc(b.phone)}<br><span class="small muted">Place of supply: ${esc(stateName(inv.placeOfSupplyCode))} (${esc(inv.placeOfSupplyCode)})</span></div>
+    ${b.shipping ? `<div class="box"><h3>Ship to</h3>${lines(b.shipping)}</div>` : ''}
   </div>
   <div class="items"><table class="lines">
     <thead><tr><th>#</th><th>Description</th><th class="n">SAC</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Taxable value</th></tr></thead>
@@ -223,7 +234,7 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   </tbody></table>
   <div class="notes small"><b>Notes</b><ol>${allNotes.map((n) => `<li>${esc(n)}</li>`).join('')}</ol></div>
   <div class="foot small muted">
-    Paid by ${esc(methodText(inv.method))} via Razorpay. This is a computer-generated invoice and needs no signature.<br>
+    ${inv.offline ? `Paid offline by ${esc(methodText(inv.method).replace(/_/g, ' '))}.` : `Paid by ${esc(methodText(inv.method))} via Razorpay.`} This is a computer-generated invoice and needs no signature.<br>
     ${inv.kind === 'dunning_recovery' ? 'Issued for a renewal collected after an earlier failed attempt.' : inv.kind === 'renewal' ? 'Automatic renewal.' : ''}
     ${contact ? `<div style="margin-top:10px"><b>Questions about this invoice?</b> ${contact}</div>` : ''}
   </div>

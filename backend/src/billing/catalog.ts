@@ -408,7 +408,8 @@ export interface PriceOpts {
   lock?: PriceLock | null
 }
 
-export interface Discount { target: string; type: 'percent' | 'flat'; value: number }
+/** name: what the invoice line says for a discount on the total (e.g. "Festive offer") */
+export interface Discount { target: string; type: 'percent' | 'flat'; value: number; name?: string }
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 const inYears = (period: Period, months?: number) => Boolean(months && period === 'yearly' && months % 12 === 0)
@@ -447,7 +448,7 @@ export function chargeFor(plan: PlanId, period: Period, gstPercent: number, o: P
   if (onTotal) {
     const sub = r2(lines.reduce((n, l) => n + l.amount, 0))
     const off = r2(Math.min(sub, onTotal.type === 'percent' ? (sub * onTotal.value) / 100 : onTotal.value))
-    if (off > 0) lines.push({ kind: 'discount', id: 'total', description: `Discount on the total${pct(onTotal)}`, qty: 1, unit: '', rate: -off, amount: -off })
+    if (off > 0) lines.push({ kind: 'discount', id: 'total', description: `${onTotal.name || 'Discount on the total'}${pct(onTotal)}`, qty: 1, unit: '', rate: -off, amount: -off })
   }
   const gross = r2(lines.reduce((n, l) => n + l.amount, 0))
   const credit = Math.min(o.credit ?? 0, gross)

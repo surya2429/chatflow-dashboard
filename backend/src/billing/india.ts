@@ -65,10 +65,21 @@ export function gstinError(raw: string): string | null {
 }
 
 /* ── the profile ───────────────────────────────────────────────────────── */
+type AddressInput = { attention?: unknown; line1?: unknown; line2?: unknown; city?: unknown; stateCode?: unknown; pincode?: unknown }
 export interface BillingProfileInput {
   legalName?: unknown; contactName?: unknown; email?: unknown; phone?: unknown; gstin?: unknown
-  address?: { line1?: unknown; line2?: unknown; city?: unknown; stateCode?: unknown; pincode?: unknown }
+  address?: AddressInput
+  gstTreatment?: unknown; pan?: unknown; taxExempt?: unknown; paymentTerms?: unknown
+  shipping?: AddressInput | null
+  contacts?: unknown
 }
+
+/* The details below `address` are set by SmatBot staff (the customer's own form doesn't show them). */
+export const GST_TREATMENTS = ['registered', 'unregistered', 'consumer', 'sez', 'overseas'] as const
+export type GstTreatment = typeof GST_TREATMENTS[number]
+/** days after the invoice date; 0 = due on receipt */
+export const PAYMENT_TERMS = [0, 7, 15, 30, 45, 60] as const
+export interface Contact { name: string; email?: string; phone?: string; role?: string }
 
 export interface BillingProfile {
   legalName: string
@@ -76,9 +87,19 @@ export interface BillingProfile {
   email: string
   phone: string            // 10-digit Indian mobile
   gstin?: string
-  address: { line1: string; line2?: string; city: string; stateCode: string; pincode: string; country: 'IN' }
+  address: { attention?: string; line1: string; line2?: string; city: string; stateCode: string; pincode: string; country: 'IN' }
+  gstTreatment?: GstTreatment
+  pan?: string
+  /** no GST on their invoices */
+  taxExempt?: boolean
+  paymentTerms?: number
+  shipping?: { attention?: string; line1: string; line2?: string; city: string; stateCode: string; pincode: string } | null
+  /** more people to reach besides contactName */
+  contacts?: Contact[]
   updatedAt: number
 }
+/** Staff-only fields, kept when the customer edits their own billing details. */
+export const STAFF_PROFILE_FIELDS = ['gstTreatment', 'pan', 'taxExempt', 'paymentTerms', 'shipping', 'contacts'] as const
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : '')
 
@@ -109,13 +130,57 @@ export function validateProfile(input: BillingProfileInput, now: number): { ok: 
       f['address.stateCode'] = `With this GSTIN the state must be ${stateName(gstin.slice(0, 2))} (code ${gstin.slice(0, 2)}).`
     }
   }
+  const attention = str(a.attention)
+  if (attention.length > 80) f['address.attention'] = 'Keep this under 80 characters.'
+
+  // staff-only details
+  const gstTreatment = input.gstTreatment == null || input.gstTreatment === '' ? undefined : input.gstTreatment
+  if (gstTreatment !== undefined && !GST_TREATMENTS.includes(gstTreatment as GstTreatment)) f.gstTreatment = 'Choose a GST treatment.'
+  if ((gstTreatment === 'registered' || gstTreatment === 'sez') && !gstin) f.gstin = 'A GST-registered business needs its GSTIN.'
+  const pan = str(input.pan).toUpperCase()
+  if (pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) f.pan = 'A PAN is 10 characters, like ABCDE1234F.'
+  const paymentTerms = input.paymentTerms == null || input.paymentTerms === '' ? undefined : Number(input.paymentTerms)
+  if (paymentTerms !== undefined && !PAYMENT_TERMS.includes(paymentTerms as typeof PAYMENT_TERMS[number])) f.paymentTerms = 'Choose the payment terms.'
+  let shipping: BillingProfile['shipping'] = null
+  const s = input.shipping
+  if (s && [s.line1, s.line2, s.city, s.pincode, s.attention].some((v) => str(v))) {
+    const sh = { attention: str(s.attention), line1: str(s.line1), line2: str(s.line2), city: str(s.city), stateCode: str(s.stateCode), pincode: str(s.pincode) }
+    if (sh.attention.length > 80) f['shipping.attention'] = 'Keep this under 80 characters.'
+    if (sh.line1.length < 3 || sh.line1.length > 100) f['shipping.line1'] = 'Enter the street address.'
+    if (sh.line2.length > 100) f['shipping.line2'] = 'Keep this under 100 characters.'
+    if (sh.city.length < 2 || sh.city.length > 60) f['shipping.city'] = 'Enter the city.'
+    if (!isStateCode(sh.stateCode)) f['shipping.stateCode'] = 'Choose the state.'
+    if (!isPin(sh.pincode)) f['shipping.pincode'] = 'Enter a 6-digit PIN code.'
+    shipping = { ...sh, attention: sh.attention || undefined, line2: sh.line2 || undefined }
+  }
+  const contacts: Contact[] = []
+  if (input.contacts != null) {
+    if (!Array.isArray(input.contacts) || input.contacts.length > 10) f.contacts = 'Up to 10 contact persons.'
+    else input.contacts.forEach((raw, i) => {
+      const c = (raw ?? {}) as Record<string, unknown>
+      const name = str(c.name), em = str(c.email).toLowerCase(), ph = str(c.phone), role = str(c.role)
+      if (!name && !em && !ph) return          // an empty row
+      const m = ph ? normalizeMobile(ph) : null
+      if (name.length < 2 || name.length > 80) f[`contacts.${i}.name`] = 'Enter their name.'
+      if (em && !isEmail(em)) f[`contacts.${i}.email`] = 'Enter a valid email.'
+      if (ph && !m) f[`contacts.${i}.phone`] = 'Enter a 10-digit mobile number.'
+      if (role.length > 60) f[`contacts.${i}.role`] = 'Keep this under 60 characters.'
+      contacts.push({ name, ...(em ? { email: em } : {}), ...(m ? { phone: m } : {}), ...(role ? { role } : {}) })
+    })
+  }
   if (Object.keys(f).length) return { ok: false, fields: f }
 
   return {
     ok: true,
     profile: {
       legalName, contactName, email, phone: mobile!, gstin: gstin || undefined,
-      address: { line1, line2: line2 || undefined, city, stateCode, pincode, country: 'IN' },
+      address: { ...(attention ? { attention } : {}), line1, line2: line2 || undefined, city, stateCode, pincode, country: 'IN' },
+      ...(gstTreatment ? { gstTreatment: gstTreatment as GstTreatment } : {}),
+      ...(pan ? { pan } : {}),
+      ...(input.taxExempt === true ? { taxExempt: true } : {}),
+      ...(paymentTerms !== undefined ? { paymentTerms } : {}),
+      ...(shipping ? { shipping } : {}),
+      ...(contacts.length ? { contacts } : {}),
       updatedAt: now,
     },
   }

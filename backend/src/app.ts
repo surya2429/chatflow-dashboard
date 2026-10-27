@@ -12,6 +12,10 @@ export function createApp(): Express {
 
   app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/healthz' } }))
 
+  // Files staff attach in the admin panel arrive as base64 JSON (up to 2 MB a file); every other
+  // request keeps the default 100 KB limit below.
+  app.use('/api/billing/admin/documents', express.json({ limit: '3mb' }))
+
   // Capture the exact raw bytes of the request body *before* JSON parsing —
   // signature verification (HMAC over raw bytes) would silently break if we
   // instead re-serialized `req.body` here, since key order / whitespace

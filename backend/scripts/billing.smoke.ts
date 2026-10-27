@@ -1009,6 +1009,55 @@ async function main() {
   t += 121
   check('tickets expire after 2 minutes', (await callF('POST', '/impersonate/redeem', { ticket: tk })).status === 401)
 
+  console.log('\nbilling v2: subscriptions billed one cycle at a time')
+  const CYC = {
+    workspaceId: 'v2cyc', plan: 'standard', period: 'monthly', addons: [{ id: 'crm', qty: 1 }], prices: { plan: 3000, crm: 800 }, expiresAfter: 3,
+    discounts: [{ target: 'total', type: 'percent', value: 10, name: 'Festive offer' }], discountRenews: false, reference: 'PO-77', salesperson: ADMIN.email, remarks: 'Thanks for your business',
+  }
+  q = (await admF('POST', '/admin/quote', CYC)).body as RzEntity
+  check('custom prices (₹3,000 + ₹800) less 10% = ₹3,420 now; each later cycle ₹4,484 (no discount, + GST)', q.charge.base === 3420 && q.renewal === 4484 && q.charge.lines.some((l: RzEntity) => l.description === 'Festive offer (10%)'), q)
+  check('a salesperson must be on the team', (await admF('POST', '/admin/plan', { ...CYC, salesperson: 'nobody@example.com', profile: good })).status === 400)
+  check('it must run at least the cycles billed now', (await admF('POST', '/admin/quote', { ...CYC, cycles: 2, expiresAfter: 1 })).status === 400)
+  const cycProf = { ...good, legalName: 'Cycle Co', pan: 'abcde1234f', gstTreatment: 'unregistered', paymentTerms: 30, contacts: [{ name: 'Ravi', email: 'ravi@example.com' }],
+    shipping: { attention: 'Stores', line1: '9 Dock Road', city: 'Mumbai', stateCode: '27', pincode: '400001' } }
+  check('a bad PAN is refused', (await admF('POST', '/admin/plan', { ...CYC, profile: { ...cycProf, pan: '123' } })).status === 422)
+  r = await admF('POST', '/admin/plan', { ...CYC, profile: cycProf, payment: { type: 'offline', amount: 4035.6, method: 'upi', reference: 'U1' } })
+  let cy = r.body as RzEntity
+  check('first cycle billed: a numbered subscription, 1 of 3, one month long', r.status === 200 && /^SUB-\d{5}$/.test(cy.subscription?.number) && cy.subscription.billed === 1 && cy.subscription.cycles === 3
+    && cy.currentEnd === addPeriod(t, 'monthly') && cy.renewal.total === 4484 && cy.renewal.cycle === 2, cy)
+  const cycInv = ((await callF('GET', '/invoices', undefined, 'v2cyc')).body as RzEntity).items[0]
+  const cycPage = String((await callF('GET', `/invoices/${cycInv.id}/view`, undefined, 'v2cyc')).body)
+  check('the invoice shows the subscription, reference, remarks, PAN, ship-to and the offline payment',
+    ['Festive offer (10%)', `Subscription: <b>${cy.subscription.number}`, 'PO-77', 'Thanks for your business', 'PAN: ABCDE1234F', 'Ship to', 'Paid offline'].every((x) => cycPage.includes(x)))
+  r = await admF('POST', '/admin/renew', { workspaceId: 'v2cyc', payment: { type: 'offline', amount: 4484, method: 'bank_transfer' } })
+  cy = r.body as RzEntity
+  check('staff record cycle 2: it runs on from the end of cycle 1', r.status === 200 && cy.subscription.billed === 2 && cy.currentStart === addPeriod(t, 'monthly') && cy.renewal.cycle === 3, cy)
+  r = await admF('POST', '/admin/renew', { workspaceId: 'v2cyc', payment: { type: 'free' } })
+  check('after the last cycle nothing is due', r.status === 200 && (r.body as RzEntity).renewal === null, r.body)
+  r = await admF('POST', '/admin/renew', { workspaceId: 'v2cyc', payment: { type: 'free' } })
+  check('…and a fourth cycle is refused', r.status === 409 && (r.body as RzEntity).error === 'subscription_complete', r.body)
+  await callF('PUT', '/profile', good, 'v2cyc')
+  const cycCust = (await admF('GET', '/admin/customers/v2cyc')).body as RzEntity
+  check("the customer editing their details keeps what staff set (PAN, terms, ship-to, contacts)", cycCust.profile.pan === 'ABCDE1234F' && cycCust.profile.paymentTerms === 30 && cycCust.profile.shipping?.city === 'Mumbai' && cycCust.profile.contacts?.length === 1, cycCust.profile)
+  r = await admF('POST', '/admin/plan', { workspaceId: 'v2never', plan: 'standard', period: 'monthly', profile: { ...good, taxExempt: true }, payment: { type: 'offline', amount: 3500, method: 'cash' } })
+  check('"never expires": a renewal is always due', r.status === 200 && (r.body as RzEntity).subscription.cycles === null && (r.body as RzEntity).renewal?.total === 3500, r.body)
+  const exInv = ((await callF('GET', '/invoices', undefined, 'v2never')).body as RzEntity).items[0]
+  check('a tax-exempt client pays and is invoiced without GST', exInv.amountPaise === 350000 && String((await callF('GET', `/invoices/${exInv.id}/view`, undefined, 'v2never')).body).includes('GST (tax exempt)'), exInv)
+  q = (await admF('POST', '/admin/quote', { plan: 'standard', period: 'monthly', profile: { taxExempt: true } })).body as RzEntity
+  check('…and the quote shows no GST while the form says tax-exempt', q.charge.total === q.charge.base, q.charge)
+
+  console.log('\nbilling v2: files attached to a client')
+  r = await admF('POST', '/admin/documents', { workspaceId: 'v2cyc', name: 'po.pdf', type: 'application/pdf', data: Buffer.from('%PDF-1 hello').toString('base64') })
+  const docId = (r.body as RzEntity).documents?.[0]?.id
+  check('staff attach a PDF', r.status === 200 && (r.body as RzEntity).documents.length === 1 && (r.body as RzEntity).documents[0].size === 12, r.body)
+  r = await admF('GET', `/admin/customers/v2cyc/documents/${docId}`)
+  check('…and download it again', r.status === 200 && Buffer.from((r.body as RzEntity).data, 'base64').toString() === '%PDF-1 hello', r.body)
+  check('an executable is refused', (await admF('POST', '/admin/documents', { workspaceId: 'v2cyc', name: 'x.exe', type: 'application/x-msdownload', data: 'AAAA' })).status === 400)
+  check('a file over 2 MB is refused', (await admF('POST', '/admin/documents', { workspaceId: 'v2cyc', name: 'big.pdf', type: 'application/pdf', data: 'A'.repeat(2_900_000) })).status === 400)
+  check("another client's file can't be read through this client", (await admF('GET', `/admin/customers/v2never/documents/${docId}`)).status === 404)
+  r = await admF('POST', '/admin/documents/remove', { workspaceId: 'v2cyc', id: docId })
+  check('a file can be removed', r.status === 200 && (r.body as RzEntity).documents.length === 0 && (await admF('GET', `/admin/customers/v2cyc/documents/${docId}`)).status === 404)
+
   applyCatalog(DEFAULT_CATALOG)                                             // leave the shared catalog as found
 
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed')
