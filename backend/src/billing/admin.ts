@@ -46,8 +46,8 @@ export const PARTNER_TYPE: Partial<Record<CustomerType, CustomerType>> = { resel
 /* ── sign-in tokens: "<payload>.<signature>", good for 12 hours ─────────── */
 export const SESSION_TTL = 12 * 3600
 
-export function signSession(key: string, email: string, now: number): string {
-  const payload = Buffer.from(JSON.stringify({ e: email, x: now + SESSION_TTL })).toString('base64url')
+export function signSession(key: string, email: string, now: number, ttl = SESSION_TTL): string {
+  const payload = Buffer.from(JSON.stringify({ e: email, x: now + ttl })).toString('base64url')
   return `${payload}.${createHmac('sha256', key).update(payload).digest('base64url')}`
 }
 

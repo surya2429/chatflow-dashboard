@@ -1,4 +1,4 @@
-import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { Menu, Eye } from 'lucide-react'
 import clsx from 'clsx'
 import Sidebar from './Sidebar'
@@ -6,13 +6,13 @@ import { useApp } from '../context/AppContext'
 import { useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { refreshSubscription, useSubscription, planLabel } from '../lib/subscriptionStore'
+import { ADMIN_URL } from '../lib/billingApi'
 
 export default function MainLayout() {
   const { mobileMenuOpen, toggleMobileMenu, closeMobileMenu, activeProductId } = useApp()
   const { pathname } = useLocation()
   const { currentUser, setWorkspacePlan, logout } = useAuth()
   const { sub } = useSubscription()
-  const navigate = useNavigate()
 
   // Billing owns the plan: load it once signed in, then mirror it into the UI chrome.
   useEffect(() => { if (currentUser) refreshSubscription() }, [currentUser?.email, currentUser?.workspaceId])
@@ -48,7 +48,7 @@ export default function MainLayout() {
           <div role="status" className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-3 text-xs text-amber-900">
             <Eye size={14} className="flex-shrink-0"/>
             <span className="flex-1 min-w-0">Viewing <b>{currentUser.workspace?.name}</b>'s dashboard as SmatBot staff ({currentUser.impersonatedBy}).</span>
-            <button onClick={() => { navigate('/admin'); logout() }} className="font-semibold underline whitespace-nowrap">Back to admin</button>
+            <button onClick={() => { logout(); window.location.assign(ADMIN_URL) }} className="font-semibold underline whitespace-nowrap">Back to admin</button>
           </div>
         )}
         {/* Mobile top bar */}

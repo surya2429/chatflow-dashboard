@@ -1,20 +1,18 @@
-// AdminConsole.jsx — SmatBot's own console at /admin: every client, renewals, coupons and the team.
-// Lives outside the customer login. Staff sign in with their own email and password (the owner's is
-// BILLING_ADMIN_EMAIL / BILLING_ADMIN_PASSWORD on the server), and the server checks the token and
-// the employee's role on every request — hiding a button here is only a convenience.
+// AdminConsole.jsx — SmatBot's admin panel: every client, renewals, coupons and the team.
+// Its own app, separate from the customer dashboard. Staff sign in with their own email and password
+// (the owner's is BILLING_ADMIN_EMAIL / BILLING_ADMIN_PASSWORD on the server), and the server checks the
+// token and the employee's role on every request — hiding a button here is only a convenience.
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { Lock, Loader2, ShieldCheck, Users, CalendarClock, Tag, UserCog, LogOut, RefreshCw } from 'lucide-react'
-import { billing, billingAdmin } from '../lib/billingApi'
-import { useAuth } from '../context/AuthContext'
+import { billing, billingAdmin, DASHBOARD_URL } from '../lib/billingApi'
 import ClientsTab from '../components/admin/ClientsTab'
 import RenewalsTab from '../components/admin/RenewalsTab'
 import CouponsTab from '../components/admin/CouponsTab'
 import TeamTab from '../components/admin/TeamTab'
 import ClientDrawer from '../components/admin/ClientDrawer'
 import AssignPlanDialog from '../components/admin/AssignPlanDialog'
-import { inputCls, labelCls, initialsOf, fmtDate } from '../components/admin/ui'
+import { inputCls, labelCls, fmtDate } from '../components/admin/ui'
 
 const TOKEN_KEY = 'smatbot-admin-token'
 const readToken = () => { try { return sessionStorage.getItem(TOKEN_KEY) || '' } catch { return '' } }
@@ -42,8 +40,6 @@ export default function AdminConsole() {
   const [assigning, setAssigning] = useState(undefined)   // undefined: closed · null: new customer · row: change that client's plan
   const [rev, setRev]             = useState(0)           // bumps after a change so an open client panel reloads
   const [toast, setToast]         = useState('')
-  const { loginAs } = useAuth()
-  const navigate = useNavigate()
 
   function signOut(message = '') {
     setToken(''); saveToken(''); setMe(null); setCustomers(null); setLoadError(message)
@@ -89,18 +85,17 @@ export default function AdminConsole() {
     setTimeout(() => setToast(''), 5000)
   }
 
-  /* Open the customer's own dashboard as them. Billing calls then answer for their workspace;
-     the dashboard shows a banner with the way back here. */
-  function loginAsCustomer(c) {
-    const name = c.contactName || c.customer || c.workspaceId
-    loginAs({
-      role: 'admin', roleLabel: 'Admin', name, email: c.email || '', phone: c.phone || '', initials: initialsOf(name), color: '#0066ff',
-      workspaceId: c.workspaceId,
-      workspace: { name: c.customer || c.workspaceId, plan: c.planName || 'Free', city: c.city, stateCode: c.stateCode },
-      creditBalance: 0,
-      impersonatedBy: me.email,
-    })
-    navigate('/')
+  /* Open the customer's own dashboard as them, in this tab. The server issues a 2-minute ticket
+     (logged); the dashboard swaps it for the customer and shows a banner with the way back here.
+     The ticket travels in the #fragment, so it never reaches a server log. */
+  async function loginAsCustomer(c) {
+    try {
+      const { ticket } = await billingAdmin.impersonate(token, c.workspaceId)
+      window.location.assign(`${DASHBOARD_URL}/staff-login#ticket=${encodeURIComponent(ticket)}`)
+    } catch (e) {
+      if (e.status === 401) signOut('Your session has ended. Please sign in again.')
+      else flash(e.message)
+    }
   }
 
   /* ── signed out ── */

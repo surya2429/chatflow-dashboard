@@ -58,6 +58,8 @@ const r2 = (n: number) => Math.round(n * 100) / 100
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const WS_RE = /^(?!__)[A-Za-z0-9_.@-]{1,64}$/
 const OFFLINE_METHODS = ['bank_transfer', 'upi', 'cheque', 'cash', 'card_offline', 'other'] as const
+const TICKET = 'imp|'
+const TICKET_TTL = 120
 
 export function createAdminApi(ctx: AdminCtx) {
   const { store, now, gstPercent, seller } = ctx
@@ -794,7 +796,8 @@ export function createAdminApi(ctx: AdminCtx) {
         const rec = await getRec(body(req).workspaceId)
         if (!rec) return err(404, 'not_found', 'No such customer.')
         await audit(me, 'Opened customer dashboard', rec.workspaceId)
-        return reply(200, { ok: true })
+        // The dashboard is a separate app: it swaps this ticket for the customer at /impersonate/redeem.
+        return reply(200, { ticket: signSession(sessionKey, `${TICKET}${rec.workspaceId}|${me.email}`, now(), TICKET_TTL) })
       }
     }
     if (get && inv) return await invoice(decode(inv[1]!), inv[2]!)
@@ -821,5 +824,23 @@ export function createAdminApi(ctx: AdminCtx) {
     }
   }
 
-  return { handle }
+  /* The customer dashboard swaps a "log in as customer" ticket for who to show. Only tickets
+     (prefixed, 2 minutes) are accepted — never a staff session token.
+     shortcut: a ticket can be reused within its 2 minutes; keep a used-ticket list if that matters. */
+  async function redeemTicket(req: BillingRequest): Promise<BillingResponse> {
+    const v = owner ? readSession(sessionKey, String(body(req).ticket ?? ''), now()) : null
+    if (!v?.startsWith(TICKET)) return err(401, 'invalid_ticket', 'This link has expired. Open the customer again from the admin panel.')
+    const [ws, ...by] = v.slice(TICKET.length).split('|')
+    const rec = await getRec(ws)
+    if (!rec) return err(404, 'not_found', 'No such customer.')
+    const p = rec.profile
+    return reply(200, {
+      workspaceId: rec.workspaceId, by: by.join('|'),
+      name: p?.contactName ?? p?.legalName ?? rec.workspaceId, email: p?.email ?? '', phone: p?.phone ?? '',
+      company: p?.legalName ?? rec.workspaceId, planName: rec.plan ? planName(rec.plan) : null,
+      city: p?.address.city ?? null, stateCode: p?.address.stateCode ?? null,
+    })
+  }
+
+  return { handle, redeemTicket }
 }

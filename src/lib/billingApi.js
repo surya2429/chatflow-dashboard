@@ -53,30 +53,10 @@ export const billing = {
   addonsCheckout: (addons, term) => call('POST', '/addons/checkout', { addons, term }),
 }
 
-/* The admin console (pages/AdminConsole.jsx). Signing in returns a token that every other admin
-   call carries; the server checks it and the employee's role on each request. */
-const as = (token) => ({ 'x-admin-token': token })
-const wsPath = (ws) => `/admin/customers/${encodeURIComponent(ws)}`
-export const billingAdmin = {
-  login:        (email, password) => call('POST', '/admin/login', { email, password }),
-  me:           (t)       => call('GET', '/admin/me', undefined, as(t)),
-  customers:    (t)       => call('GET', '/admin/customers', undefined, as(t)),
-  customer:     (t, ws)   => call('GET', wsPath(ws), undefined, as(t)),
-  assign:       (t, body) => call('POST', '/admin/assign', body, as(t)),
-  setCustomerType: (t, body) => call('POST', '/admin/customers/type', body, as(t)),
-  coupons:      (t)       => call('GET', '/admin/coupons', undefined, as(t)),
-  createCoupon: (t, body) => call('POST', '/admin/coupons', body, as(t)),
-  updateCoupon: (t, body) => call('POST', '/admin/coupons/update', body, as(t)),
-  staff:        (t)       => call('GET', '/admin/staff', undefined, as(t)),
-  createStaff:  (t, body) => call('POST', '/admin/staff', body, as(t)),
-  updateStaff:  (t, body) => call('POST', '/admin/staff/update', body, as(t)),
-  /** The printable invoice page, as HTML (it needs the token, so it can't be a plain link). */
-  async invoiceHtml(t, ws, id) {
-    const res = await fetch(`${API_BASE_URL}/billing${wsPath(ws)}/invoices/${encodeURIComponent(id)}`, { headers: as(t) })
-    if (!res.ok) throw new BillingError('invoice_unavailable', 'Could not load that invoice.', res.status)
-    return res.text()
-  },
-}
+/* The staff admin panel is a separate app (smatbot admin panel new/). Its "log in as customer"
+   sends a 2-minute ticket to /staff-login, which swaps it here for the customer to show. */
+export const ADMIN_URL = (import.meta.env.VITE_ADMIN_URL || 'http://localhost:5174').replace(/\/$/, '')
+export const redeemStaffTicket = (ticket) => call('POST', '/impersonate/redeem', { ticket })
 
 /* ── Razorpay Checkout ─────────────────────────────────────────────────── */
 const CHECKOUT_SRC = 'https://checkout.razorpay.com/v1/checkout.js'

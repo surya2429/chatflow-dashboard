@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Accent tokens as RGB triples so Tailwind's opacity modifiers work (same blue as the dashboard). */
+    --accent:        0 102 255;   /* #0066ff */
+    --accent-hover:  0 82 204;    /* #0052cc */
+    --accent-deep:   0 61 153;    /* #003d99 */
+    --accent-tint:   239 244 255; /* #eff4ff */
+    --accent-tint-2: 220 232 255; /* #dce8ff */
+    --accent-mid:    185 208 255; /* #b9d0ff */
+  }
+  * { box-sizing: border-box; }
+  body { @apply font-sans bg-surface text-slate-800 antialiased; }
+}

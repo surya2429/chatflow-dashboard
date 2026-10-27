@@ -967,6 +967,16 @@ async function main() {
   const act = ((await admF('GET', '/admin/activity')).body as RzEntity).items as RzEntity[]
   check('the activity log records who changed what', ['Updated price list', 'Changed plan', 'Extended plan', 'Set WhatsApp numbers'].every((a) => act.some((x) => x.action === a && x.by === ADMIN.email)), act.slice(0, 6))
   await callF('POST', '/autopay', { enabled: false }, 'v2ext')
+  console.log('\nbilling v2: "log in as customer" from the separate admin app')
+  const tk = ((await admF('POST', '/admin/impersonate', { workspaceId: 'v2off' })).body as RzEntity).ticket as string
+  r = await callF('POST', '/impersonate/redeem', { ticket: tk })
+  check('the dashboard swaps the ticket for that customer and who opened it', r.status === 200 && (r.body as RzEntity).workspaceId === 'v2off' && (r.body as RzEntity).by === ADMIN.email && (r.body as RzEntity).company === good.legalName, r.body)
+  check('a ticket is not a staff session', (await callF('GET', '/admin/me', undefined, 'x', { 'x-admin-token': tk })).status === 401)
+  const staffTok = ((await callF('POST', '/admin/login', { email: ADMIN.email, password: ADMIN.password })).body as RzEntity).token as string
+  check('a staff session is not a ticket', (await callF('POST', '/impersonate/redeem', { ticket: staffTok })).status === 401)
+  t += 121
+  check('tickets expire after 2 minutes', (await callF('POST', '/impersonate/redeem', { ticket: tk })).status === 401)
+
   applyCatalog(DEFAULT_CATALOG)                                             // leave the shared catalog as found
 
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed')

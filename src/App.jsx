@@ -44,8 +44,14 @@ import WebChatCallTester from './pages/WebChatCallTester'
 import WebChatLandingPage from './pages/WebChatLandingPage'
 import WebChatFlowLivePreview from './pages/WebChatFlowLivePreview'
 import WebChatEmbed from './pages/WebChatEmbed'
-import AdminConsole from './pages/AdminConsole'
+import StaffLogin from './pages/StaffLogin'
+import { ADMIN_URL } from './lib/billingApi'
 
+/* A route that leaves this app for another URL. */
+function ExternalRedirect({ to }) {
+  useEffect(() => { window.location.replace(to) }, [to])
+  return null
+}
 
 function AppRoutes() {
   const { isAuthenticated } = useAuth()
@@ -60,9 +66,10 @@ function AppRoutes() {
         element={isAuthenticated ? <Navigate to="/" replace /> : <SignIn />}
       />
       <Route path="/clientele" element={<Clientele />} />
-      {/* SmatBot staff console — outside the customer login; the server checks every request */}
-      <Route path="/admin" element={<AdminConsole />} />
-      <Route path="/admin/plans" element={<Navigate to="/admin" replace />} />
+      {/* The staff admin panel is its own app now (smatbot admin panel new/); old links go there. */}
+      <Route path="/admin/*" element={<ExternalRedirect to={ADMIN_URL} />} />
+      {/* Staff arriving from the admin panel's "log in as customer" */}
+      <Route path="/staff-login" element={<StaffLogin />} />
       <Route path="/voice-landing" element={<VoiceLanding />} />
       {/* Standalone "you are the website visitor" call tester — bypasses login/layout
           so it can be opened in a second tab to test real webchat calling end-to-end. */}

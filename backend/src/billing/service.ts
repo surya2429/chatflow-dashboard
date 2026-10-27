@@ -1681,6 +1681,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     // Admin routes don't touch Razorpay, so they work even when payments aren't configured.
     if (path.startsWith('/admin/')) return await admin.handle(req, path, route)
     if (route === 'POST /usage') return await usageRoute(req)
+    if (route === 'POST /impersonate/redeem') return await admin.redeemTicket(req)
 
     if (route === 'GET /config') {
       // What THIS customer can see: public plans on sale, plus the plan they are on (it may be private
