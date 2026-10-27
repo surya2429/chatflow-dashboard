@@ -791,13 +791,21 @@ async function main() {
   console.log('\nadmin console: customer types')
   const cpn1 = (await adm('GET', '/admin/customers/cpn1')).body as RzEntity
   check('a client with no type set is a direct client; plan value is before GST', cpn1.customerType === 'direct' && cpn1.planValue === 72000, [cpn1.customerType, cpn1.planValue])
-  r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn1', type: 'reseller' })
-  check('admin marks a client as a reseller', r.status === 200 && (r.body as RzEntity).customerType === 'reseller', r.body)
-  r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: 'reseller_client', partner: 'cpn1' })
-  check('a reseller client is linked to its reseller', r.status === 200 && (r.body as RzEntity).partner === 'cpn1', r.body)
-  r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: 'white_label_client', partner: 'cpn1' })
-  check('a white-label client cannot be put under a reseller', r.status === 400 && (r.body as RzEntity).error === 'invalid_partner', r.body)
-  check('an unknown type is refused', (await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: 'partner' })).status === 400)
+  check('a plan the client bought in their dashboard is marked as paid from the dashboard', cpn1.source === 'dashboard', cpn1.source)
+  r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn1', type: 'partner' })
+  check('admin marks a client as a partner', r.status === 200 && (r.body as RzEntity).customerType === 'partner', r.body)
+  r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: 'partner_client', partner: 'cpn1' })
+  check('a partner client is linked to its partner', r.status === 200 && (r.body as RzEntity).partner === 'cpn1', r.body)
+  r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn1', type: 'partner_client', partner: 'cpn2' })
+  check('a partner client can only sit under a partner', r.status === 400 && (r.body as RzEntity).error === 'invalid_partner', r.body)
+  for (const ty of ['white_label', 'on_premise']) {
+    r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: ty, partner: 'cpn1' })
+    check(`${ty} is a type, with no partner`, r.status === 200 && (r.body as RzEntity).customerType === ty && (r.body as RzEntity).partner === null, r.body)
+  }
+  check('an unknown type is refused', (await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: 'reseller' })).status === 400)
+  { const old = (await store.get('cpn2'))!; old.customerType = 'reseller_client' as never; old.partner = 'cpn1'; await store.put(old) }
+  r = await adm('GET', '/admin/customers/cpn2')
+  check('an older reseller client reads as a partner client', (r.body as RzEntity).customerType === 'partner_client' && (r.body as RzEntity).partner === 'cpn1', r.body)
   r = await adm('POST', '/admin/customers/type', { workspaceId: 'cpn2', type: 'direct', partner: 'cpn1' })
   check('a direct client has no partner', r.status === 200 && (r.body as RzEntity).partner === null, r.body)
 
@@ -863,6 +871,7 @@ async function main() {
   r = await admF('POST', '/admin/plan', { workspaceId: 'v2off', plan: 'standard-partner', months: 6, payment: { type: 'offline', amount: 17000, method: 'bank_transfer', reference: 'UTR998877' }, note: 'Partner deal' })
   const off = r.body as RzEntity
   check('staff give a private plan for a custom 6-month term, paid offline', r.status === 200 && off.planName === 'Standard (Partner)' && off.termMonths === 6 && off.currentEnd === addPeriod(t, 'monthly', 6) && off.planValue === 15000, off)
+  check('a plan staff set up is marked as a manual subscription', off.source === 'staff', off.source)
   check('the client sees their private plan', ((await callF('GET', '/config', undefined, 'v2off')).body as RzEntity).catalog.plans.some((p: RzEntity) => p.id === 'standard-partner'))
   sF = await statusF('v2off')
   check('allowances cover the whole term (30,000 × 6 service messages)', sF.usage.items.find((i: RzEntity) => i.metric === 'wa_service')?.limit === 180000, sF.usage.items)

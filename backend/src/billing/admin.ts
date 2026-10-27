@@ -38,10 +38,13 @@ export async function checkPassword(pw: string, stored: string): Promise<boolean
 }
 
 /* ── customer types ──────────────────────────────────────────────────────
-   A reseller / white-label client belongs to a partner of the matching type. */
-export const CUSTOMER_TYPES: CustomerType[] = ['direct', 'reseller', 'reseller_client', 'white_label', 'white_label_client']
+   A partner client belongs to a partner. */
+export const CUSTOMER_TYPES: CustomerType[] = ['direct', 'white_label', 'partner', 'partner_client', 'on_premise']
 export const isCustomerType = (v: unknown): v is CustomerType => CUSTOMER_TYPES.includes(v as CustomerType)
-export const PARTNER_TYPE: Partial<Record<CustomerType, CustomerType>> = { reseller_client: 'reseller', white_label_client: 'white_label' }
+export const PARTNER_TYPE: Partial<Record<CustomerType, CustomerType>> = { partner_client: 'partner' }
+/** The type a record stands for — older names (reseller → partner …) are read as today's. */
+const LEGACY_TYPES: Record<string, CustomerType> = { reseller: 'partner', reseller_client: 'partner_client', white_label_client: 'white_label' }
+export const customerTypeOf = (v: unknown): CustomerType => (isCustomerType(v) ? v : LEGACY_TYPES[String(v)] ?? 'direct')
 
 /* ── sign-in tokens: "<payload>.<signature>", good for 12 hours ─────────── */
 export const SESSION_TTL = 12 * 3600

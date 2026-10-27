@@ -236,7 +236,7 @@ export function createBillingService(opts: BillingServiceOptions) {
 
   /* Copy a Razorpay subscription entity onto our record. */
   async function applySubscription(rec: BillingRecord, sub: RzEntity): Promise<void> {
-    rec.mode = 'autopay'
+    rec.mode = 'autopay'; rec.source = 'dashboard'
     rec.subscriptionId = sub.id
     rec.status = sub.status
     rec.currentStart = sub.current_start ?? rec.currentStart ?? null
@@ -314,6 +314,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     rec.status = 'active'; rec.currentStart = o.start; rec.currentEnd = o.end; rec.periodPaid = o.paid
     rec.cancelAtCycleEnd = false; rec.cancelAt = null; rec.scheduledChange = null; rec.upcoming = null
     rec.dunning = null; rec.autopayLapsed = false
+    rec.source = 'dashboard'   // the admin console overrides this after it calls startPeriod
     if (o.relock || !rec.priceLock) rec.priceLock = lockPrices(o.plan, o.addons, now(), o.relock ? null : rec.priceLock)
     // One-time add-ons never outlive the plan they were bought on (a shorter new period cuts them).
     rec.extraAddons = (rec.extraAddons ?? []).map((e) => (e.until > o.end ? { ...e, until: o.end } : e))
@@ -514,7 +515,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     const end = addPeriod(start, r.period)
     const c = chargeOf(r.plan, r.period, rec, { addons: r.addons })    // at their locked prices
     const planChanged = r.plan !== rec.plan || r.period !== rec.period
-    rec.plan = r.plan; rec.period = r.period; rec.addons = r.addons; rec.mode = 'autopay'; rec.status = 'active'; rec.termMonths = null
+    rec.plan = r.plan; rec.period = r.period; rec.addons = r.addons; rec.mode = 'autopay'; rec.status = 'active'; rec.termMonths = null; rec.source = 'dashboard'
     rec.currentStart = start; rec.currentEnd = end; rec.nextChargeAt = end
     rec.periodPaid = c.base
     // A plan switched at renewal is bought at today's price; the same plan keeps its locked price.

@@ -234,13 +234,17 @@ export interface AdminGrant {
   by?: string
 }
 
-/** How SmatBot sells to this customer (set in the admin console). Unset = direct. */
-export type CustomerType = 'direct' | 'reseller' | 'reseller_client' | 'white_label' | 'white_label_client'
+/** How SmatBot sells to this customer (set in the admin console). Unset = direct. white_label = a
+    white-label client; a partner_client belongs to a partner. Older records may still hold reseller /
+    reseller_client / white_label_client — admin.ts customerTypeOf reads them as today's types. */
+export type CustomerType = 'direct' | 'white_label' | 'partner' | 'partner_client' | 'on_premise'
 
 export interface BillingRecord {
   workspaceId: string
   customerType?: CustomerType
-  /** for reseller / white-label clients: the partner's workspaceId */
+  /** who set up the current subscription: SmatBot staff (admin panel) or the customer paying in their dashboard */
+  source?: 'staff' | 'dashboard'
+  /** for a partner client: the partner's workspaceId */
   partner?: string | null
   plan: PlanId | null
   period: Period | null

@@ -13,7 +13,7 @@ import {
   type AddonSel, type Catalog, type Discount, type Period, type PlanId, type PriceLine, type PriceOpts, type Charge,
 } from './catalog.js'
 import {
-  PARTNER_TYPE, checkPassword, hashPassword, isCustomerType, isStaffRole, parseCoupon, readSession, signSession,
+  PARTNER_TYPE, checkPassword, customerTypeOf, hashPassword, isCustomerType, isStaffRole, parseCoupon, readSession, signSession,
   type Coupon, type StaffMember, type StaffRole,
 } from './admin.js'
 import { stateName, validateProfile } from './india.js'
@@ -229,8 +229,10 @@ export function createAdminApi(ctx: AdminCtx) {
     const paid = r.payments.filter((x) => x.status === 'paid')
     return {
       workspaceId: r.workspaceId,
-      customerType: r.customerType ?? 'direct',
-      partner: r.partner ?? null,
+      customerType: customerTypeOf(r.customerType),
+      partner: PARTNER_TYPE[customerTypeOf(r.customerType)] ? r.partner ?? null : null,
+      /** who set up the current plan; older records: staff if their last grant made this term */
+      source: r.plan ? r.source ?? (r.grants?.[0] && r.grants[0].until === r.currentEnd ? 'staff' : 'dashboard') : null,
       customer: p?.legalName ?? null,
       contactName: p?.contactName ?? null,
       email: p?.email ?? null,
@@ -301,8 +303,8 @@ export function createAdminApi(ctx: AdminCtx) {
     let partner: string | null = null
     if (partnerType && b.partner) {
       const p = await getRec(b.partner)
-      if (!p || p.workspaceId === rec.workspaceId || (p.customerType ?? 'direct') !== partnerType) {
-        return err(400, 'invalid_partner', `Pick a ${partnerType === 'reseller' ? 'reseller' : 'white label partner'}.`)
+      if (!p || p.workspaceId === rec.workspaceId || customerTypeOf(p.customerType) !== partnerType) {
+        return err(400, 'invalid_partner', 'Pick a partner.')
       }
       partner = p.workspaceId
     }
@@ -507,6 +509,7 @@ export function createAdminApi(ctx: AdminCtx) {
       paid: (extend ? rec.periodPaid ?? 0 : 0) + paid, relock: !extend,
     })
     rec.mode = 'once'; rec.engine = undefined; rec.subscriptionId = undefined; rec.nextChargeAt = null; rec.renewal = null
+    rec.source = 'staff'
     if (pay.p.type === 'offline') {
       await ctx.recordPayment(rec, {
         paymentId: offlineId(), plan, period, amountPaise: pay.p.amountPaise, addons: sel.addons, method: pay.p.method, at: pay.p.at,
@@ -767,7 +770,8 @@ export function createAdminApi(ctx: AdminCtx) {
       mrr += v
       const p = (byPlan[r.plan!] ??= { plan: r.plan!, name: planName(r.plan), clients: 0, mrr: 0 })
       p.clients++; p.mrr += v
-      const ty = (byType[r.customerType ?? 'direct'] ??= { type: r.customerType ?? 'direct', clients: 0, mrr: 0 })
+      const ct = customerTypeOf(r.customerType)
+      const ty = (byType[ct] ??= { type: ct, clients: 0, mrr: 0 })
       ty.clients++; ty.mrr += v
       const pk = r.termMonths ? 'custom' : r.period!
       byPeriod[pk] = (byPeriod[pk] ?? 0) + 1
