@@ -8,7 +8,7 @@
 // Add subscription page.
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Loader2, X, Plus, ArrowLeft, ArrowRight, Check, Pencil, Layers, Building2, Wallet, ReceiptText, Banknote, Gift, AlertCircle, CalendarClock, Repeat, BadgeCheck, Sparkles } from 'lucide-react'
+import { Loader2, X, Plus, ArrowLeft, ArrowRight, Check, Pencil, Layers, Building2, Wallet, ReceiptText, Banknote, Gift, AlertCircle, CalendarClock, Repeat, BadgeCheck, Sparkles, Receipt } from 'lucide-react'
 import { billingAdmin } from '../../lib/billingApi'
 import DatePicker from '../DatePicker'
 import Select from '../Select'
@@ -66,6 +66,15 @@ function Block({ title, hint, aside, children }) {
   )
 }
 
+/* A small label over a value. */
+const Detail = ({ k, children }) => (
+  <div className="min-w-0">
+    <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{k}</dt>
+    <dd className="text-slate-900 mt-0.5 break-words">{children}</dd>
+  </div>
+)
+const money2 = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
 /* A label above its control. */
 function Field({ id, label, required, error, hint, children, className }) {
   return (
@@ -119,13 +128,14 @@ function LineDiscount({ label, value, onChange }) {
 }
 
 /* One line of the subscription: the plan, or an add-on. */
-function Line({ icon, title, sub, qty, price, discount, tax, amount, per, onRemove }) {
+function Line({ icon, title, sub, billing, qty, price, discount, tax, amount, per, onRemove }) {
   return (
     <li className="px-4 py-4 flex flex-wrap items-center gap-x-4 gap-y-3">
       <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">{icon}</span>
       <div className="flex-1 min-w-[150px]">
         <div className="text-sm font-semibold text-slate-900">{title}</div>
         <div className="text-xs text-slate-500 mt-0.5">{sub}</div>
+        {billing && <div className="mt-2">{billing}</div>}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-3 ml-auto">
         {qty}{price}{discount}
@@ -161,6 +171,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
   const [plan, setPlan] = useState(initial?.plan || 'standard')
   const [period, setPeriod] = useState(initial?.period || 'monthly')
   const [addons, setAddons] = useState(() => (initial?.addons || []).map((a) => ({ id: a.id, qty: a.qty })))
+  const [monthlyIds, setMonthlyIds] = useState([])   // add-ons bought at the monthly price on a yearly plan (30 days)
   const [prices, setPrices] = useState({})          // { plan | addonId: '₹ per cycle' } — only the ones staff changed
   const [start, setStart] = useState('now')         // now · date · after_current
   const [startDate, setStartDate] = useState(today())
@@ -212,9 +223,12 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
   const eligible = addonDefs.filter((a) => a.plans.includes(plan) && (a.status ?? 'active') === 'active')
   const chosen = addons.filter((a) => eligible.some((e) => e.id === a.id))
   const addable = eligible.filter((a) => !chosen.some((c) => c.id === a.id))
-  const listPrice = (id) => (id === 'plan' ? planDef?.[period] : addonDefs.find((a) => a.id === id)?.[period]) ?? 0
+  const isMonthly = (id) => period === 'yearly' && monthlyIds.includes(id)
+  const listPrice = (id) => (id === 'plan' ? planDef?.[period] : addonDefs.find((a) => a.id === id)?.[isMonthly(id) ? 'monthly' : period]) ?? 0
   const priceOf = (id) => prices[id] ?? String(listPrice(id))
-  const canContinue = client && ['active', 'past_due'].includes(client.status) && client.plan === plan && client.currentEnd
+  // "After the current plan ends" is for a client with a running plan — any plan can follow it.
+  const canContinue = Boolean(client && ['active', 'past_due'].includes(client.status) && client.currentEnd && client.currentEnd * 1000 > Date.now())
+  const scheduled = start === 'after_current'
   const unit = period === 'yearly' ? 'year' : 'month'
   const taxLabel = prof.taxExempt ? 'Exempt' : `GST ${quote?.charge.gstPercent || gstPercent}%`
 
@@ -224,6 +238,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
   const sentPrices = Object.fromEntries(Object.entries(prices).filter(([k, v]) => v !== '' && (k === 'plan' || chosen.some((a) => a.id === k))).map(([k, v]) => [k, Number(v)]))
   const sub = {
     workspaceId: ws.trim(), plan, period, addons: chosen, prices: sentPrices, discounts, discountRenews,
+    monthlyAddons: period === 'yearly' ? monthlyIds.filter((id) => chosen.some((c) => c.id === id)) : [],
     expiresAfter: never ? null : Math.max(1, parseInt(expiresAfter, 10) || 1),
     start: start === 'after_current' ? 'after_current' : 'now', ...(start === 'date' ? { startDate: startOfDay(startDate) } : {}),
   }
@@ -248,14 +263,20 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
     setPrices(({ plan: _old, ...rest }) => rest)
     const ok = addonDefs.filter((a) => a.plans.includes(id)).map((a) => a.id)
     setAddons((list) => list.filter((a) => ok.includes(a.id)))
+    setMonthlyIds((ids) => ids.filter((x) => ok.includes(x)))
   }
-  function changePeriod(p) { setPeriod(p); setPrices({}) }   // typed prices are per cycle, so they start over
+  function changePeriod(p) { setPeriod(p); setPrices({}); setMonthlyIds([]) }   // typed prices are per cycle, so they start over
   const addAddon = (id) => id && setAddons((list) => (list.some((a) => a.id === id) ? list : [...list, { id, qty: 1 }]))
   const setQty = (id, qty) => setAddons((list) => list.map((a) => (a.id === id ? { ...a, qty } : a)))
   function removeAddon(id) {
     setAddons((list) => list.filter((a) => a.id !== id))
     setPrices(({ [id]: _p, ...rest }) => rest)
     setItemDisc(({ [id]: _d, ...rest }) => rest)
+    setMonthlyIds((ids) => ids.filter((x) => x !== id))
+  }
+  function setMonthly(id, on) {                          // with the plan (yearly price) or by the month (30 days)
+    setMonthlyIds((ids) => (on ? [...ids.filter((x) => x !== id), id] : ids.filter((x) => x !== id)))
+    setPrices(({ [id]: _p, ...rest }) => rest)             // a typed price belonged to the other billing
   }
   function pickStart(v) {                                  // the options beside the date picker
     setStart(v)
@@ -278,7 +299,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
       const row = await billingAdmin.plan(token, {
         ...sub, salesperson, stopAutopay,
         profile: { ...prof, gstin: hasGstin(prof.gstTreatment) ? prof.gstin : '', shipping: sameShip ? null : prof.shipping },
-        payment: offline ? { type: 'offline', amount: Number(amount) } : { type: 'free' },
+        ...(scheduled ? {} : { payment: offline ? { type: 'offline', amount: Number(amount) } : { type: 'free' } }),   // a scheduled one is paid when it starts
       })
       onDone(row)
     } catch (err) {
@@ -306,10 +327,10 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
     hasGstin(prof.gstTreatment) && !prof.gstin.trim() && 'GSTIN',
   ].filter(Boolean)
   // A tick means the tab really has what it needs; a dot means the server turned something down in it.
-  const done = { plan: Boolean(quote) && !quoteError, client: missing.length === 0, payment: !offline || Number(amount) >= 1, summary: false }
+  const done = { plan: Boolean(quote) && !quoteError, client: missing.length === 0, payment: scheduled || !offline || Number(amount) >= 1, summary: false }
   const hasError = { plan: Boolean(quoteError), client: Object.keys(fields).length > 0, payment: false, summary: false }
   const blockReason = saving ? 'Saving…' : !ws.trim() ? 'Add a workspace ID in Client details' : !quote ? (quoteError || 'Working out the price…')
-    : autopayOn && !stopAutopay ? 'Confirm stopping their autopay' : offline && !(Number(amount) >= 1) ? 'Enter the amount received in Payment' : ''
+    : autopayOn && !stopAutopay ? 'Confirm stopping their autopay' : !scheduled && offline && !(Number(amount) >= 1) ? 'Enter the amount received in Payment' : ''
   const here = TABS.findIndex(([id]) => id === tab)
   const go = (i) => { setTab(TABS[i][0]); document.getElementById('sd-top')?.scrollIntoView({ block: 'nearest' }) }
   function onTabKey(e) {
@@ -318,6 +339,27 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
     e.preventDefault(); setTab(TABS[n][0]); document.getElementById(`sd-tab-${TABS[n][0]}`)?.focus()
   }
   const showName = prof.legalName.trim() || (isNew ? 'New client' : initial.customer || ws)
+  // The invoice as the server priced it, split so every number can be read: price, discount, amount.
+  const itemRows = lines.filter((l) => l.kind === 'plan' || l.kind === 'addon').map((l) => {
+    const key = l.kind === 'plan' ? 'plan' : l.id
+    const def = l.kind === 'addon' ? addonDefs.find((d) => d.id === l.id) : null
+    const monthly = l.kind === 'addon' && isMonthly(l.id)
+    const listRate = l.kind === 'plan' ? planDef?.[period] : def?.[monthly ? 'monthly' : period]
+    const disc = lines.filter((x) => x.kind === 'discount' && x.id === key).reduce((n, x) => n - x.amount, 0)
+    return {
+      key: l.id || l.kind, name: l.kind === 'plan' ? `${planDef?.name} plan` : def?.name || l.id,
+      sub: l.kind === 'plan' ? `${period === 'yearly' ? 'Yearly' : 'Monthly'} plan · SAC ${sac}` : `${monthly ? '30-day add-on' : def?.unit} · SAC ${sac}`,
+      qty: l.qty, rate: l.rate, listRate, custom: listRate != null && Math.abs(l.rate - listRate) >= 0.005, gross: l.amount, disc, net: l.amount - disc,
+    }
+  })
+  const itemDiscounts = itemRows.reduce((n, r) => n + r.disc, 0)
+  const wholeDiscounts = lines.filter((x) => x.kind === 'discount' && x.id === 'total')
+  const listTotal = itemRows.reduce((n, r) => n + (r.listRate ?? r.rate) * r.qty, 0)
+  const agreedDelta = itemRows.reduce((n, r) => n + r.gross, 0) - listTotal
+  const saved = itemDiscounts + wholeDiscounts.reduce((n, x) => n - x.amount, 0) + Math.max(0, -agreedDelta)
+  const placeName = states.find((x) => x.code === a.stateCode)?.name
+  const gstLabel = GST_TREATMENTS.find((g) => g.value === prof.gstTreatment)?.label
+  const monthlyNames = chosen.filter((c) => isMonthly(c.id)).map((c) => addonDefs.find((d) => d.id === c.id)?.name).filter(Boolean)
 
   return (
     <Shell wide title={isNew ? 'New subscription' : `Subscription · ${initial.customer || initial.workspaceId}`}
@@ -410,10 +452,12 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
                       const def = addonDefs.find((d) => d.id === c.id)
                       return (
                         <Line key={c.id} icon={<Sparkles size={17}/>} title={def?.name} sub={`${def?.unit} · SAC ${sac}`}
+                          billing={period === 'yearly' ? <Segmented label={`${def?.name} billing`} size="sm" value={isMonthly(c.id) ? 'month' : 'plan'} onChange={(v) => setMonthly(c.id, v === 'month')}
+                            options={[['plan', 'With the plan'], ['month', 'Monthly · 30 days']]}/> : null}
                           qty={def?.maxQty > 1 ? <Stepper label={def.name} value={c.qty} max={def.maxQty} onChange={(q) => setQty(c.id, q)}/> : null}
                           price={<Money label={`${def?.name} price`} value={priceOf(c.id)} onChange={(v) => setPrices((x) => ({ ...x, [c.id]: v }))} className="w-28 h-9"/>}
                           discount={discMode === 'item' && <LineDiscount label={def?.name} value={itemDisc[c.id] || { type: 'percent', value: '' }} onChange={(d) => setItemDisc((x) => ({ ...x, [c.id]: d }))}/>}
-                          tax={taxLabel} amount={lineAmount(c.id, c.qty)} per={`per ${unit}`} onRemove={() => removeAddon(c.id)}/>
+                          tax={taxLabel} amount={lineAmount(c.id, c.qty)} per={isMonthly(c.id) ? 'for 30 days' : `per ${unit}`} onRemove={() => removeAddon(c.id)}/>
                       )
                     })}
                   </ul>
@@ -421,7 +465,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
                     <div className="px-4 py-3 border-t border-dashed border-slate-200 bg-slate-50/60">
                       <div className="max-w-xs">
                         <Select size="sm" value="" onChange={addAddon} placeholder="+ Add an add-on"
-                          options={addable.map((d) => ({ value: d.id, label: d.name, sub: `${rupees(d[period])} / ${unit} · ${d.unit}` }))}/>
+                          options={addable.map((d) => ({ value: d.id, label: d.name, sub: period === 'yearly' ? `${rupees(d.yearly)} / yr, or ${rupees(d.monthly)} / mo · ${d.unit}` : `${rupees(d[period])} / ${unit} · ${d.unit}` }))}/>
                       </div>
                     </div>
                   )}
@@ -438,12 +482,12 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
 
               <Block title="Schedule">
                 <div className="grid md:grid-cols-3 gap-x-6 gap-y-5">
-                  <Field id="sd-start" label="Starts" hint={start === 'date' ? 'Backdated — counts from this date.' : start === 'after_current' ? 'After their current plan ends.' : 'Up to a year back.'}>
+                  <Field id="sd-start" label="Starts" hint={start === 'date' ? 'Backdated — counts from this date.' : scheduled ? `Starts when ${client?.planName || 'their current plan'} ends. Nothing is charged until then.` : canContinue ? 'Up to a year back, or after their current plan.' : 'Up to a year back. “After current plan” is for a client with a running plan.'}>
                     <div className={clsx(start === 'after_current' && 'pointer-events-none opacity-60')}>
                       <DatePicker value={startShown} onChange={(v) => { setStartDate(v); setStart(v === today() ? 'now' : 'date') }} min={yearAgo()} max={today()} textSize="text-sm"/>
                     </div>
                     <Segmented label="Start" value={start === 'date' ? '' : start} onChange={pickStart} size="sm" className="mt-2"
-                      options={[['now', 'Today'], ...(canContinue ? [['after_current', 'After current plan']] : [])]}/>
+                      options={[['now', 'Today'], ['after_current', canContinue ? `After current plan (${fmtDate(client.currentEnd)})` : 'After current plan ends', canContinue ? undefined : { disabled: true, title: 'Pick a client who has a running plan' }]]}/>
                   </Field>
                   <Field id="sd-expires" label="Runs for" hint={never ? 'Renews until it is cancelled.' : `Ends after ${expiresAfter || 1} ${period === 'yearly' ? 'years' : 'months'} in all.`}>
                     <label className="flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer h-10">
@@ -559,7 +603,19 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
             </>
           )}
 
-          {tab === 'payment' && (
+          {tab === 'payment' && scheduled && (
+            <Block title="Paid when it starts">
+              <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-5 flex gap-4">
+                <span className="w-10 h-10 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center flex-shrink-0"><CalendarClock size={20}/></span>
+                <div className="text-sm text-slate-700 space-y-2">
+                  <p className="font-semibold text-slate-900">Nothing is charged today.</p>
+                  <p>This starts on <b className="text-slate-900">{quote ? fmtDate(quote.from) : fmtDate(client?.currentEnd)}</b>, when {client?.planName || 'their current plan'} ends. Until then they keep the plan they have.</p>
+                  <p>On that day, open <b>Add subscription</b>, find it in the list and press <b>Record payment</b>{quote ? <> (<b className="text-slate-900">{rupees(quote.charge.total)}</b> incl. GST)</> : null}. The invoice is made then.</p>
+                </div>
+              </div>
+            </Block>
+          )}
+          {tab === 'payment' && !scheduled && (
             <>
               <Block title="How is it being paid?">
                 <div className="grid sm:grid-cols-2 gap-3">
@@ -597,46 +653,107 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
               {quoteError && <ErrorNote>{quoteError}</ErrorNote>}
               {!quote && !quoteError && <p className="text-sm text-slate-400 flex items-center gap-2"><Loader2 size={14} className="animate-spin"/> Working out the price…</p>}
               {quote && (
-                <div className="grid md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-7 items-start">
-                  <div className="rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
-                    <div className="px-5 py-4 bg-slate-50 border-b border-slate-200">
-                      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Invoice preview</div>
-                      <div className="text-sm font-semibold text-slate-900 truncate mt-0.5">{showName}</div>
-                    </div>
-                    <dl className="px-5 py-4 space-y-2.5">
-                      {lines.map((l, i) => (
-                        <div key={i} className={clsx('flex justify-between gap-4', l.amount < 0 ? 'text-emerald-700' : 'text-slate-700')}>
-                          <dt className="min-w-0 text-[13px] leading-5">{l.description}{l.qty > 1 ? ` × ${l.qty}` : ''}</dt>
-                          <dd className="tabular-nums whitespace-nowrap text-[13px] leading-5">{l.amount < 0 ? `−${rupees(-l.amount)}` : rupees(l.amount)}</dd>
-                        </div>
+                <div className="space-y-6">
+                  {/* 1 · who and what */}
+                  <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                    <header className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center gap-3">
+                      <h3 className="text-sm font-bold text-slate-900">Subscription details</h3>
+                      {scheduled && <span className="ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-md bg-violet-50 text-violet-700 border border-violet-200">Scheduled</span>}
+                    </header>
+                    <dl className="grid sm:grid-cols-2 gap-x-8 gap-y-4 px-5 py-4 text-sm">
+                      <Detail k="Client">{prof.legalName || '—'}<div className="text-xs text-slate-500">{[prof.contactName, prof.email].filter(Boolean).join(' · ')}</div></Detail>
+                      <Detail k="Billed to">{gstLabel || '—'}<div className="text-xs text-slate-500">{prof.gstin ? `GSTIN ${prof.gstin}` : 'No GSTIN'}{placeName ? ` · ${placeName}` : ''}</div></Detail>
+                      <Detail k="Plan">{planDef?.name} · {period === 'yearly' ? 'Yearly' : 'Monthly'} billing</Detail>
+                      <Detail k="Tax">{prof.taxExempt ? 'Tax exempt (no GST)' : `GST ${quote.charge.gstPercent}%`}</Detail>
+                      <Detail k={scheduled ? 'Starts' : 'This period'}>
+                        {scheduled ? fmtDate(quote.from) : `${fmtDate(quote.from)} → ${fmtDate(quote.end)}`}
+                        <div className="text-xs text-slate-500">{scheduled ? `after ${client?.planName || 'their current plan'}, to ${fmtDate(quote.end)}` : start === 'date' ? 'Backdated' : 'Starts today'}</div>
+                      </Detail>
+                      <Detail k="Runs for">{never ? 'Until it is cancelled' : `${expiresAfter || 1} ${period === 'yearly' ? 'year' : 'month'}${Number(expiresAfter) === 1 ? '' : 's'} in all`}</Detail>
+                      {salesperson && <Detail k="Salesperson">{team.find((t) => t.email === salesperson)?.name || salesperson}</Detail>}
+                    </dl>
+                  </section>
+
+                  {/* 2 · the price, line by line */}
+                  <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                    <header className="px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-bold text-slate-900">Price breakdown</h3>
+                      <span className="text-xs text-slate-400">Amounts in ₹, before GST until the tax lines</span>
+                    </header>
+                    <table className="hidden md:table w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400 border-b border-slate-100">
+                          <th className="px-5 py-2.5 font-semibold">Item</th><th className="py-2.5 font-semibold text-right">Qty</th><th className="py-2.5 font-semibold text-right">Price</th>
+                          <th className="py-2.5 font-semibold text-right">Discount</th><th className="px-5 py-2.5 font-semibold text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itemRows.map((r) => (
+                          <tr key={r.key} className="border-b border-slate-100 last:border-0">
+                            <td className="px-5 py-3.5"><div className="font-medium text-slate-900">{r.name}</div><div className="text-xs text-slate-500">{r.sub}</div></td>
+                            <td className="py-3.5 text-right tabular-nums text-slate-700">{r.qty}</td>
+                            <td className="py-3.5 text-right tabular-nums text-slate-700">
+                              {money2(r.rate)}{r.custom && <div className="text-[11px] text-slate-400">list <span className="line-through">{money2(r.listRate)}</span></div>}
+                            </td>
+                            <td className="py-3.5 text-right tabular-nums">{r.disc > 0 ? <span className="text-emerald-700">−{money2(r.disc)}</span> : <span className="text-slate-300">—</span>}</td>
+                            <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900">{money2(r.net)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <ul className="md:hidden divide-y divide-slate-100">
+                      {itemRows.map((r) => (
+                        <li key={r.key} className="px-4 py-3.5">
+                          <div className="flex justify-between gap-3">
+                            <div className="min-w-0"><div className="font-medium text-slate-900">{r.name}</div><div className="text-xs text-slate-500">{r.sub}</div></div>
+                            <div className="font-semibold tabular-nums text-slate-900">{money2(r.net)}</div>
+                          </div>
+                          <div className="mt-1.5 text-xs text-slate-500">
+                            {r.qty} × {money2(r.rate)}{r.custom && ` (list ${money2(r.listRate)})`}{r.disc > 0 && <span className="text-emerald-700"> · discount −{money2(r.disc)}</span>}
+                          </div>
+                        </li>
                       ))}
-                      <div className="flex justify-between gap-4 pt-3 border-t border-dashed border-slate-200 text-slate-500"><dt className="text-[13px]">Taxable value</dt><dd className="text-[13px] tabular-nums">{rupees(quote.charge.base)}</dd></div>
+                    </ul>
+
+                    <dl className="px-5 py-4 border-t border-slate-200 bg-slate-50/60 text-sm space-y-2">
+                      <div className="flex justify-between gap-4 text-slate-600"><dt>Items at list price</dt><dd className="tabular-nums">{money2(listTotal)}</dd></div>
+                      {Math.abs(agreedDelta) >= 0.005 && <div className={clsx('flex justify-between gap-4', agreedDelta < 0 ? 'text-emerald-700' : 'text-slate-600')}><dt>Agreed prices, against list</dt><dd className="tabular-nums">{agreedDelta < 0 ? '−' : '+'}{money2(Math.abs(agreedDelta))}</dd></div>}
+                      {itemDiscounts > 0 && <div className="flex justify-between gap-4 text-emerald-700"><dt>Item discounts</dt><dd className="tabular-nums">−{money2(itemDiscounts)}</dd></div>}
+                      {wholeDiscounts.map((x, i) => <div key={i} className="flex justify-between gap-4 text-emerald-700"><dt>{x.description}</dt><dd className="tabular-nums">−{money2(-x.amount)}</dd></div>)}
+                      <div className="flex justify-between gap-4 pt-2 border-t border-slate-200 font-semibold text-slate-900"><dt>Taxable value</dt><dd className="tabular-nums">{money2(quote.charge.base)}</dd></div>
                       {quote.charge.gstPercent === 0
-                        ? <div className="flex justify-between text-slate-500"><dt className="text-[13px]">GST</dt><dd className="text-[13px]">Exempt</dd></div>
+                        ? <div className="flex justify-between gap-4 text-slate-600"><dt>GST</dt><dd>Exempt · ₹0.00</dd></div>
                         : quote.charge.tax.kind === 'intra'
                           ? <>
-                              <div className="flex justify-between text-slate-500"><dt className="text-[13px]">CGST ({quote.charge.gstPercent / 2}%)</dt><dd className="text-[13px] tabular-nums">{rupees(quote.charge.tax.cgst)}</dd></div>
-                              <div className="flex justify-between text-slate-500"><dt className="text-[13px]">SGST ({quote.charge.gstPercent / 2}%)</dt><dd className="text-[13px] tabular-nums">{rupees(quote.charge.tax.sgst)}</dd></div>
+                              <div className="flex justify-between gap-4 text-slate-600"><dt>CGST @ {quote.charge.gstPercent / 2}%</dt><dd className="tabular-nums">{money2(quote.charge.tax.cgst)}</dd></div>
+                              <div className="flex justify-between gap-4 text-slate-600"><dt>SGST @ {quote.charge.gstPercent / 2}%</dt><dd className="tabular-nums">{money2(quote.charge.tax.sgst)}</dd></div>
                             </>
-                          : <div className="flex justify-between text-slate-500"><dt className="text-[13px]">{quote.charge.tax.kind === 'inter' ? 'IGST' : 'GST'} ({quote.charge.gstPercent}%)</dt><dd className="text-[13px] tabular-nums">{rupees(quote.charge.gst)}</dd></div>}
+                          : <div className="flex justify-between gap-4 text-slate-600"><dt>{quote.charge.tax.kind === 'inter' ? 'IGST' : 'GST'} @ {quote.charge.gstPercent}%</dt><dd className="tabular-nums">{money2(quote.charge.gst)}</dd></div>}
                     </dl>
-                    <div className="flex items-baseline justify-between px-5 py-4 bg-primary/[0.06] border-t border-slate-200">
-                      <span className="text-sm font-semibold text-slate-700">Total due now</span>
-                      <span className="text-2xl font-bold text-slate-900 tabular-nums">{rupees(quote.charge.total)}</span>
+                    <div className="px-5 py-4 bg-primary/[0.06] border-t border-slate-200">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <span className="text-sm font-semibold text-slate-700">{scheduled ? `Total due on ${fmtDate(quote.from)}` : 'Total due now'} <span className="font-normal text-slate-500">(incl. GST)</span></span>
+                        <span className="text-2xl font-bold text-slate-900 tabular-nums">{money2(quote.charge.total)}</span>
+                      </div>
+                      {saved >= 0.005 && <p className="text-xs text-emerald-700 mt-1.5">The client saves {money2(saved)} before GST{discMode !== 'none' && (discountRenews ? ', on every renewal' : ', on this first cycle only')}.</p>}
                     </div>
-                  </div>
+                  </section>
 
-                  <div className="space-y-5">
-                    <h3 className="text-[15px] font-semibold text-slate-900">What happens next</h3>
-                    <ol className="space-y-4">
+                  {/* 3 · payment and what follows */}
+                  <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                    <header className="px-5 py-3.5 bg-slate-50 border-b border-slate-200"><h3 className="text-sm font-bold text-slate-900">Payment & what happens next</h3></header>
+                    <ol className="px-5 py-4 space-y-4">
                       {[
-                        [CalendarClock, <>Runs <b className="text-slate-900">{fmtDate(quote.from)}</b> to <b className="text-slate-900">{fmtDate(quote.end)}</b>{start === 'after_current' ? ', after their current plan' : start === 'date' ? ' (backdated)' : ''}.</>],
+                        scheduled
+                          ? [CalendarClock, <><b className="text-slate-900">Nothing is charged today.</b> {client?.planName || 'Their current plan'} keeps running until {fmtDate(quote.from)}.</>]
+                          : [BadgeCheck, offline
+                            ? <><b className="text-slate-900">{money2(Number(amount) || 0)}</b> is recorded as paid offline{differs ? ` — ${money2(Math.abs((Number(amount) || 0) - quote.charge.total))} ${(Number(amount) || 0) < quote.charge.total ? 'less' : 'more'} than the total, shown on the invoice as a price adjustment` : ''}, and a GST invoice is made.</>
+                            : 'Free — no payment and no invoice.'],
+                        scheduled && [Receipt, <>On {fmtDate(quote.from)}, press <b className="text-slate-900">Record payment</b> on the subscription ({money2(quote.charge.total)}). The invoice is made then.</>],
+                        monthlyNames.length > 0 && quote.monthlyUntil && [Sparkles, <>{monthlyNames.join(', ')} {monthlyNames.length > 1 ? 'are' : 'is'} bought by the month: valid until <b className="text-slate-900">{fmtDate(quote.monthlyUntil)}</b> (30 days) and not renewed with the plan.</>],
                         [Repeat, quote.renewal != null
-                          ? <>Then <b className="text-slate-900">{rupees(quote.renewal)}</b> every {unit}{quote.expiresAfter ? `, ${quote.expiresAfter - quote.cycles} more time${quote.expiresAfter - quote.cycles > 1 ? 's' : ''}` : ' until cancelled'}. You record each payment on Renewals.</>
+                          ? <>Then <b className="text-slate-900">{money2(quote.renewal)}</b> every {unit}{quote.expiresAfter ? `, ${quote.expiresAfter - quote.cycles} more time${quote.expiresAfter - quote.cycles > 1 ? 's' : ''}` : ' until cancelled'}. You record each payment from Add subscription or Renewals.</>
                           : 'Nothing more after this cycle.'],
-                        [BadgeCheck, offline ? <><b className="text-slate-900">{rupees(Number(amount) || 0)}</b> is recorded as paid offline and a GST invoice is made.</> : 'Free — no payment and no invoice.'],
-                        quote.discountTotal > 0 && [Sparkles, <>The client saves <b className="text-emerald-700">{rupees(quote.discountTotal)}</b> before GST{discMode !== 'none' && (discountRenews ? ', on every renewal' : ', on this first cycle only')}.</>],
-                        salesperson && [Building2, <>Salesperson: <b className="text-slate-900">{team.find((t) => t.email === salesperson)?.name || salesperson}</b>.</>],
                       ].filter(Boolean).map(([Icon, text], i) => (
                         <li key={i} className="flex gap-3 text-sm text-slate-600">
                           <span className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0"><Icon size={16}/></span>
@@ -645,12 +762,12 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
                       ))}
                     </ol>
                     {autopayOn && (
-                      <label className="flex items-start gap-2 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3 cursor-pointer">
+                      <label className="mx-5 mb-4 flex items-start gap-2 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3 cursor-pointer">
                         <input type="checkbox" checked={stopAutopay} onChange={(e) => setStopAutopay(e.target.checked)} className="mt-0.5 accent-primary"/>
-                        <span>This client is on autopay. <b>Stop their autopay</b> — otherwise they would be charged for this period as well.</span>
+                        <span>This client is on autopay. <b>Stop their autopay</b> — otherwise they would be charged {scheduled ? 'again when this period ends' : 'for this period as well'}.</span>
                       </label>
                     )}
-                  </div>
+                  </section>
                 </div>
               )}
             </>
@@ -661,7 +778,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
         {/* ── always in view ── */}
         <div className="sticky bottom-0 z-10 border-t border-slate-200 bg-white/90 backdrop-blur-md px-4 sm:px-6 py-3.5 flex items-center gap-3 rounded-b-3xl">
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] text-slate-500">{here === TABS.length - 1 && blockReason && !saving ? <span className="text-amber-700 font-medium">{blockReason}</span> : 'Total due now · incl. GST'}</div>
+            <div className="text-[11px] text-slate-500">{here === TABS.length - 1 && blockReason && !saving ? <span className="text-amber-700 font-medium">{blockReason}</span> : scheduled ? 'Due when it starts · incl. GST' : 'Total due now · incl. GST'}</div>
             <div className="flex items-baseline gap-2">
               <span className="text-xl font-bold text-slate-900 tabular-nums">{quote ? rupees(quote.charge.total) : '—'}</span>
               {quote?.renewal != null && <span className="text-xs text-slate-400 truncate hidden sm:inline">then {rupees(quote.renewal)} / {unit}</span>}

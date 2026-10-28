@@ -390,6 +390,8 @@ export interface PriceOpts {
   /** a term of several months, for the plan and its add-ons: on a yearly plan in whole years it is the
       yearly price × years (yearly cycles), otherwise the monthly price × months */
   months?: number
+  /** add-ons (ids) bought at the MONTHLY price on a yearly plan: one month's price, good for 30 days */
+  monthlyAddons?: string[]
   /** staff discounts before GST: on one item ('plan' or an add-on id) or on the 'total' */
   discounts?: Discount[]
   /** share of the period actually sold (0–1), e.g. add-ons cut short by the plan's end */
@@ -432,8 +434,9 @@ export function chargeFor(plan: PlanId, period: Period, gstPercent: number, o: P
   for (const a of o.addons ?? []) {
     const def = ADDON_BY_ID.get(a.id)
     if (!def) continue
-    const rate = r2(addonRate(a.id, ap, o.lock) * per * f)
-    lines.push({ kind: 'addon', id: a.id, description: `Add-on: ${def.name} (${def.unit})${term}${note}`, qty: a.qty, unit: def.unit, rate, amount: r2(rate * a.qty) })
+    const monthly = Boolean(o.monthlyAddons?.includes(a.id))
+    const rate = monthly ? r2(addonRate(a.id, 'monthly', o.lock) * f) : r2(addonRate(a.id, ap, o.lock) * per * f)
+    lines.push({ kind: 'addon', id: a.id, description: `Add-on: ${def.name} (${def.unit})${monthly ? ' · monthly add-on, 30 days' : term}${note}`, qty: a.qty, unit: def.unit, rate, amount: r2(rate * a.qty) })
   }
   // Staff discounts: each item's first, then one on what is left.
   const pct = (d: Discount) => (d.type === 'percent' ? ` (${d.value}%)` : '')

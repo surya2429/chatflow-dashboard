@@ -6,7 +6,8 @@ import { billingAdmin } from '../../lib/billingApi'
 import { Modal, Chips, ErrorNote, inputCls, labelCls, btnPrimary, btnGhost, rupees, fmtDate } from './ui'
 
 export default function RenewDialog({ token, client: c, onDone, onClose }) {
-  const s = c.subscription
+  const scheduled = Boolean(c.renewal.scheduled)
+  const s = scheduled && c.nextSub ? c.nextSub : c.subscription       // the subscription this bill belongs to
   const [type, setType] = useState('offline')
   const [amount, setAmount] = useState(String(c.renewal.total))
   const [saving, setSaving] = useState(false)
@@ -21,7 +22,7 @@ export default function RenewDialog({ token, client: c, onDone, onClose }) {
   }
 
   return (
-    <Modal title={`Record cycle ${c.renewal.cycle}${s.cycles ? ` of ${s.cycles}` : ''} · ${s.number}`} subtitle={`${c.customer || c.workspaceId} · ${c.renewal.planName}, ${c.renewal.period}`} onClose={onClose}>
+    <Modal title={scheduled ? `Start ${s.number} · ${c.renewal.planName}` : `Record cycle ${c.renewal.cycle}${s.cycles ? ` of ${s.cycles}` : ''} · ${s.number}`} subtitle={`${c.customer || c.workspaceId} · ${c.renewal.planName}, ${c.renewal.period}`} onClose={onClose}>
       <form onSubmit={submit} className="p-5 space-y-4">
         <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm flex justify-between gap-3">
           <span className="text-slate-600">Due {fmtDate(c.renewal.at)} · covers one {c.renewal.period === 'yearly' ? 'year' : 'month'}</span>
@@ -44,7 +45,7 @@ export default function RenewDialog({ token, client: c, onDone, onClose }) {
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className={btnGhost}>Cancel</button>
           <button type="submit" disabled={saving || (type === 'offline' && !(Number(amount) >= 1))} className={btnPrimary}>
-            {saving && <Loader2 size={14} className="animate-spin"/>} Record {type === 'offline' ? 'payment' : 'free cycle'}
+            {saving && <Loader2 size={14} className="animate-spin"/>} {scheduled ? 'Start' : 'Record'} {type === 'offline' ? (scheduled ? 'and record payment' : 'payment') : (scheduled ? 'free' : 'free cycle')}
           </button>
         </div>
       </form>

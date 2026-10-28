@@ -153,13 +153,15 @@ export default function AdminConsole() {
     clients: customers.length,
     active: customers.filter(live).length,
     renewals: customers.filter((c) => c.renewal && daysFromNow(c.renewal.at) <= 30).length,
-    add: customers.filter((c) => c.source === 'staff' && c.plan).length,
+    add: customers.filter((c) => (c.source === 'staff' && c.plan) || c.nextSub).length,
   }
   const signedOut = () => signOut('Your session has ended. Please sign in again.')
   const renewed = (row) => { reload(); flash(`Cycle ${row.subscription?.billed} of ${row.subscription?.number} recorded — ${row.customer || row.workspaceId} runs until ${fmtDate(row.currentEnd)}.`) }
   const subscribed = (row) => {
     reload()
-    flash(`${row.planName} (${row.period}) given to ${row.customer || row.workspaceId} until ${fmtDate(row.currentEnd)}.`)
+    flash(row.nextSub
+      ? `${row.nextSub.planName} (${row.nextSub.period}) scheduled for ${row.customer || row.workspaceId}, starting ${fmtDate(row.nextSub.at)}.`
+      : `${row.planName} (${row.period}) given to ${row.customer || row.workspaceId} until ${fmtDate(row.currentEnd)}.`)
   }
 
   const nav = (vertical) => tabs.map((t) => (
@@ -218,7 +220,8 @@ export default function AdminConsole() {
         {tab.id === 'clients'   && <ClientsTab key={route.hash} customers={customers} initialFilters={route.params} canEdit={canEdit} onOpen={setOpenWs} onAssign={setAssigning} onLoginAs={loginAsCustomer}/>}
         {tab.id === 'active'    && <ClientsTab key={route.hash} activeOnly customers={customers} initialFilters={route.params} canEdit={canEdit} onOpen={setOpenWs} onAssign={setAssigning} onLoginAs={loginAsCustomer}/>}
         {tab.id === 'add'       && <AddSubscriptionPage token={token} customers={customers} plans={plans} addonDefs={addonDefs} states={states} sac={sac} gstPercent={gst} canEdit={canEdit}
-          onOpen={setOpenWs} onAssign={setAssigning} onDone={subscribed} onRenewed={renewed}/>}
+          onOpen={setOpenWs} onAssign={setAssigning} onDone={subscribed} onRenewed={renewed}
+          onUnscheduled={(row) => { reload(); flash(`The scheduled subscription for ${row.customer || row.workspaceId} was cancelled.`) }}/>}
         {tab.id === 'renewals'  && <RenewalsTab key={route.hash} token={token} customers={customers} initialFilters={route.params} canEdit={canEdit} onOpen={setOpenWs}
           onRenewed={renewed}/>}
         {tab.id === 'coupons'   && <CouponsTab token={token} canEdit={canEdit} plans={plans} addonDefs={addonDefs}/>}

@@ -3,13 +3,13 @@
 import clsx from 'clsx'
 import { Check, Minus, Plus } from 'lucide-react'
 
-/* One option is on. options: [[value, label]]. A value that matches none leaves all off. */
+/* One option is on. options: [[value, label, { disabled, title }?]]. A value that matches none leaves all off. */
 export function Segmented({ label, value, onChange, options, size = 'md', className }) {
   return (
     <div role="radiogroup" aria-label={label} className={clsx('inline-flex flex-wrap p-1 gap-1 rounded-xl bg-slate-100', className)}>
-      {options.map(([v, l]) => (
-        <button key={v} type="button" role="radio" aria-checked={value === v} onClick={() => onChange(v)}
-          className={clsx('rounded-lg font-semibold whitespace-nowrap transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+      {options.map(([v, l, o]) => (
+        <button key={v} type="button" role="radio" aria-checked={value === v} aria-disabled={o?.disabled} disabled={o?.disabled} title={o?.title} onClick={() => onChange(v)}
+          className={clsx('rounded-lg font-semibold whitespace-nowrap transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-40 disabled:cursor-not-allowed',
             size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3.5 py-1.5 text-sm',
             value === v ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200' : 'text-slate-500 hover:text-slate-800')}>
           {l}

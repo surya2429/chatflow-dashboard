@@ -106,14 +106,15 @@ export default function RenewalsTab({ token, customers, initialFilters, canEdit,
                     <td className="px-3 py-3 whitespace-nowrap">
                       <span className={clsx('text-xs font-semibold', c.renewal.type === 'autopay' ? 'text-violet-700' : 'text-slate-600')}>{c.renewal.type === 'autopay' ? 'Autopay' : 'Manual'}</span>
                       {c.card && <div className="text-[11px] text-slate-400">{c.card.network || 'Card'} •••• {c.card.last4}</div>}
-                      {c.renewal.cycle && <div className="text-[11px] text-slate-400">Cycle {c.renewal.cycle}{c.renewal.cycles ? ` of ${c.renewal.cycles}` : ''} · {c.subscription?.number}</div>}
+                      {c.renewal.cycle && <div className="text-[11px] text-slate-400">{c.renewal.scheduled ? `Scheduled · ${c.nextSub?.number}` : `Cycle ${c.renewal.cycle}${c.renewal.cycles ? ` of ${c.renewal.cycles}` : ''} · ${c.subscription?.number}`}</div>}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums font-semibold text-slate-800">{rupees(c.renewal.total)}</td>
                     <td className="px-3 py-3"><StatusPill status={c.status}/></td>
                     {canEdit && (
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         {c.renewal.cycle ? (
-                          <button type="button" onClick={() => setRenewing(c)} className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary hover:bg-primary-hover">Record payment</button>
+                          <button type="button" onClick={() => setRenewing(c)} disabled={c.renewal.scheduled && c.renewal.at * 1000 > Date.now()} title={c.renewal.scheduled && c.renewal.at * 1000 > Date.now() ? `Available from ${fmtDate(c.renewal.at)}` : undefined}
+                            className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed">{c.renewal.scheduled ? 'Start & record payment' : 'Record payment'}</button>
                         ) : <span className="text-slate-300">—</span>}
                       </td>
                     )}

@@ -318,7 +318,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     rec.status = 'active'; rec.currentStart = o.start; rec.currentEnd = o.end; rec.periodPaid = o.paid
     rec.cancelAtCycleEnd = false; rec.cancelAt = null; rec.scheduledChange = null; rec.upcoming = null
     rec.dunning = null; rec.autopayLapsed = false
-    rec.source = 'dashboard'; rec.staffSub = null   // the admin console sets both after it calls startPeriod
+    rec.source = 'dashboard'; rec.staffSub = null; rec.nextSub = null   // the admin console sets the first two after it calls startPeriod
     if (o.relock || !rec.priceLock) rec.priceLock = lockPrices(o.plan, o.addons, now(), o.relock ? null : rec.priceLock)
     // One-time add-ons never outlive the plan they were bought on (a shorter new period cuts them).
     rec.extraAddons = (rec.extraAddons ?? []).map((e) => (e.until > o.end ? { ...e, until: o.end } : e))

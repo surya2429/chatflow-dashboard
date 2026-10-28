@@ -255,6 +255,29 @@ export interface StaffSub {
   by: string
 }
 
+/** A subscription staff scheduled to start when the current plan ends. Nothing is charged until staff
+    record its first payment, on or after `at`; then it takes over (adminApi.ts startNext). */
+export interface NextSub {
+  number: string
+  plan: PlanId
+  period: Period
+  /** with the plan, renewing */
+  addons: AddonSel[]
+  /** monthly add-ons on a yearly plan: 30 days from the start, never renewing */
+  monthlyAddons: AddonSel[]
+  lock: PriceLock
+  cycles: number | null
+  discounts: Discount[]
+  discountRenews: boolean
+  reference?: string
+  salesperson?: string
+  remarks?: string
+  /** when it starts: the end of the plan it follows */
+  at: number
+  createdAt: number
+  by: string
+}
+
 export interface ClientDocument { id: string; name: string; type: string; size: number; at: number; by: string }
 
 /** How SmatBot sells to this customer (set in the admin console). Unset = direct. white_label = a
@@ -269,6 +292,8 @@ export interface BillingRecord {
   source?: 'staff' | 'dashboard'
   /** the subscription staff set up, billed one cycle at a time (see adminApi.ts) */
   staffSub?: StaffSub | null
+  /** the subscription that takes over when the current plan ends (see NextSub) */
+  nextSub?: NextSub | null
   /** files staff attached to this client (a PO, the agreement …); the content is in the doc `file:<id>` */
   documents?: ClientDocument[]
   /** for a partner client: the partner's workspaceId */

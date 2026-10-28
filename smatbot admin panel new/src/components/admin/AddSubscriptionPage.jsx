@@ -4,17 +4,22 @@
 import { useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import Select from '../Select'
+import { billingAdmin } from '../../lib/billingApi'
 import SubscriptionDialog from './SubscriptionDialog'
 import SubscriptionsList from './SubscriptionsList'
 import RenewDialog from './RenewDialog'
 
-export default function AddSubscriptionPage({ token, customers, plans, addonDefs, states, sac, gstPercent, canEdit, onOpen, onAssign, onDone, onRenewed }) {
+export default function AddSubscriptionPage({ token, customers, plans, addonDefs, states, sac, gstPercent, canEdit, onOpen, onAssign, onDone, onRenewed, onUnscheduled }) {
   const [creating, setCreating] = useState(false)
   const [who, setWho] = useState('new')           // 'new' or a workspace id
   const [round, setRound] = useState(0)           // a fresh, empty form each time it opens
   const [renewing, setRenewing] = useState(null)
   const client = customers.find((c) => c.workspaceId === who)
   const close = () => setCreating(false)
+  async function unschedule(c) {
+    if (!window.confirm(`Cancel ${c.subscription.number} for ${c.customer || c.workspaceId}? They keep the plan they have now.`)) return
+    try { onUnscheduled(await billingAdmin.unschedule(token, c.workspaceId)) } catch (e) { window.alert(e.message) }
+  }
 
   if (creating) {
     const picker = (
@@ -33,7 +38,7 @@ export default function AddSubscriptionPage({ token, customers, plans, addonDefs
 
   return (
     <>
-      <SubscriptionsList customers={customers} canEdit={canEdit} onOpen={onOpen} onChange={onAssign} onRecord={setRenewing}
+      <SubscriptionsList customers={customers} canEdit={canEdit} onOpen={onOpen} onChange={onAssign} onRecord={setRenewing} onUnschedule={unschedule}
         onAdd={() => { setWho('new'); setRound((r) => r + 1); setCreating(true) }}/>
       {renewing && <RenewDialog token={token} client={renewing} onClose={() => setRenewing(null)} onDone={(row) => { setRenewing(null); onRenewed(row) }}/>}
     </>

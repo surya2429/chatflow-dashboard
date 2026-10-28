@@ -1075,6 +1075,52 @@ async function main() {
   r = await admF('POST', '/admin/documents/remove', { workspaceId: 'v2cyc', id: docId })
   check('a file can be removed', r.status === 200 && (r.body as RzEntity).documents.length === 0 && (await admF('GET', `/admin/customers/v2cyc/documents/${docId}`)).status === 404)
 
+  console.log('\nbilling v2: monthly add-ons on a yearly plan')
+  const YM = { plan: 'standard', period: 'yearly', addons: [{ id: 'crm', qty: 1 }, { id: 'extra-live-agent', qty: 1 }], monthlyAddons: ['extra-live-agent'] }
+  q = (await admF('POST', '/admin/quote', YM)).body as RzEntity
+  check('a yearly plan with CRM for the year and a Live Agent by the month: ₹35,000 + ₹9,600 + ₹1,000 = ₹45,600 before GST', q.charge.base === 45600 && q.charge.lines.some((l: RzEntity) => /monthly add-on, 30 days/.test(l.description)), q.charge)
+  check('the 30-day add-on ends a month in, and does not renew (a later year: ₹35,000 + ₹9,600 + GST = ₹52,628)', q.monthlyUntil === t + 30 * 86400 && q.renewal === 52628, [q.monthlyUntil, q.renewal])
+  q = (await admF('POST', '/admin/quote', { ...YM, prices: { 'extra-live-agent': 800 } })).body as RzEntity
+  check('a price typed for a monthly add-on is its monthly price (₹35,000 + ₹9,600 + ₹800)', q.charge.base === 45400, q.charge)
+  check('monthly add-ons are only for yearly plans', (await admF('POST', '/admin/quote', { plan: 'standard', period: 'monthly', addons: [{ id: 'crm', qty: 1 }], monthlyAddons: ['crm'] })).status === 400)
+  check('a monthly add-on has to be in the subscription', (await admF('POST', '/admin/quote', { ...YM, monthlyAddons: ['ai-agent'] })).status === 400)
+  r = await admF('POST', '/admin/plan', { ...YM, workspaceId: 'v2ym', profile: good, payment: { type: 'offline', amount: 53808 } })
+  const ymr = r.body as RzEntity
+  check('saved: CRM stays with the plan, the Live Agent is a 30-day extra', r.status === 200 && ymr.addons.map((a: RzEntity) => a.id).join() === 'crm'
+    && ymr.extraAddons.length === 1 && ymr.extraAddons[0].id === 'extra-live-agent' && ymr.extraAddons[0].term === 'monthly' && ymr.extraAddons[0].until === t + 30 * 86400, ymr)
+  check('…and the plan renews without it', ymr.renewal.total === 52628, ymr.renewal)
+
+  console.log('\nbilling v2: a plan scheduled to start when the current one ends')
+  const cur = ymr
+  r = await admF('POST', '/admin/plan', { workspaceId: 'v2ym', plan: 'pro', period: 'monthly', start: 'after_current', discounts: [{ target: 'total', type: 'percent', value: 10, name: 'Welcome' }] })
+  const sch = r.body as RzEntity
+  check('a different plan can be scheduled to follow the current one; nothing is charged', r.status === 200 && sch.plan === 'standard' && sch.paymentsCount === 1 && /^SUB-\d{5}$/.test(sch.nextSub?.number)
+    && sch.nextSub.plan === 'pro' && sch.nextSub.at === cur.currentEnd, sch)
+  const proQ = (await admF('POST', '/admin/quote', { plan: 'pro', period: 'monthly', discounts: [{ target: 'total', type: 'percent', value: 10, name: 'Welcome' }] })).body as RzEntity
+  check('it is the next renewal: Pro monthly with the 10% off, priced as quoted today', sch.renewal.scheduled === true && sch.renewal.plan === 'pro' && sch.renewal.at === cur.currentEnd && sch.renewal.total === proQ.charge.total, [sch.renewal, proQ.charge.total])
+  check('the plan they are on is untouched', sch.subscription.number === cur.subscription.number && sch.currentEnd === cur.currentEnd, sch)
+  r = await admF('POST', '/admin/renew', { workspaceId: 'v2ym', payment: { type: 'free' } })
+  check('it cannot be started before the day', r.status === 409 && (r.body as RzEntity).error === 'not_yet', r.body)
+  t = cur.currentEnd + 2 * 86400
+  r = await admF('POST', '/admin/renew', { workspaceId: 'v2ym', payment: { type: 'offline', amount: proQ.charge.total } })
+  const st = r.body as RzEntity
+  check('on the day, recording the payment starts it: Pro monthly from the end of the old plan, same number', r.status === 200 && st.plan === 'pro' && st.period === 'monthly' && st.currentStart === cur.currentEnd
+    && st.currentEnd === addPeriod(cur.currentEnd, 'monthly') && st.subscription.number === sch.nextSub.number && st.subscription.billed === 1 && st.nextSub === null && st.source === 'staff', st)
+  const stInv = ((await callF('GET', '/invoices', undefined, 'v2ym')).body as RzEntity).items[0]
+  check('…with its invoice for the amount received, naming the subscription', stInv.amountPaise === Math.round(proQ.charge.total * 100) && String((await callF('GET', `/invoices/${stInv.id}/view`, undefined, 'v2ym')).body).includes(`Subscription: <b>${sch.nextSub.number}`), stInv)
+  check('the 30-day add-on of the old plan is gone with it', st.extraAddons.length === 0, st.extraAddons)
+
+  await admF('POST', '/admin/plan', { workspaceId: 'v2sch', plan: 'standard', period: 'monthly', profile: good, payment: { type: 'free' } })
+  r = await admF('POST', '/admin/plan', { workspaceId: 'v2sch', plan: 'pro', period: 'yearly', start: 'after_current' })
+  check('a plan can be scheduled for a client with a running plan', r.status === 200 && (r.body as RzEntity).nextSub?.plan === 'pro', r.body)
+  r = await admF('POST', '/admin/subscriptions/unschedule', { workspaceId: 'v2sch' })
+  check('and taken back', r.status === 200 && (r.body as RzEntity).nextSub === null && (r.body as RzEntity).renewal.scheduled !== true, r.body)
+  await admF('POST', '/admin/plan', { workspaceId: 'v2sch', plan: 'pro', period: 'monthly', start: 'after_current' })
+  r = await admF('POST', '/admin/plan', { workspaceId: 'v2sch', plan: 'ai', period: 'monthly', profile: good, payment: { type: 'free' } })
+  check('starting a plan today replaces whatever was scheduled', r.status === 200 && (r.body as RzEntity).nextSub === null && (r.body as RzEntity).plan === 'ai', r.body)
+  r = await admF('POST', '/admin/plan', { workspaceId: 'v2brandnew', plan: 'pro', period: 'monthly', start: 'after_current', profile: good })
+  check('with no running plan there is nothing to follow', r.status === 409 && (r.body as RzEntity).error === 'no_current_plan', r.body)
+
   applyCatalog(DEFAULT_CATALOG)                                             // leave the shared catalog as found
 
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed')

@@ -30,6 +30,7 @@ const STATUS = {
   expired:       ['Expired', 'bg-slate-100 text-slate-600 border-slate-200'],
   cancelled:     ['Cancelled', 'bg-slate-100 text-slate-600 border-slate-200'],
   none:          ['No plan', 'bg-slate-50 text-slate-500 border-slate-200'],
+  scheduled:     ['Scheduled', 'bg-violet-50 text-violet-700 border-violet-200'],
 }
 /* How SmatBot sells to the client. A partner client belongs to a partner. */
 export const CUSTOMER_TYPES = [

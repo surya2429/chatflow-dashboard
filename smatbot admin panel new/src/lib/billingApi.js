@@ -48,7 +48,9 @@ export const billingAdmin = {
   plan:         (t, body) => call('POST', '/admin/plan', body, as(t)),
   /** Its price line by line, before saving. */
   quote:        (t, body) => call('POST', '/admin/quote', body, as(t)),
-  /** The next cycle of a staff subscription: { workspaceId, payment, note }. */
+  /** Take back a subscription scheduled to start after the current plan. */
+  unschedule:   (t, ws)   => call('POST', '/admin/subscriptions/unschedule', { workspaceId: ws }, as(t)),
+  /** The next cycle of a staff subscription, or the start of a scheduled one: { workspaceId, payment, note }. */
   renew:        (t, body) => call('POST', '/admin/renew', body, as(t)),
   /** Files attached to a client: { workspaceId, name, type, data (base64) }. */
   addDocument:  (t, body) => call('POST', '/admin/documents', body, as(t)),
