@@ -1041,6 +1041,7 @@ async function main() {
   let cy = r.body as RzEntity
   check('first cycle billed: a numbered subscription, 1 of 3, one month long', r.status === 200 && /^SUB-\d{5}$/.test(cy.subscription?.number) && cy.subscription.billed === 1 && cy.subscription.cycles === 3
     && cy.currentEnd === addPeriod(t, 'monthly') && cy.renewal.total === 4484 && cy.renewal.cycle === 2, cy)
+  check('the list shows when it started, who added it and what each cycle costs (₹3,000 + ₹800, before GST)', cy.subscription.startedAt === t && cy.subscription.by === ADMIN.email && cy.subscription.cycleValue === 3800, cy.subscription)
   const cycInv = ((await callF('GET', '/invoices', undefined, 'v2cyc')).body as RzEntity).items[0]
   const cycPage = String((await callF('GET', `/invoices/${cycInv.id}/view`, undefined, 'v2cyc')).body)
   check('the invoice shows the subscription, reference, remarks, PAN, ship-to and the offline payment',

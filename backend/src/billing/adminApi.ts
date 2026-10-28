@@ -276,7 +276,12 @@ export function createAdminApi(ctx: AdminCtx) {
       lastGrant: r.grants?.[0] ?? null,
       whatsappNumbers: r.whatsappNumbers ?? [],
       subscription: r.staffSub && r.mode !== 'autopay'
-        ? { number: r.staffSub.number, cycles: r.staffSub.cycles, billed: r.staffSub.billed, discountRenews: r.staffSub.discountRenews, reference: r.staffSub.reference ?? null, salesperson: r.staffSub.salesperson ?? null }
+        ? {
+          number: r.staffSub.number, cycles: r.staffSub.cycles, billed: r.staffSub.billed, discountRenews: r.staffSub.discountRenews, reference: r.staffSub.reference ?? null, salesperson: r.staffSub.salesperson ?? null,
+          startedAt: r.staffSub.startedAt, by: r.staffSub.by,
+          /** ₹ before GST each cycle costs from now on (their own prices; the discount only if it renews) */
+          cycleValue: r.plan && r.period ? r2(subCharge(r, r.staffSub).base) : null,
+        }
         : null,
       updatedAt: r.updatedAt,
     }

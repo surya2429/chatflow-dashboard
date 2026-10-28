@@ -39,7 +39,8 @@ const EMPTY_PROFILE = {
   legalName: '', contactName: '', email: '', phone: '', gstin: '', gstTreatment: 'unregistered', pan: '', taxExempt: false, paymentTerms: 0,
   address: EMPTY_ADDR, shipping: EMPTY_ADDR, contacts: [],
 }
-const TABS = [['plan', 'Plan & schedule', Layers], ['client', 'Client details', Building2], ['payment', 'Payment', Wallet], ['summary', 'Summary', ReceiptText]]
+const TABS = [['client', 'Client details', Building2], ['plan', 'Plan & schedule', Layers], ['payment', 'Payment', Wallet], ['summary', 'Summary', ReceiptText]]
+const DISCOUNT_MODES = [{ value: 'none', label: 'No discounts' }, { value: 'item', label: 'Item-level' }, { value: 'total', label: 'Transaction-level' }]
 const hasGstin = (t) => t === 'registered' || t === 'sez'
 const fromProfile = (p) => ({
   legalName: p.legalName, contactName: p.contactName, email: p.email, phone: p.phone, gstin: p.gstin || '',
@@ -118,7 +119,7 @@ function LineDiscount({ label, value, onChange }) {
 }
 
 /* One line of the subscription: the plan, or an add-on. */
-function Line({ icon, title, sub, qty, price, discount, amount, per, onRemove }) {
+function Line({ icon, title, sub, qty, price, discount, tax, amount, per, onRemove }) {
   return (
     <li className="px-4 py-4 flex flex-wrap items-center gap-x-4 gap-y-3">
       <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">{icon}</span>
@@ -128,6 +129,7 @@ function Line({ icon, title, sub, qty, price, discount, amount, per, onRemove })
       </div>
       <div className="flex flex-wrap items-center justify-end gap-3 ml-auto">
         {qty}{price}{discount}
+        <div className="w-16 text-center text-xs font-medium text-slate-500" title="Tax">{tax}</div>
         <div className="w-24 text-right">
           <div className="text-sm font-bold tabular-nums text-slate-900">{rupees(amount)}</div>
           <div className="text-[11px] text-slate-400">{per}</div>
@@ -143,12 +145,12 @@ function Page({ children }) {
   return <div className="bg-white border border-slate-200/70 rounded-3xl shadow-sm max-w-4xl mx-auto w-full">{children}</div>
 }
 
-export default function SubscriptionDialog({ token, initial, plans: allPlans, addonDefs, states, sac = '998314', onDone, onClose, inline, picker }) {
+export default function SubscriptionDialog({ token, initial, plans: allPlans, addonDefs, states, sac = '998314', gstPercent = 18, onDone, onClose, inline, picker }) {
   const Shell = inline ? Page : Modal
   // Plans on sale (public or private), plus the one the client is on even if it is archived.
   const plans = allPlans.filter((p) => p.status === 'active' || p.id === initial?.plan)
   const isNew = !initial?.workspaceId
-  const [tab, setTab] = useState('plan')
+  const [tab, setTab] = useState('client')
   const [ws, setWs] = useState(initial?.workspaceId || '')
   const [wsTouched, setWsTouched] = useState(false)
   const [prof, setProf] = useState(EMPTY_PROFILE)
@@ -214,6 +216,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
   const priceOf = (id) => prices[id] ?? String(listPrice(id))
   const canContinue = client && ['active', 'past_due'].includes(client.status) && client.plan === plan && client.currentEnd
   const unit = period === 'yearly' ? 'year' : 'month'
+  const taxLabel = prof.taxExempt ? 'Exempt' : `GST ${quote?.charge.gstPercent || gstPercent}%`
 
   const discounts = discMode === 'item'
     ? Object.entries(itemDisc).filter(([t, d]) => Number(d.value) > 0 && (t === 'plan' || chosen.some((a) => a.id === t))).map(([target, d]) => ({ target, type: d.type, value: Number(d.value) }))
@@ -328,7 +331,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
             <div className="text-base font-semibold text-slate-900 truncate">{showName}</div>
             <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">
               {client ? <><StatusPill status={client.status}/>{client.planName && <span>{client.planName} until {fmtDate(client.currentEnd)}</span>}</>
-                : isNew ? <span>Fill in their details under <button type="button" onClick={() => setTab('client')} className="font-semibold text-primary hover:underline">Client details</button></span> : <span>Loading…</span>}
+                : isNew ? <span>New client</span> : <span>Loading…</span>}
             </div>
           </div>
           {picker && <div className="w-full sm:w-72">{picker}</div>}
@@ -357,6 +360,27 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
         <div role="tabpanel" id={`sd-panel-${tab}`} aria-labelledby={`sd-tab-${tab}`} key={tab} className="flex-1 px-4 sm:px-6 pb-8 space-y-9 animate-fade-in">
           {tab === 'plan' && (
             <>
+              <Block title="Pricing options" hint="Set these first — they apply to every line below.">
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <Field id="sd-discmode" label="Discount"><Select value={discMode} onChange={setDiscMode} options={DISCOUNT_MODES}/></Field>
+                  <Field id="sd-discrenew" label="Discount applies to">
+                    <Select value={discountRenews ? 'every' : 'first'} onChange={(v) => setDiscountRenews(v === 'every')} disabled={discMode === 'none'}
+                      options={[{ value: 'every', label: 'Every renewal' }, { value: 'first', label: 'First cycle only' }]}/>
+                  </Field>
+                  <Field id="sd-tax" label="Tax" hint="Saved on the client's profile">
+                    <Select value={prof.taxExempt ? 'exempt' : 'taxable'} onChange={(v) => setP('taxExempt', v === 'exempt')}
+                      options={[{ value: 'taxable', label: `GST${gstPercent} [${gstPercent}%]` }, { value: 'exempt', label: 'Tax exempt [0%]' }]}/>
+                  </Field>
+                </div>
+                {discMode === 'total' && (
+                  <div className="grid sm:grid-cols-[minmax(0,1fr)_160px_130px] gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                    <Field id="sd-dname" label="Discount name"><input id="sd-dname" value={totalDisc.name} maxLength={60} onChange={(e) => setTotalDisc((d) => ({ ...d, name: e.target.value }))} className={inp}/></Field>
+                    <Field id="sd-dtype" label="Type"><Select value={totalDisc.type} onChange={(type) => setTotalDisc((d) => ({ ...d, type }))} options={[{ value: 'flat', label: 'Flat (₹)' }, { value: 'percent', label: 'Percentage (%)' }]}/></Field>
+                    <Field id="sd-dval" label="Value"><input id="sd-dval" type="number" min={0} step="any" value={totalDisc.value} placeholder="0" onChange={(e) => setTotalDisc((d) => ({ ...d, value: e.target.value }))} className={clsx(inp, 'text-right')}/></Field>
+                  </div>
+                )}
+              </Block>
+
               <Block title="Choose a plan" aside={<Segmented label="Billing period" value={period} onChange={changePeriod} size="sm" options={[['monthly', 'Monthly'], ['yearly', 'Yearly']]}/>}>
                 <div role="radiogroup" aria-label="Plan" className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-3">
                   {plans.map((p) => {
@@ -381,7 +405,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
                     <Line icon={<Layers size={17}/>} title={`${planDef?.name} plan`} sub={`Billed every ${unit} · SAC ${sac}`}
                       price={<Money label="Plan price" value={priceOf('plan')} onChange={(v) => setPrices((x) => ({ ...x, plan: v }))} className="w-28 h-9"/>}
                       discount={discMode === 'item' && <LineDiscount label="the plan" value={itemDisc.plan || { type: 'percent', value: '' }} onChange={(d) => setItemDisc((x) => ({ ...x, plan: d }))}/>}
-                      amount={lineAmount('plan', 1)} per={`per ${unit}`}/>
+                      tax={taxLabel} amount={lineAmount('plan', 1)} per={`per ${unit}`}/>
                     {chosen.map((c) => {
                       const def = addonDefs.find((d) => d.id === c.id)
                       return (
@@ -389,7 +413,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
                           qty={def?.maxQty > 1 ? <Stepper label={def.name} value={c.qty} max={def.maxQty} onChange={(q) => setQty(c.id, q)}/> : null}
                           price={<Money label={`${def?.name} price`} value={priceOf(c.id)} onChange={(v) => setPrices((x) => ({ ...x, [c.id]: v }))} className="w-28 h-9"/>}
                           discount={discMode === 'item' && <LineDiscount label={def?.name} value={itemDisc[c.id] || { type: 'percent', value: '' }} onChange={(d) => setItemDisc((x) => ({ ...x, [c.id]: d }))}/>}
-                          amount={lineAmount(c.id, c.qty)} per={`per ${unit}`} onRemove={() => removeAddon(c.id)}/>
+                          tax={taxLabel} amount={lineAmount(c.id, c.qty)} per={`per ${unit}`} onRemove={() => removeAddon(c.id)}/>
                       )
                     })}
                   </ul>
@@ -410,23 +434,6 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
                     </dl>
                   )}
                 </div>
-
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-                  <Segmented label="Discount" value={discMode} onChange={setDiscMode} size="sm" options={[['none', 'No discount'], ['item', 'Per item'], ['total', 'On the total']]}/>
-                  {discMode !== 'none' && (
-                    <label className="inline-flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer">
-                      <Switch checked={discountRenews} onChange={setDiscountRenews} label="Keep the discount on every renewal"/>
-                      Keep it on every renewal
-                    </label>
-                  )}
-                </div>
-                {discMode === 'total' && (
-                  <div className="grid sm:grid-cols-[minmax(0,1fr)_160px_130px] gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-                    <Field id="sd-dname" label="Discount name"><input id="sd-dname" value={totalDisc.name} maxLength={60} onChange={(e) => setTotalDisc((d) => ({ ...d, name: e.target.value }))} className={inp}/></Field>
-                    <Field id="sd-dtype" label="Type"><Select value={totalDisc.type} onChange={(type) => setTotalDisc((d) => ({ ...d, type }))} options={[{ value: 'flat', label: 'Flat (₹)' }, { value: 'percent', label: 'Percentage (%)' }]}/></Field>
-                    <Field id="sd-dval" label="Value"><input id="sd-dval" type="number" min={0} step="any" value={totalDisc.value} placeholder="0" onChange={(e) => setTotalDisc((d) => ({ ...d, value: e.target.value }))} className={clsx(inp, 'text-right')}/></Field>
-                  </div>
-                )}
               </Block>
 
               <Block title="Schedule">
@@ -511,9 +518,6 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
                   </Field>
                   <Field id="sd-terms" label="Payment terms" error={fe('paymentTerms')}>
                     <Select value={prof.paymentTerms} onChange={(v) => setP('paymentTerms', v)} options={TERMS}/>
-                  </Field>
-                  <Field id="sd-taxpref" label="Tax preference">
-                    <Segmented label="Tax preference" value={prof.taxExempt ? 'exempt' : 'taxable'} onChange={(v) => setP('taxExempt', v === 'exempt')} options={[['taxable', 'Taxable'], ['exempt', 'Tax exempt']]}/>
                   </Field>
                 </div>
               </Block>

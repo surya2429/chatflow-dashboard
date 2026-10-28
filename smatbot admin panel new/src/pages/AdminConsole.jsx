@@ -26,7 +26,7 @@ const TABS = [
   { id: 'dashboard', label: 'Dashboard',        icon: LayoutDashboard, sub: 'Revenue, clients and renewals at a glance' },
   { id: 'clients',   label: 'All clients',      icon: Users,           sub: 'Every client, with their plan, value and type' },
   { id: 'active',    label: 'Active clients',   icon: UserCheck,       sub: 'Clients on a live plan right now' },
-  { id: 'add',       label: 'Add subscription', icon: PlusCircle,      sub: 'Plan, add-ons, cycles, discount and payment for a client', adminOnly: true },
+  { id: 'add',       label: 'Add subscription', icon: PlusCircle,      sub: 'Every subscription added from this panel, and a button to add one' },
   { id: 'renewals',  label: 'Renewals',         icon: CalendarClock,   sub: 'Who pays next, when and how much' },
   { id: 'coupons',   label: 'Coupons',          icon: Tag,             sub: 'Discount codes customers use at checkout' },
   { id: 'team',      label: 'Team',             icon: UserCog,         sub: 'Staff who can sign in to this panel', adminOnly: true },
@@ -49,6 +49,7 @@ export default function AdminConsole() {
   const [plans, setPlans]         = useState([])
   const [states, setStates]       = useState([])
   const [sac, setSac]             = useState('998314')
+  const [gst, setGst]             = useState(18)
   const [loading, setLoading]     = useState(false)
   const [loadError, setLoadError] = useState('')
   const [email, setEmail]         = useState('')
@@ -68,7 +69,7 @@ export default function AdminConsole() {
     setLoading(true); setLoadError('')
     try {
       const [who, list, cfg, cat] = await Promise.all([billingAdmin.me(t), billingAdmin.customers(t), billing.config(), billingAdmin.catalog(t)])
-      setMe(who); setCustomers(list.items); setStates(cfg.states || []); if (cfg.sac) setSac(cfg.sac)
+      setMe(who); setCustomers(list.items); setStates(cfg.states || []); if (cfg.sac) setSac(cfg.sac); if (cfg.gstPercent) setGst(cfg.gstPercent)
       setPlans(cat.catalog.plans); setAddonDefs(cat.catalog.addons)
       setToken(t); saveToken(t)
     } catch (e) {
@@ -152,8 +153,10 @@ export default function AdminConsole() {
     clients: customers.length,
     active: customers.filter(live).length,
     renewals: customers.filter((c) => c.renewal && daysFromNow(c.renewal.at) <= 30).length,
+    add: customers.filter((c) => c.source === 'staff' && c.plan).length,
   }
   const signedOut = () => signOut('Your session has ended. Please sign in again.')
+  const renewed = (row) => { reload(); flash(`Cycle ${row.subscription?.billed} of ${row.subscription?.number} recorded — ${row.customer || row.workspaceId} runs until ${fmtDate(row.currentEnd)}.`) }
   const subscribed = (row) => {
     reload()
     flash(`${row.planName} (${row.period}) given to ${row.customer || row.workspaceId} until ${fmtDate(row.currentEnd)}.`)
@@ -214,9 +217,10 @@ export default function AdminConsole() {
         {tab.id === 'dashboard' && <DashboardTab token={token} customers={customers} rev={rev} onOpen={setOpenWs} onFilter={go} onAuthLost={signedOut}/>}
         {tab.id === 'clients'   && <ClientsTab key={route.hash} customers={customers} initialFilters={route.params} canEdit={canEdit} onOpen={setOpenWs} onAssign={setAssigning} onLoginAs={loginAsCustomer}/>}
         {tab.id === 'active'    && <ClientsTab key={route.hash} activeOnly customers={customers} initialFilters={route.params} canEdit={canEdit} onOpen={setOpenWs} onAssign={setAssigning} onLoginAs={loginAsCustomer}/>}
-        {tab.id === 'add'       && <AddSubscriptionPage token={token} customers={customers} plans={plans} addonDefs={addonDefs} states={states} sac={sac} onDone={subscribed}/>}
+        {tab.id === 'add'       && <AddSubscriptionPage token={token} customers={customers} plans={plans} addonDefs={addonDefs} states={states} sac={sac} gstPercent={gst} canEdit={canEdit}
+          onOpen={setOpenWs} onAssign={setAssigning} onDone={subscribed} onRenewed={renewed}/>}
         {tab.id === 'renewals'  && <RenewalsTab key={route.hash} token={token} customers={customers} initialFilters={route.params} canEdit={canEdit} onOpen={setOpenWs}
-          onRenewed={(row) => { reload(); flash(`Cycle ${row.subscription?.billed} of ${row.subscription?.number} recorded — ${row.customer || row.workspaceId} runs until ${fmtDate(row.currentEnd)}.`) }}/>}
+          onRenewed={renewed}/>}
         {tab.id === 'coupons'   && <CouponsTab token={token} canEdit={canEdit} plans={plans} addonDefs={addonDefs}/>}
         {tab.id === 'team'      && <TeamTab token={token} me={me}/>}
       </main>
@@ -226,7 +230,7 @@ export default function AdminConsole() {
           onClose={() => setOpenWs(null)} onAssign={setAssigning} onLoginAs={loginAsCustomer} onChanged={reload}/>
       )}
       {assigning !== undefined && (
-        <SubscriptionDialog token={token} initial={assigning} plans={plans} addonDefs={addonDefs} states={states} sac={sac} onClose={() => setAssigning(undefined)}
+        <SubscriptionDialog token={token} initial={assigning} plans={plans} addonDefs={addonDefs} states={states} sac={sac} gstPercent={gst} onClose={() => setAssigning(undefined)}
           onDone={(row) => { setAssigning(undefined); subscribed(row) }}/>
       )}
       {toast && (
