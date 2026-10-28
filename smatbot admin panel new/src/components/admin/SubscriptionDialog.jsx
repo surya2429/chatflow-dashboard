@@ -348,7 +348,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
     const disc = lines.filter((x) => x.kind === 'discount' && x.id === key).reduce((n, x) => n - x.amount, 0)
     return {
       key: l.id || l.kind, name: l.kind === 'plan' ? `${planDef?.name} plan` : def?.name || l.id,
-      sub: l.kind === 'plan' ? `${period === 'yearly' ? 'Yearly' : 'Monthly'} plan · SAC ${sac}` : `${monthly ? '30-day add-on' : def?.unit} · SAC ${sac}`,
+      sub: l.kind === 'plan' ? `${period === 'yearly' ? 'Yearly' : 'Monthly'} plan · SAC ${sac}` : `${[monthly ? 'Monthly add-on · 30 days' : period === 'yearly' ? 'Yearly add-on' : null, def?.unit].filter(Boolean).join(' · ')} · SAC ${sac}`,
       qty: l.qty, rate: l.rate, listRate, custom: listRate != null && Math.abs(l.rate - listRate) >= 0.005, gross: l.amount, disc, net: l.amount - disc,
     }
   })
@@ -453,7 +453,7 @@ export default function SubscriptionDialog({ token, initial, plans: allPlans, ad
                       return (
                         <Line key={c.id} icon={<Sparkles size={17}/>} title={def?.name} sub={`${def?.unit} · SAC ${sac}`}
                           billing={period === 'yearly' ? <Segmented label={`${def?.name} billing`} size="sm" value={isMonthly(c.id) ? 'month' : 'plan'} onChange={(v) => setMonthly(c.id, v === 'month')}
-                            options={[['plan', 'With the plan'], ['month', 'Monthly · 30 days']]}/> : null}
+                            options={[['plan', `Yearly · ${rupees(def?.yearly)}`], ['month', `Monthly · ${rupees(def?.monthly)} · 30 days`]]}/> : null}
                           qty={def?.maxQty > 1 ? <Stepper label={def.name} value={c.qty} max={def.maxQty} onChange={(q) => setQty(c.id, q)}/> : null}
                           price={<Money label={`${def?.name} price`} value={priceOf(c.id)} onChange={(v) => setPrices((x) => ({ ...x, [c.id]: v }))} className="w-28 h-9"/>}
                           discount={discMode === 'item' && <LineDiscount label={def?.name} value={itemDisc[c.id] || { type: 'percent', value: '' }} onChange={(d) => setItemDisc((x) => ({ ...x, [c.id]: d }))}/>}
