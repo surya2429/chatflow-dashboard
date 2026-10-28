@@ -4,9 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2, LogIn, FileText, AlertCircle, Printer } from 'lucide-react'
 import { billingAdmin } from '../../lib/billingApi'
 import Select from '../Select'
+import ClientDocuments from './ClientDocuments'
 import {
   Modal, StatusPill, ErrorNote, fmtDate, fmtRel, rupees, num, btnPrimary, btnGhost, allowancesOf, CUSTOMER_TYPES, customerTypeLabel, PARTNER_TYPE,
 } from './ui'
+
+const GST_LABEL = { registered: 'Registered business – regular', unregistered: 'Unregistered business', consumer: 'Consumer', sez: 'Special economic zone (SEZ)', overseas: 'Overseas' }
+const addressText = (a, state) => [a.attention && `Attn: ${a.attention}`, a.line1, a.line2, `${a.city}, ${state || a.stateCode} ${a.pincode}`].filter(Boolean).join(', ')
 
 function Section({ title, children, note }) {
   return (
@@ -133,7 +137,15 @@ export default function ClientDrawer({ token, workspaceId, customers, canEdit, o
                 <Item k="Email" v={p.email && <a href={`mailto:${p.email}`} className="text-primary hover:underline">{p.email}</a>}/>
                 <Item k="Phone" v={p.phone && <a href={`tel:+91${p.phone}`} className="text-primary hover:underline">+91 {p.phone}</a>}/>
                 <Item k="GSTIN" v={p.gstin || 'Not registered'}/>
-                <Item k="Address" v={[p.address.line1, p.address.line2, `${p.address.city}, ${c.state} ${p.address.pincode}`].filter(Boolean).join(', ')}/>
+                <Item k="GST treatment" v={GST_LABEL[p.gstTreatment || (p.gstin ? 'registered' : 'unregistered')]}/>
+                {p.pan && <Item k="PAN" v={p.pan}/>}
+                <Item k="Tax preference" v={p.taxExempt ? 'Tax exempt (no GST)' : 'Taxable'}/>
+                <Item k="Payment terms" v={p.paymentTerms ? `Net ${p.paymentTerms}` : 'Due on receipt'}/>
+                <Item k="Billing address" v={addressText(p.address, c.state)}/>
+                {p.shipping && <Item k="Shipping address" v={addressText(p.shipping, c.shippingState)}/>}
+                {p.contacts?.length > 0 && (
+                  <Item k="Other contacts" v={p.contacts.map((x) => <div key={x.name}>{[x.name, x.role, x.email, x.phone && `+91 ${x.phone}`].filter(Boolean).join(' · ')}</div>)}/>
+                )}
               </dl>
             ) : <p className="text-sm text-slate-500">They haven't added billing details yet.</p>}
           </Section>
@@ -144,6 +156,11 @@ export default function ClientDrawer({ token, workspaceId, customers, canEdit, o
                 <Item k="Plan" v={`${c.planName} · ${c.period}`}/>
                 <Item k="How they pay" v={c.autopay ? `Autopay${c.card ? ` · ${c.card.network || 'Card'} •••• ${c.card.last4}` : ''}` : c.lastGrant && c.mode === 'once' && !c.paymentsCount ? 'Assigned by SmatBot' : 'Pay once (manual renewal)'}/>
                 <Item k="Current period" v={`${fmtDate(c.currentStart)} → ${fmtDate(c.currentEnd)}`}/>
+                {c.staffSub && (
+                  <Item k="Subscription" v={`${c.staffSub.number} · cycle ${c.staffSub.billed} of ${c.staffSub.cycles ?? '∞ (never expires)'}${c.staffSub.discounts.length ? ` · discount ${c.staffSub.discountRenews ? 'every renewal' : 'first cycle only'}` : ''}`}/>
+                )}
+                {c.staffSub?.salesperson && <Item k="Salesperson" v={c.staffSub.salesperson}/>}
+                {c.staffSub?.reference && <Item k="Reference" v={c.staffSub.reference}/>}
                 <Item k={c.renewal?.type === 'autopay' ? 'Next charge' : 'Renewal due'} v={c.renewal && `${fmtDate(c.renewal.at)} (${fmtRel(c.renewal.at)}) · ${c.renewal.planName} ${c.renewal.period} · ${rupees(c.renewal.total)}`}/>
                 {c.addons.length > 0 && <Item k="Add-ons with the plan" v={c.addons.map((a) => `${a.name}${a.qty > 1 ? ` × ${a.qty}` : ''}`).join(', ')}/>}
                 {c.extraAddons.length > 0 && <Item k="One-time add-ons" v={`${c.extraAddons.length} running`}/>}
@@ -164,6 +181,10 @@ export default function ClientDrawer({ token, workspaceId, customers, canEdit, o
               </dl>
             </Section>
           )}
+
+          <Section title={`Documents (${c.documents.length})`}>
+            <ClientDocuments token={token} workspaceId={c.workspaceId} initial={c.documents} canEdit={canEdit}/>
+          </Section>
 
           <Section title={`Payments (${c.payments.length}) · ${rupees(c.paidTotal)} collected`}>
             {c.payments.length ? (

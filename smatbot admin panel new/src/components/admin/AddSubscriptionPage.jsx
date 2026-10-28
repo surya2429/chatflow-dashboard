@@ -5,7 +5,7 @@ import Select from '../Select'
 import SubscriptionDialog from './SubscriptionDialog'
 import { Chips, StatusPill, fmtDate } from './ui'
 
-export default function AddSubscriptionPage({ token, customers, plans, addonDefs, states, onDone }) {
+export default function AddSubscriptionPage({ token, customers, plans, addonDefs, states, sac, onDone }) {
   const [who, setWho] = useState('existing')     // existing · new
   const [ws, setWs] = useState('')
   const [round, setRound] = useState(0)           // a fresh, empty form after each save
@@ -34,11 +34,11 @@ export default function AddSubscriptionPage({ token, customers, plans, addonDefs
       </section>
 
       {who === 'new' && (
-        <SubscriptionDialog key={`new:${round}`} inline token={token} initial={null} plans={plans} addonDefs={addonDefs} states={states}
+        <SubscriptionDialog key={`new:${round}`} inline token={token} initial={null} plans={plans} addonDefs={addonDefs} states={states} sac={sac}
           onClose={() => setRound((r) => r + 1)} onDone={(row) => { setRound((r) => r + 1); onDone(row) }}/>
       )}
       {who === 'existing' && client && (
-        <SubscriptionDialog key={`${ws}:${round}`} inline token={token} initial={client} plans={plans} addonDefs={addonDefs} states={states}
+        <SubscriptionDialog key={`${ws}:${round}`} inline token={token} initial={client} plans={plans} addonDefs={addonDefs} states={states} sac={sac}
           onClose={() => setWs('')} onDone={(row) => { setWs(''); setRound((r) => r + 1); onDone(row) }}/>
       )}
       {who === 'existing' && !client && (

@@ -9,7 +9,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import {
   ADDON_CATALOG, FEATURES, METRICS, PLAN_CATALOG, addPeriod, addonDef, addonLines, currentCatalog, eligibleAddons, isPeriod, isPlanId,
-  lockPrices, mergeAddons, normalizeAddons, planName, validateCatalog, DAY, AFA_LIMIT_RUPEES,
+  addonRate, lockPrices, mergeAddons, planRate, normalizeAddons, planName, validateCatalog, DAY, AFA_LIMIT_RUPEES,
   type AddonSel, type Catalog, type Discount, type Period, type PlanId, type PriceLine, type PriceLock, type PriceOpts, type Charge,
 } from './catalog.js'
 import {
@@ -289,6 +289,7 @@ export function createAdminApi(ctx: AdminCtx) {
     return reply(200, {
       ...row(r),
       profile: r.profile ?? null,
+      shippingState: r.profile?.shipping ? stateName(r.profile.shipping.stateCode) : null,
       payments: r.payments.map((x) => ({
         id: x.id, at: x.at, amountPaise: x.amountPaise, planName: planName(x.plan), period: x.period, status: x.status, method: x.method ?? null, coupon: x.coupon ?? null,
         kind: x.kind ?? r.invoices?.find((i) => i.paymentId === x.id)?.kind ?? null, offline: x.offline ?? null,
@@ -297,6 +298,8 @@ export function createAdminApi(ctx: AdminCtx) {
       grants: r.grants ?? [],
       notes: r.notes ?? [],
       staffSub: r.staffSub && r.mode !== 'autopay' ? r.staffSub : null,
+      /** ₹ per cycle before GST they pay for the plan and each add-on (their own, locked prices) */
+      prices: r.plan && r.period ? { plan: planRate(r.plan, r.period, r.priceLock), ...Object.fromEntries((r.addons ?? []).map((a) => [a.id, addonRate(a.id, r.period!, r.priceLock)])) } : null,
       documents: r.documents ?? [],
       usage: await ctx.usageOf(r),
       allowances: ctx.allowancesOf(r),

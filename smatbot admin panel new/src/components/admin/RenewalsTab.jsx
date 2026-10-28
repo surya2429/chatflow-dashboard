@@ -6,12 +6,14 @@ import { ArrowUpDown } from 'lucide-react'
 import DatePicker from '../DatePicker'
 import { Kpi, Chips, StatusPill, customerTypeLabel, fmtDate, fmtRel, rupees, num, daysFromNow, downloadCsv, btnGhost } from './ui'
 import { ClientFilterBar, useClientFilters, STATUS_FILTERS } from './ClientFilters'
+import RenewDialog from './RenewDialog'
 
 const WINDOWS = [['overdue', 'Overdue'], ['7', 'Next 7 days'], ['30', 'Next 30 days'], ['90', 'Next 90 days'], ['all', 'All'], ['custom', 'Custom dates']]
 const dayStart = (ymd) => new Date(`${ymd}T00:00:00`).getTime() / 1000
 const dayEnd = (ymd) => new Date(`${ymd}T23:59:59`).getTime() / 1000
 
-export default function RenewalsTab({ customers, initialFilters, onOpen }) {
+export default function RenewalsTab({ token, customers, initialFilters, canEdit, onOpen, onRenewed }) {
+  const [renewing, setRenewing] = useState(null)
   const [win, setWin] = useState('30')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -81,6 +83,7 @@ export default function RenewalsTab({ customers, initialFilters, onOpen }) {
                 <th className="px-3 py-2.5 font-semibold">Type</th>
                 <th className="px-3 py-2.5 font-semibold text-right">Amount</th>
                 <th className="px-3 py-2.5 font-semibold">Status</th>
+                {canEdit && <th className="px-4 py-2.5 font-semibold text-right">Action</th>}
               </tr>
             </thead>
             <tbody>
@@ -103,19 +106,28 @@ export default function RenewalsTab({ customers, initialFilters, onOpen }) {
                     <td className="px-3 py-3 whitespace-nowrap">
                       <span className={clsx('text-xs font-semibold', c.renewal.type === 'autopay' ? 'text-violet-700' : 'text-slate-600')}>{c.renewal.type === 'autopay' ? 'Autopay' : 'Manual'}</span>
                       {c.card && <div className="text-[11px] text-slate-400">{c.card.network || 'Card'} •••• {c.card.last4}</div>}
+                      {c.renewal.cycle && <div className="text-[11px] text-slate-400">Cycle {c.renewal.cycle}{c.renewal.cycles ? ` of ${c.renewal.cycles}` : ''} · {c.subscription?.number}</div>}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums font-semibold text-slate-800">{rupees(c.renewal.total)}</td>
                     <td className="px-3 py-3"><StatusPill status={c.status}/></td>
+                    {canEdit && (
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {c.renewal.cycle ? (
+                          <button type="button" onClick={() => setRenewing(c)} className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-primary hover:bg-primary-hover">Record payment</button>
+                        ) : <span className="text-slate-300">—</span>}
+                      </td>
+                    )}
                   </tr>
                 )
               })}
               {!rows.length && (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">No renewals match these filters.</td></tr>
+                <tr><td colSpan={canEdit ? 7 : 6} className="px-4 py-12 text-center text-sm text-slate-400">No renewals match these filters.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </section>
+      {renewing && <RenewDialog token={token} client={renewing} onClose={() => setRenewing(null)} onDone={(row) => { setRenewing(null); onRenewed(row) }}/>}
     </div>
   )
 }

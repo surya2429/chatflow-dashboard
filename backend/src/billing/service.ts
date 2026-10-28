@@ -1702,7 +1702,7 @@ export function createBillingService(opts: BillingServiceOptions) {
       }]))
       return reply(200, {
         configured: Boolean(rz && keyId), keyId: keyId ?? null, gstPercent, approvalLimit: AFA_LIMIT_RUPEES, prices,
-        states: STATES, supplierStateCode: supplier, autopayEngine: engineMode,
+        states: STATES, supplierStateCode: supplier, sac: seller.sac, autopayEngine: engineMode,
         catalog: { plans, addons, features: FEATURES, metrics: METRICS },
         addons,
         salesEmail: salesContact(),

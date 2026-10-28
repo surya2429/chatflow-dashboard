@@ -48,6 +48,7 @@ export default function AdminConsole() {
   const [addonDefs, setAddonDefs] = useState([])
   const [plans, setPlans]         = useState([])
   const [states, setStates]       = useState([])
+  const [sac, setSac]             = useState('998314')
   const [loading, setLoading]     = useState(false)
   const [loadError, setLoadError] = useState('')
   const [email, setEmail]         = useState('')
@@ -67,7 +68,7 @@ export default function AdminConsole() {
     setLoading(true); setLoadError('')
     try {
       const [who, list, cfg, cat] = await Promise.all([billingAdmin.me(t), billingAdmin.customers(t), billing.config(), billingAdmin.catalog(t)])
-      setMe(who); setCustomers(list.items); setStates(cfg.states || [])
+      setMe(who); setCustomers(list.items); setStates(cfg.states || []); if (cfg.sac) setSac(cfg.sac)
       setPlans(cat.catalog.plans); setAddonDefs(cat.catalog.addons)
       setToken(t); saveToken(t)
     } catch (e) {
@@ -213,8 +214,9 @@ export default function AdminConsole() {
         {tab.id === 'dashboard' && <DashboardTab token={token} customers={customers} rev={rev} onOpen={setOpenWs} onFilter={go} onAuthLost={signedOut}/>}
         {tab.id === 'clients'   && <ClientsTab key={route.hash} customers={customers} initialFilters={route.params} canEdit={canEdit} onOpen={setOpenWs} onAssign={setAssigning} onLoginAs={loginAsCustomer}/>}
         {tab.id === 'active'    && <ClientsTab key={route.hash} activeOnly customers={customers} initialFilters={route.params} canEdit={canEdit} onOpen={setOpenWs} onAssign={setAssigning} onLoginAs={loginAsCustomer}/>}
-        {tab.id === 'add'       && <AddSubscriptionPage token={token} customers={customers} plans={plans} addonDefs={addonDefs} states={states} onDone={subscribed}/>}
-        {tab.id === 'renewals'  && <RenewalsTab key={route.hash} customers={customers} initialFilters={route.params} onOpen={setOpenWs}/>}
+        {tab.id === 'add'       && <AddSubscriptionPage token={token} customers={customers} plans={plans} addonDefs={addonDefs} states={states} sac={sac} onDone={subscribed}/>}
+        {tab.id === 'renewals'  && <RenewalsTab key={route.hash} token={token} customers={customers} initialFilters={route.params} canEdit={canEdit} onOpen={setOpenWs}
+          onRenewed={(row) => { reload(); flash(`Cycle ${row.subscription?.billed} of ${row.subscription?.number} recorded — ${row.customer || row.workspaceId} runs until ${fmtDate(row.currentEnd)}.`) }}/>}
         {tab.id === 'coupons'   && <CouponsTab token={token} canEdit={canEdit}/>}
         {tab.id === 'team'      && <TeamTab token={token} me={me}/>}
       </main>
@@ -224,7 +226,7 @@ export default function AdminConsole() {
           onClose={() => setOpenWs(null)} onAssign={setAssigning} onLoginAs={loginAsCustomer} onChanged={reload}/>
       )}
       {assigning !== undefined && (
-        <SubscriptionDialog token={token} initial={assigning} plans={plans} addonDefs={addonDefs} states={states} onClose={() => setAssigning(undefined)}
+        <SubscriptionDialog token={token} initial={assigning} plans={plans} addonDefs={addonDefs} states={states} sac={sac} onClose={() => setAssigning(undefined)}
           onDone={(row) => { setAssigning(undefined); subscribed(row) }}/>
       )}
       {toast && (

@@ -48,6 +48,12 @@ export const billingAdmin = {
   plan:         (t, body) => call('POST', '/admin/plan', body, as(t)),
   /** Its price line by line, before saving. */
   quote:        (t, body) => call('POST', '/admin/quote', body, as(t)),
+  /** The next cycle of a staff subscription: { workspaceId, payment, note }. */
+  renew:        (t, body) => call('POST', '/admin/renew', body, as(t)),
+  /** Files attached to a client: { workspaceId, name, type, data (base64) }. */
+  addDocument:  (t, body) => call('POST', '/admin/documents', body, as(t)),
+  removeDocument: (t, ws, id) => call('POST', '/admin/documents/remove', { workspaceId: ws, id }, as(t)),
+  document:     (t, ws, id) => call('GET', `${wsPath(ws)}/documents/${encodeURIComponent(id)}`, undefined, as(t)),
   /** The full price list: every plan and add-on, private and archived ones too. */
   catalog:      (t)       => call('GET', '/admin/catalog', undefined, as(t)),
   setCustomerType: (t, body) => call('POST', '/admin/customers/type', body, as(t)),

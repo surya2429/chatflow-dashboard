@@ -66,7 +66,7 @@ export function Modal({ title, subtitle, onClose, side, wide, children }) {
     <div className={clsx('fixed inset-0 z-50 bg-slate-900/40 flex', side ? 'justify-end' : 'items-center justify-center p-4')}
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div role="dialog" aria-modal="true" aria-label={title}
-        className={clsx('bg-white shadow-2xl flex flex-col min-w-0', side ? 'w-full max-w-2xl h-full' : clsx('w-full rounded-2xl max-h-[92vh]', wide ? 'max-w-4xl h-[92vh]' : 'max-w-lg'))}>
+        className={clsx('bg-white shadow-2xl flex flex-col min-w-0', side ? 'w-full max-w-2xl h-full' : clsx('w-full rounded-2xl max-h-[92vh]', wide ? 'max-w-6xl h-[92vh]' : 'max-w-lg'))}>
         <div className="flex items-start gap-3 px-5 py-4 border-b border-slate-100">
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-bold text-slate-900 truncate">{title}</h2>
