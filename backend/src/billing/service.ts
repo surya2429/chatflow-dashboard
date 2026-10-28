@@ -39,7 +39,7 @@ import { DUNNING_POLICY, assertPolicy, attemptTimes, deadlineFor, type DunningPo
 import { buildInvoice, financialYear, invoiceNumber, renderInvoiceHtml, type SellerInfo } from './invoice.js'
 import { DEFAULT_LOGO } from './logo.js'
 import { createHash, timingSafeEqual } from 'node:crypto'
-import { couponDiscount, couponProblem, type Coupon } from './admin.js'
+import { couponBase, couponDiscount, couponProblem, type Coupon } from './admin.js'
 import { createAdminApi } from './adminApi.js'
 import type {
   BillingRecord, BillingRequest, BillingResponse, BillingStore, Dunning, Invoice, PaymentMethod, UsageItem,
@@ -1642,7 +1642,7 @@ export function createBillingService(opts: BillingServiceOptions) {
     const cp = (await coupons()).find((c) => c.code === code)
     const problem = couponProblem(cp, plan, period, now(), Boolean(rec?.payments.some((p) => p.coupon === code)))
     if (problem) return { error: problem }
-    return { code, discount: couponDiscount(cp!, chargeOf(plan, period, rec, { addons }).base) }
+    return { code, discount: couponDiscount(cp!, couponBase(cp!, chargeOf(plan, period, rec, { addons }).lines)) }
   }
 
   /* Counted once the payment has gone through.

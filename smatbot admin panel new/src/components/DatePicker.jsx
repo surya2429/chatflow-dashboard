@@ -23,10 +23,11 @@ function formatDisplay(v) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-export default function DatePicker({ value, onChange, min, className = '', textSize = 'text-[11px]' }) {
+export default function DatePicker({ value, onChange, min, max, className = '', textSize = 'text-[11px]' }) {
   const today = new Date(); today.setHours(0,0,0,0)
   const sel   = parseYMD(value)
   const minDt = parseYMD(min) || today
+  const maxDt = parseYMD(max)           // optional: days after it can't be picked
 
   const [open,      setOpen]      = useState(false)
   const [viewYear,  setViewYear]  = useState((sel || today).getFullYear())
@@ -58,7 +59,7 @@ export default function DatePicker({ value, onChange, min, className = '', textS
   }
 
   function selectDay(d) {
-    if (!d || d < minDt) return
+    if (!d || d < minDt || (maxDt && d > maxDt)) return
     onChange(toYMD(d))
     setOpen(false)
   }
@@ -86,14 +87,14 @@ export default function DatePicker({ value, onChange, min, className = '', textS
         <div className="absolute top-full left-0 mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl z-[200] p-3.5 w-64 animate-fade-in">
           {/* Month navigation */}
           <div className="flex items-center justify-between mb-3">
-            <button onClick={prevMonth}
+            <button type="button" onClick={prevMonth}
               className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 transition-colors">
               <ChevronLeft size={14}/>
             </button>
             <span className="text-[12px] font-bold text-slate-800 tracking-tight">
               {MONTHS[viewMonth]} {viewYear}
             </span>
-            <button onClick={nextMonth}
+            <button type="button" onClick={nextMonth}
               className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500 transition-colors">
               <ChevronRight size={14}/>
             </button>
@@ -112,7 +113,7 @@ export default function DatePicker({ value, onChange, min, className = '', textS
               if (!d) return <div key={i}/>
               const isSel      = sel && d.toDateString() === sel.toDateString()
               const isToday    = d.toDateString() === today.toDateString()
-              const isDisabled = d < minDt
+              const isDisabled = d < minDt || (maxDt && d > maxDt)
               return (
                 <button
                   key={i}

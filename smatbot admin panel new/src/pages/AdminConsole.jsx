@@ -217,7 +217,7 @@ export default function AdminConsole() {
         {tab.id === 'add'       && <AddSubscriptionPage token={token} customers={customers} plans={plans} addonDefs={addonDefs} states={states} sac={sac} onDone={subscribed}/>}
         {tab.id === 'renewals'  && <RenewalsTab key={route.hash} token={token} customers={customers} initialFilters={route.params} canEdit={canEdit} onOpen={setOpenWs}
           onRenewed={(row) => { reload(); flash(`Cycle ${row.subscription?.billed} of ${row.subscription?.number} recorded — ${row.customer || row.workspaceId} runs until ${fmtDate(row.currentEnd)}.`) }}/>}
-        {tab.id === 'coupons'   && <CouponsTab token={token} canEdit={canEdit}/>}
+        {tab.id === 'coupons'   && <CouponsTab token={token} canEdit={canEdit} plans={plans} addonDefs={addonDefs}/>}
         {tab.id === 'team'      && <TeamTab token={token} me={me}/>}
       </main>
 

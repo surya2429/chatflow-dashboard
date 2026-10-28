@@ -391,7 +391,7 @@ export function createAdminApi(ctx: AdminCtx) {
     const amount = Number(p.amount)
     if (!Number.isFinite(amount) || amount < 1 || amount > 10_000_000) return { ok: false, res: err(400, 'invalid_amount', 'Enter the amount received, including GST.') }
     const method = String(p.method ?? '')
-    if (!(OFFLINE_METHODS as readonly string[]).includes(method)) return { ok: false, res: err(400, 'invalid_method', 'Choose how it was paid.') }
+    if (method && !(OFFLINE_METHODS as readonly string[]).includes(method)) return { ok: false, res: err(400, 'invalid_method', 'Choose how it was paid.') }
     const at = p.paidAt == null ? now() : Number(p.paidAt)
     if (!Number.isInteger(at) || at > now() + 3600 || at < now() - 366 * DAY) return { ok: false, res: err(400, 'invalid_date', 'The payment date must be within the last year.') }
     return { ok: true, p: { type: 'offline', amountPaise: Math.round(amount * 100), method, reference: String(p.reference ?? '').trim().slice(0, 100), at } }
@@ -589,7 +589,7 @@ export function createAdminApi(ctx: AdminCtx) {
         offline: { method: pay.p.method, reference: pay.p.reference, by: me.email }, extra: extraOf(rec.staffSub),
       })
     }
-    rec.grants = [{ at: t, plan, period, addons: sel.addons, until: end, note: [pay.p.type === 'offline' ? `Paid offline ₹${(pay.p.amountPaise / 100).toLocaleString('en-IN')} (${pay.p.method}${pay.p.reference ? ` ${pay.p.reference}` : ''})` : 'Free', note].filter(Boolean).join(' — '), by: me.email }, ...(rec.grants ?? [])]
+    rec.grants = [{ at: t, plan, period, addons: sel.addons, until: end, note: [pay.p.type === 'offline' ? `Paid offline ₹${(pay.p.amountPaise / 100).toLocaleString('en-IN')}${pay.p.method || pay.p.reference ? ` (${[pay.p.method, pay.p.reference].filter(Boolean).join(' ')})` : ''}` : 'Free', note].filter(Boolean).join(' — '), by: me.email }, ...(rec.grants ?? [])]
     rec.updatedAt = t
     await store.put(rec)
     const off = r2(-c.lines.filter((l) => l.kind === 'discount').reduce((n, l) => n + l.amount, 0))
@@ -639,7 +639,7 @@ export function createAdminApi(ctx: AdminCtx) {
         offline: { method: pay.p.method, reference: pay.p.reference, by: me.email }, extra: extraOf(rec.staffSub),
       })
     }
-    rec.grants = [{ at: t, plan, period, addons, until: end, note: [`Cycle ${rec.staffSub.billed} of ${sub.number}`, pay.p.type === 'offline' ? `paid offline ₹${(pay.p.amountPaise / 100).toLocaleString('en-IN')} (${pay.p.method})` : 'free', note].filter(Boolean).join(' — '), by: me.email }, ...(rec.grants ?? [])]
+    rec.grants = [{ at: t, plan, period, addons, until: end, note: [`Cycle ${rec.staffSub.billed} of ${sub.number}`, pay.p.type === 'offline' ? `paid offline ₹${(pay.p.amountPaise / 100).toLocaleString('en-IN')}${pay.p.method ? ` (${pay.p.method})` : ''}` : 'free', note].filter(Boolean).join(' — '), by: me.email }, ...(rec.grants ?? [])]
     rec.updatedAt = t
     await store.put(rec)
     await audit(me, 'Renewed subscription', rec.workspaceId, `${sub.number} cycle ${rec.staffSub.billed}${sub.cycles ? ` of ${sub.cycles}` : ''} until ${new Date(end * 1000).toISOString().slice(0, 10)} · ${pay.p.type}${note ? ` — ${note}` : ''}`)

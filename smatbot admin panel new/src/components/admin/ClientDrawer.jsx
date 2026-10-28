@@ -196,7 +196,7 @@ export default function ClientDrawer({ token, workspaceId, customers, canEdit, o
                       <tr key={x.id} className="border-t border-slate-100">
                         <td className="px-1 py-1.5 whitespace-nowrap">{fmtDate(x.at)}</td>
                         <td className="px-1 py-1.5">{x.kind === 'addon' ? 'Add-ons (one-time)' : `${x.planName} · ${x.period}${x.kind === 'renewal' ? ' · renewal' : ''}`}{x.coupon && <span className="ml-1 text-emerald-700">({x.coupon})</span>}</td>
-                        <td className="px-1 py-1.5 uppercase text-slate-500">{x.method || '—'}</td>
+                        <td className="px-1 py-1.5 uppercase text-slate-500">{x.method?.replace(/_/g, ' ') || (x.offline ? 'offline' : '—')}</td>
                         <td className="px-1 py-1.5 text-right tabular-nums font-semibold">{rupees(x.amountPaise / 100)}</td>
                       </tr>
                     ))}

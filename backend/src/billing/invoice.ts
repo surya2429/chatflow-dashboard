@@ -234,7 +234,7 @@ export function renderInvoiceHtml(inv: Invoice, seller?: Partial<SellerInfo>): s
   </tbody></table>
   <div class="notes small"><b>Notes</b><ol>${allNotes.map((n) => `<li>${esc(n)}</li>`).join('')}</ol></div>
   <div class="foot small muted">
-    ${inv.offline ? `Paid offline by ${esc(methodText(inv.method).replace(/_/g, ' '))}.` : `Paid by ${esc(methodText(inv.method))} via Razorpay.`} This is a computer-generated invoice and needs no signature.<br>
+    ${inv.offline ? `Paid offline${inv.method ? ` by ${esc(methodText(inv.method).replace(/_/g, ' '))}` : ''}.` : `Paid by ${esc(methodText(inv.method))} via Razorpay.`} This is a computer-generated invoice and needs no signature.<br>
     ${inv.kind === 'dunning_recovery' ? 'Issued for a renewal collected after an earlier failed attempt.' : inv.kind === 'renewal' ? 'Automatic renewal.' : ''}
     ${contact ? `<div style="margin-top:10px"><b>Questions about this invoice?</b> ${contact}</div>` : ''}
   </div>

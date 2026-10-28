@@ -787,6 +787,18 @@ async function main() {
   await adm('POST', '/admin/coupons/update', { code: 'BIGFLAT', active: false })
   q = (await call('POST', '/quote', { plan: 'broadcast', period: 'monthly', coupon: 'bigflat' }, 'cpn2')).body as RzEntity
   check('a switched-off coupon is not valid', q.couponError === 'That coupon code is not valid.', q.couponError)
+  r = await adm('POST', '/admin/coupons', { code: 'PLANONLY', name: 'Plan only 50', type: 'percent', value: 50, addons: [] })
+  check('a coupon has a name and can be for the plan only', r.status === 200 && (r.body as RzEntity).name === 'Plan only 50' && (r.body as RzEntity).addons.length === 0, r.body)
+  const withCrm = { plan: 'standard', period: 'monthly', addons: [{ id: 'crm', qty: 1 }] }
+  q = (await call('POST', '/quote', { ...withCrm, coupon: 'planonly' }, 'cpn2')).body as RzEntity
+  check('"plan only": 50% comes off the plan (₹3,500 → ₹1,750), not the CRM add-on (₹1,000)', q.coupon?.discount === 1750 && q.charge.base === 2750, q)
+  await adm('POST', '/admin/coupons', { code: 'CRMONLY', type: 'flat', value: 300, addons: ['crm'] })
+  q = (await call('POST', '/quote', { ...withCrm, coupon: 'crmonly' }, 'cpn2')).body as RzEntity
+  check('a chosen add-on is discounted along with the plan', q.coupon?.discount === 300 && q.charge.base === 4200, q)
+  await adm('POST', '/admin/coupons', { code: 'ALLADD', type: 'percent', value: 10 })
+  q = (await call('POST', '/quote', { ...withCrm, coupon: 'alladd' }, 'cpn2')).body as RzEntity
+  check('without a choice a coupon takes money off the plan and every add-on, as before', q.coupon?.discount === 450 && q.charge.base === 4050, q)
+  check('an unknown add-on is refused', (await adm('POST', '/admin/coupons', { code: 'BADADD', type: 'flat', value: 5, addons: ['nope'] })).status === 400)
 
   console.log('\nadmin console: customer types')
   const cpn1 = (await adm('GET', '/admin/customers/cpn1')).body as RzEntity
@@ -1020,6 +1032,10 @@ async function main() {
   check('it must run at least the cycles billed now', (await admF('POST', '/admin/quote', { ...CYC, cycles: 2, expiresAfter: 1 })).status === 400)
   const cycProf = { ...good, legalName: 'Cycle Co', pan: 'abcde1234f', gstTreatment: 'unregistered', paymentTerms: 30, contacts: [{ name: 'Ravi', email: 'ravi@example.com' }],
     shipping: { attention: 'Stores', line1: '9 Dock Road', city: 'Mumbai', stateCode: '27', pincode: '400001' } }
+  r = await admF('POST', '/admin/plan', { workspaceId: 'v2nomethod', plan: 'standard', period: 'monthly', profile: good, payment: { type: 'offline', amount: 4130 } })
+  const nmInv = ((await callF('GET', '/invoices', undefined, 'v2nomethod')).body as RzEntity).items[0]
+  const nmPage = String((await callF('GET', `/invoices/${nmInv.id}/view`, undefined, 'v2nomethod')).body)
+  check('an offline payment needs no method, reference or date: it is recorded now and the invoice just says paid offline', r.status === 200 && nmInv.amountPaise === 413000 && nmPage.includes('Paid offline.'), r.body)
   check('a bad PAN is refused', (await admF('POST', '/admin/plan', { ...CYC, profile: { ...cycProf, pan: '123' } })).status === 422)
   r = await admF('POST', '/admin/plan', { ...CYC, profile: cycProf, payment: { type: 'offline', amount: 4035.6, method: 'upi', reference: 'U1' } })
   let cy = r.body as RzEntity

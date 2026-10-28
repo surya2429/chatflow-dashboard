@@ -2,7 +2,7 @@
 // staff passwords, signed sign-in tokens, and coupons (who may use one and what it takes off).
 import { createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
-import { isPeriod, isPlanId, type Period, type PlanId } from './catalog.js'
+import { addonDef, isPeriod, isPlanId, type PriceLine, type Period, type PlanId } from './catalog.js'
 import type { CustomerType } from './types.js'
 
 /* ── staff accounts ──────────────────────────────────────────────────────
@@ -71,6 +71,8 @@ export function readSession(key: string, token: string | undefined, now: number)
    would be authorising a recurring amount different from what they pay today. */
 export interface Coupon {
   code: string
+  /** what staff call it (the code is what customers type) */
+  name?: string
   type: 'percent' | 'flat'
   /** percent 1–99, or ₹ off */
   value: number
@@ -78,6 +80,8 @@ export interface Coupon {
   plans: PlanId[]
   /** empty = monthly and yearly */
   periods: Period[]
+  /** add-ons it takes money off: null = every add-on, [] = the plan only (missing on older coupons = every add-on) */
+  addons?: string[] | null
   expiresAt: number | null
   maxUses: number | null
   oncePerCustomer: boolean
@@ -88,7 +92,7 @@ export interface Coupon {
   createdBy: string
 }
 
-type CouponFields = Pick<Coupon, 'code' | 'type' | 'value' | 'plans' | 'periods' | 'expiresAt' | 'maxUses' | 'oncePerCustomer' | 'note'>
+type CouponFields = Pick<Coupon, 'code' | 'name' | 'type' | 'value' | 'plans' | 'periods' | 'addons' | 'expiresAt' | 'maxUses' | 'oncePerCustomer' | 'note'>
 
 export function parseCoupon(input: Record<string, unknown>, now: number): { ok: true; coupon: CouponFields } | { ok: false; message: string } {
   const fail = (message: string) => ({ ok: false as const, message })
@@ -103,6 +107,9 @@ export function parseCoupon(input: Record<string, unknown>, now: number): { ok: 
   if (!plans.every(isPlanId)) return fail('One of the plans is not valid.')
   const periods = Array.isArray(input.periods) ? input.periods : []
   if (!periods.every(isPeriod)) return fail('Billing must be monthly or yearly.')
+  const name = String(input.name ?? '').trim().slice(0, 60)
+  const addons = input.addons == null || input.addons === 'all' ? null : input.addons
+  if (addons !== null && !(Array.isArray(addons) && addons.length <= 60 && addons.every((a) => typeof a === 'string' && addonDef(a)))) return fail('One of the add-ons is not valid.')
   const expiresAt = input.expiresAt == null ? null : Number(input.expiresAt)
   if (expiresAt !== null && !(Number.isInteger(expiresAt) && expiresAt > now)) return fail('The expiry date must be in the future.')
   const maxUses = input.maxUses == null || input.maxUses === '' ? null : Number(input.maxUses)
@@ -110,7 +117,8 @@ export function parseCoupon(input: Record<string, unknown>, now: number): { ok: 
   return {
     ok: true,
     coupon: {
-      code, type, value: Math.round(value * 100) / 100, plans: [...new Set(plans)], periods: [...new Set(periods)],
+      code, ...(name ? { name } : {}), type, value: Math.round(value * 100) / 100, plans: [...new Set(plans)], periods: [...new Set(periods)],
+      addons: addons === null ? null : [...new Set(addons as string[])],
       expiresAt, maxUses, oncePerCustomer: input.oncePerCustomer === true, note: String(input.note ?? '').trim().slice(0, 200),
     },
   }
@@ -125,6 +133,12 @@ export function couponProblem(c: Coupon | undefined, plan: PlanId, period: Perio
   if (c.periods.length && !c.periods.includes(period)) return `That coupon is only for ${c.periods[0]} billing.`
   if (c.oncePerCustomer && usedBefore) return 'You have already used that coupon.'
   return null
+}
+
+/** What a coupon can take money off: the plan, and the add-ons it is for. */
+export function couponBase(c: Coupon, lines: PriceLine[]): number {
+  const sum = lines.filter((l) => l.kind === 'plan' || (l.kind === 'addon' && (c.addons == null || c.addons.includes(l.id ?? '')))).reduce((n, l) => n + l.amount, 0)
+  return Math.round(sum * 100) / 100
 }
 
 /** ₹ off a price before GST. Always leaves at least ₹1, because Razorpay can't take a ₹0 payment. */
