@@ -2289,6 +2289,29 @@ function CustomSheetFieldsSection({
           {/* Question -> column mapping */}
           <div className="space-y-2">
             <label className="label mb-0">Select the questions to be stored in google sheets</label>
+            <div className="rounded-xl border border-primary/20 bg-primary/[0.03] px-3.5 py-3 space-y-2">
+              <p className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5"><Info size={12} className="text-primary"/> What can go into a column?</p>
+              <dl className="space-y-1.5 text-[11px] leading-relaxed text-slate-600">
+                <div>
+                  <dt className="inline font-bold text-slate-800">Question</dt>
+                  <dd className="inline"> — saves what the visitor answered to one question in your flow. Each visitor gets their own value.
+                    <span className="block text-slate-500">Example: the question <i>“What is your name?”</i> → column <b>User Name</b> saves <i>Priya Sharma</i>.</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="inline font-bold text-slate-800">Static Text / Select a choice</dt>
+                  <dd className="inline"> — saves the same fixed text for every visitor. You type it once; it never changes with the conversation.
+                    <span className="block text-slate-500">Example: <i>Website chat</i> → column <b>Source</b> saves <i>Website chat</i> in every row, so you can tell where the lead came from.</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="inline font-bold text-slate-800">Data Composition</dt>
+                  <dd className="inline"> — joins several parts into one cell, in the order you list them. Each part is a question’s answer or fixed text.
+                    <span className="block text-slate-500">Example: <i>First name</i> answer + <i>Last name</i> answer → column <b>Full Name</b> saves <i>Priya Sharma</i>. Or <i>Order no.</i> answer + the text <i>-WEB</i> → <i>#10482-WEB</i>.</span>
+                  </dd>
+                </div>
+              </dl>
+            </div>
             <div className="space-y-1.5">
               {mappings.map(row => {
                 const flow = MOCK_FLOWS.find(f => f.id === row.flowId)
