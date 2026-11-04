@@ -9,6 +9,7 @@ import { createBillingService } from './backend/src/billing/service.ts'
 import { createRazorpay } from './backend/src/billing/razorpay.ts'
 import { createFileBillingStore } from './backend/src/billing/fileStore.ts'
 import { loadLogo } from './backend/src/billing/logo.ts'
+import { metaReportResponse } from './backend/src/whatsapp/metaReports.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -263,9 +264,39 @@ function devBillingApi(env) {
   }
 }
 
+/**
+ * Dev stand-in for backend/src/routes/whatsappReports.routes.ts: the same Meta report code, with the
+ * WhatsApp credentials read from .env.local (WA_ACCESS_TOKEN, WA_BUSINESS_ACCOUNT_ID, optional
+ * WA_GRAPH_API_VERSION). Without them the endpoint answers { configured: false } and the page shows sample data.
+ */
+function devMetaReportsApi(env) {
+  const creds = { wabaId: env.WA_BUSINESS_ACCOUNT_ID || undefined, accessToken: env.WA_ACCESS_TOKEN || undefined, version: env.WA_GRAPH_API_VERSION || 'v20.0' }
+  return {
+    name: 'dev-meta-reports-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/whatsapp/meta-reports')) return next()
+        try {
+          const query = Object.fromEntries(new URL(req.url, 'http://localhost').searchParams)
+          const { status, body } = await metaReportResponse(query, creds)
+          res.statusCode = status
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(body))
+        } catch (err) {
+          console.error('[meta-reports]', err)
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: 'internal_server_error' }))
+        }
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   root: __dirname,
-  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, ''))],
+  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, ''))],
   // Vite's default bind on this machine only listens on [::1], so anything that
   // resolves `localhost` to 127.0.0.1 — most browsers, curl, the in-app preview
   // pane — cannot connect and the page just never loads. `host: true` binds

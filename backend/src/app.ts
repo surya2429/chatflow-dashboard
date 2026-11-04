@@ -6,6 +6,7 @@ import { healthRouter } from './routes/health.routes.js'
 import { instagramRouter } from './routes/instagram.routes.js'
 import { botsRouter } from './routes/bots.routes.js'
 import { billingRouter } from './routes/billing.routes.js'
+import { whatsappReportsRouter } from './routes/whatsappReports.routes.js'
 
 export function createApp(): Express {
   const app = express()
@@ -44,6 +45,7 @@ export function createApp(): Express {
   app.use('/api', instagramRouter)
   app.use('/api', botsRouter)
   app.use('/api', billingRouter)
+  app.use('/api', whatsappReportsRouter)
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path })

@@ -19,6 +19,7 @@ import clsx from 'clsx'
 import { subDays, format } from 'date-fns'
 import { NativeSelect } from '../components/Select'
 import DatePicker from '../components/DatePicker'
+import MetaReportsTab from '../components/analytics/MetaReportsTab'
 
 /* ─── helpers ───────────────────────────────────────────────────── */
 const rand  = (a, b) => Math.floor(a + Math.random() * (b - a))
@@ -240,6 +241,7 @@ const TABS = [
   { id: 'appt',      label: 'Appointments'          },
   { id: 'broadcast', label: 'Broadcasts'            },
   { id: 'ai',        label: 'AI Usage'              },
+  { id: 'meta',      label: 'Meta Reports'          },
 ]
 
 /* ─── tooltip ───────────────────────────────────────────────────── */
@@ -2590,6 +2592,7 @@ export default function Analytics() {
       {tab === 'appt'      && <AppointmentsTab range={range}/>}
       {tab === 'broadcast' && <BroadcastsTab range={range} selTemplateId={selTemplateId} setSelTemplateId={setSelTemplateId}/>}
       {tab === 'ai'        && <AITab range={range}/>}
+      {tab === 'meta'      && <MetaReportsTab range={range} fromDate={fromDate} toDate={toDate}/>}
 
     </div>
   )
