@@ -10,6 +10,7 @@ import { createRazorpay } from './backend/src/billing/razorpay.ts'
 import { createFileBillingStore } from './backend/src/billing/fileStore.ts'
 import { loadLogo } from './backend/src/billing/logo.ts'
 import { metaReportResponse } from './backend/src/whatsapp/metaReports.ts'
+import { messageLinkResponse } from './backend/src/whatsapp/messageLinks.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -294,9 +295,45 @@ function devMetaReportsApi(env) {
   }
 }
 
+/**
+ * Dev stand-in for backend/src/routes/messageLinks.routes.ts: WhatsApp message links / QR codes, using
+ * WA_PHONE_NUMBER_ID and WA_ACCESS_TOKEN from .env.local. Without them it answers { configured: false }
+ * and the Settings page runs in sample mode (nothing is sent to WhatsApp).
+ */
+function devMessageLinksApi(env) {
+  const creds = { phoneNumberId: env.WA_PHONE_NUMBER_ID || undefined, accessToken: env.WA_ACCESS_TOKEN || undefined, version: env.WA_GRAPH_API_VERSION || 'v20.0' }
+  return {
+    name: 'dev-message-links-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = req.url?.match(/^\/api\/whatsapp\/message-links(?:\/([^/?]+))?(?:\?.*)?$/)
+        if (!m) return next()
+        const chunks = []
+        req.on('data', (c) => chunks.push(c))
+        req.on('end', async () => {
+          let body = {}
+          try { body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {} } catch { /* leave empty */ }
+          try {
+            const { status, body: out } = await messageLinkResponse({ method: req.method || 'GET', code: m[1] ? decodeURIComponent(m[1]) : undefined, body }, creds)
+            res.statusCode = status
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(out))
+          } catch (err) {
+            console.error('[message-links]', err)
+            res.statusCode = 500
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'internal_server_error' }))
+          }
+        })
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   root: __dirname,
-  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, ''))],
+  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, ''))],
   // Vite's default bind on this machine only listens on [::1], so anything that
   // resolves `localhost` to 127.0.0.1 — most browsers, curl, the in-app preview
   // pane — cannot connect and the page just never loads. `host: true` binds

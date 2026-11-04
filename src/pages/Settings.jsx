@@ -9,11 +9,12 @@ import {
   Upload, Download, Search,
   Calendar, CheckCircle2, Activity, Send,
   UserPlus, Zap, Globe, GripVertical, Languages, Repeat2, ChevronDown,
-  Building2, Phone, Mail, AlertCircle, Search as SearchIcon,
+  Building2, Phone, Mail, AlertCircle, Search as SearchIcon, QrCode,
 } from 'lucide-react'
 import clsx from 'clsx'
 import Select, { NativeSelect } from '../components/Select'
 import BillingSection from '../components/billing/BillingSection'
+import WidgetQRSection from '../components/settings/WidgetQRSection'
 
 /* ─── Nav structure ───────────────────────────────────────────────────────── */
 const SECTIONS = [
@@ -29,6 +30,7 @@ const SECTIONS = [
   { id:'tags',           label:'Tags & Labels',      icon:Tag,          group:'Productivity' },
   { id:'custom_fields',  label:'Custom Fields',      icon:List,         group:'Productivity' },
   { id:'auto_reply',     label:'Auto Replies',       icon:Bot,          group:'Productivity' },
+  { id:'wa_widget',      label:'Widget & QR Codes',  icon:QrCode,       group:'Channels'     },
   { id:'api',            label:'API & Webhooks',     icon:Code,         group:'Developer'    },
   { id:'billing',        label:'Billing & Plan',     icon:CreditCard,   group:'Billing'      },
   { id:'security',       label:'Security',           icon:Lock,         group:'Security'     },
@@ -37,11 +39,11 @@ const SECTIONS = [
   { id:'wa_conversations',label:'Conversations',     icon:Repeat2,      group:'Bot'          },
   { id:'wa_automation',  label:'Automation',         icon:Zap,          group:'Bot'          },
 ]
-const GROUPS = ['Account','Team','Productivity','Developer','Billing','Security','Bot']
+const GROUPS = ['Account','Team','Productivity','Channels','Developer','Billing','Security','Bot']
 
 /* Sections that only make sense for one channel. The workspace-level settings
    (team, roles, billing, security…) are shared by every product. */
-const WHATSAPP_ONLY_SECTIONS = ['whatsapp', 'wa_conversations', 'wa_automation']
+const WHATSAPP_ONLY_SECTIONS = ['whatsapp', 'wa_conversations', 'wa_automation', 'wa_widget']
 const sectionsFor = productId =>
   productId === 'webchat' ? SECTIONS.filter(s => !WHATSAPP_ONLY_SECTIONS.includes(s.id)) : SECTIONS
 
@@ -2684,7 +2686,7 @@ const SECTION_COMPONENTS = {
   general: GeneralSection, whatsapp: WhatsAppSection, business_hours: BusinessHoursSection,
   notifications: NotificationsSection, team: TeamSection, departments: DepartmentsSection, roles: RolesSection,
   sla: SLASection, canned: CannedSection, tags: TagsSection, custom_fields: CustomFieldsSection,
-  auto_reply: AutoReplySection, api: APISection, billing: BillingSection,
+  auto_reply: AutoReplySection, wa_widget: WidgetQRSection, api: APISection, billing: BillingSection,
   security: SecuritySection, audit: AuditSection,
   language: LanguageSection, wa_conversations: WAConversationsSection, wa_automation: WAAutomationSection,
 }
