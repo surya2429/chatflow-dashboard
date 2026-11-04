@@ -2,8 +2,10 @@
 // (messages sent / delivered, free vs paid, per-category volume and approximate charges), pulled from the
 // WhatsApp Business Management API through /api/whatsapp/meta-reports.
 //
-// Layout: headline tiles → free-vs-paid donut + charges split → one breakdown table. Styled like the other
-// Analytics tabs (white cards, hairline borders, small type) so it reads as part of the same page.
+// Two looks for the same numbers, switchable in the header (the choice is remembered):
+//   Dashboard view — headline tiles → free-vs-paid donut + charges split → one breakdown table, styled like
+//                    the other Analytics tabs.
+//   Meta view      — the five outlined cards of Meta's own Insights page, in the same order and wording.
 import { useEffect, useMemo, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
@@ -19,6 +21,16 @@ const CATEGORIES = [
   { key: 'marketing_lite',               label: 'Marketing - lite',                color: '#06b6d4' },
   { key: 'authentication_international', label: 'Authentication - international',  color: '#fb923c' },
   { key: 'ai_provider',                  label: 'AI provider',                     color: '#ec4899' },
+]
+/* Meta's own order and line colours, for the Meta view. */
+const META_ROWS = [
+  { key: 'marketing',                    label: 'Marketing',                      color: '#06b6d4' },
+  { key: 'marketing_lite',               label: 'Marketing - lite',               color: '#f59e0b' },
+  { key: 'utility',                      label: 'Utility',                        color: '#db2777' },
+  { key: 'authentication',               label: 'Authentication',                 color: '#f97316' },
+  { key: 'authentication_international', label: 'Authentication - international', color: '#64748b' },
+  { key: 'ai_provider',                  label: 'AI provider',                    color: '#0891b2' },
+  { key: 'service',                      label: 'Service',                        color: '#0d9488' },
 ]
 const FREE_COLOR = '#22C55E'
 const PAID_COLOR = '#0066ff'
@@ -95,9 +107,84 @@ function Card({ title, sub, right, children, className = '' }) {
   )
 }
 
+/* ── Meta view: the cards as Meta's Insights page lays them out ───────────── */
+function Dash({ color }) {
+  return <span className="inline-block w-5 flex-shrink-0 border-t-2 border-dashed" style={{ borderColor: color }}/>
+}
+function MRow({ color, label, value, tip }) {
+  return (
+    <div className="flex items-center gap-2 py-[5px] text-[11px]">
+      <Dash color={color}/>
+      <span className="text-slate-600">{label}</span>
+      {tip && <Tip text={tip}/>}
+      <span className="flex-1"/>
+      <span className="text-slate-600 tabular-nums">{value}</span>
+    </div>
+  )
+}
+function MCard({ title, tip, total, color, children }) {
+  return (
+    <div className="rounded-lg border border-slate-300 bg-white px-4 py-3.5">
+      <div className="flex items-center gap-2 pb-2.5">
+        <Dash color={color}/>
+        <span className="text-[12px] font-bold text-slate-800">{title}</span>
+        {tip && <Tip text={tip}/>}
+        <span className="flex-1"/>
+        <span className="text-[13px] font-bold text-slate-900 tabular-nums">{total}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
+function MetaView({ d, cur }) {
+  const known = new Set(META_ROWS.map(r => r.key))
+  const other = (map) => Object.entries(map || {}).filter(([k]) => !known.has(k)).reduce((n, [, v]) => n + v, 0)
+  const list = (map, fmt) => {
+    const out = META_ROWS.map(r => <MRow key={r.key} color={r.color} label={r.label} value={fmt(map?.[r.key] ?? 0)}/>)
+    if (other(map) > 0) out.push(<MRow key="other" color="#94a3b8" label="Other" value={fmt(other(map))}/>)
+    return out
+  }
+  const cash = (v) => (cur === 'INR' ? `₹${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} INR` : `${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`)
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+        <MCard title="All messages" color="#6d28d9" total="">
+          <MRow color="#db2777" label="Messages sent" tip="Messages sent from your WhatsApp Business Account." value={num(d.messages.sent)}/>
+          <MRow color="#22d3ee" label="Messages delivered" tip="Messages that reached the customer's device." value={num(d.messages.delivered)}/>
+          <MRow color="#a16207" label="Messages received" tip="Meta's reporting API doesn't return inbound counts, so this shows a dash when it isn't available." value={num(d.messages.received)}/>
+        </MCard>
+        <MCard title="Messages delivered" tip="Delivered messages by pricing category, free and paid together." color="#0d9488" total={num(d.messages.delivered)}>
+          {list(d.deliveredByCategory, num)}
+        </MCard>
+        <MCard title="Free messages delivered" tip="Replies inside the 24-hour customer service window and click-to-WhatsApp entry points cost nothing." color="#6d28d9" total={num(d.free.total)}>
+          <MRow color="#22d3ee" label="Free customer service" tip="Replies within the 24-hour customer service window." value={num(d.free.customerService)}/>
+          <MRow color="#db2777" label="Free entry point" tip="Conversations started from a Click-to-WhatsApp ad or Facebook Page button." value={num(d.free.entryPoint)}/>
+          {d.free.other > 0 && <MRow color="#94a3b8" label="Other free" value={num(d.free.other)}/>}
+        </MCard>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start max-w-[820px]">
+        <MCard title="Paid messages delivered" tip="Delivered messages that Meta charges for." color="#6d28d9" total={num(d.paid.total)}>
+          {list(d.paid.byCategory, num)}
+        </MCard>
+        <MCard title="Approximate total charges" tip="Estimated from Meta's pricing for this period. Your invoice is the final figure." color="#6d28d9" total={cash(d.charges.total)}>
+          {list(d.charges.byCategory, cash)}
+        </MCard>
+      </div>
+    </div>
+  )
+}
+
+/* The header's two-way switch; the choice sticks across visits. */
+const VIEW_KEY = 'chatflow_meta_reports_view'
+function loadView() {
+  try { return localStorage.getItem(VIEW_KEY) === 'meta' ? 'meta' : 'dashboard' } catch { return 'dashboard' }
+}
+
 export default function MetaReportsTab({ range, fromDate, toDate }) {
   const [state, setState] = useState({ loading: true, data: null, error: null })
   const [reload, setReload] = useState(0)
+  const [view, setViewState] = useState(loadView)
+  const setView = (v) => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v) } catch { /* private mode: just not remembered */ } }
 
   useEffect(() => {
     const win = windowFor(range, fromDate, toDate)
@@ -139,10 +226,20 @@ export default function MetaReportsTab({ range, fromDate, toDate }) {
         </h2>
         <p className="text-[11px] text-slate-400 mt-0.5">Message volume and charges straight from Meta's WhatsApp Business API. Figures are approximate and can differ slightly from your invoices.</p>
       </div>
-      <button onClick={() => setReload(n => n + 1)} disabled={loading}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-surface-border text-[11px] font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-50">
-        <RefreshCw size={11} className={loading ? 'animate-spin' : ''}/> Refresh
-      </button>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1" role="group" aria-label="Report layout">
+          {[['dashboard', 'Dashboard view'], ['meta', 'Meta view']].map(([id, label]) => (
+            <button key={id} onClick={() => setView(id)} aria-pressed={view === id}
+              className={clsx('px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all whitespace-nowrap', view === id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => setReload(n => n + 1)} disabled={loading}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-surface-border text-[11px] font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-50">
+          <RefreshCw size={11} className={loading ? 'animate-spin' : ''}/> Refresh
+        </button>
+      </div>
     </div>
   )
 
@@ -187,6 +284,7 @@ export default function MetaReportsTab({ range, fromDate, toDate }) {
       {error && <p className="text-[11px] text-red-600">Couldn't refresh: {error}</p>}
 
       <div className={clsx('space-y-4 transition-opacity', loading && 'opacity-50')}>
+        {view === 'meta' ? <MetaView d={d} cur={cur}/> : (<>
         {/* headline numbers */}
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <Tile icon={Send} color="#0066ff" label="Messages sent" value={num(sent)} tip="Messages sent from your WhatsApp Business Account."/>
@@ -295,6 +393,7 @@ export default function MetaReportsTab({ range, fromDate, toDate }) {
             </table>
           </div>
         </Card>
+        </>)}
       </div>
     </div>
   )
