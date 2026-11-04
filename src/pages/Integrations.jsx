@@ -2160,16 +2160,16 @@ function IntegrationDetailView({ integration, initialSection = 'overview', saved
 /* including conditional insert/update logic — mirrors the reference flow. */
 /* Ready-made values for a static cell. The field is a text box with these as suggestions: type your own or pick one. */
 const STATIC_CHOICES = ['Website chat', 'WhatsApp', 'Instagram', 'Landing page', 'Lead', 'Customer', 'Yes', 'No']
-function StaticValueInput({ value, onChange, listId }) {
+function StaticValueInput({ value, onChange, listId, placeholder = 'Type or select a choice', className = 'flex-1 min-w-[140px]' }) {
   return (
-    <div className="relative flex-1 min-w-[140px]">
-      <input type="text" list={listId} value={value ?? ''} onChange={e => onChange(e.target.value)} placeholder="Type or select a choice"
+    <div className={`relative ${className}`}>
+      <input type="text" list={listId} value={value ?? ''} onChange={e => onChange(e.target.value)} placeholder={placeholder}
         className="w-full rounded-lg border border-surface-border bg-white pl-2.5 pr-7 py-1.5 text-[11px] text-slate-700 outline-none focus:border-primary [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-y-0 [&::-webkit-calendar-picker-indicator]:right-0 [&::-webkit-calendar-picker-indicator]:w-7 [&::-webkit-calendar-picker-indicator]:cursor-pointer"/>
       <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
     </div>
   )
 }
-const COLUMN_PRESETS = ['User Name', 'Mobile No', 'Email Address', 'Full Name', 'Company', 'City', 'Order ID', 'Budget', 'Custom Field']
+const COLUMN_PRESETS = ['User Name', 'Mobile No', 'Email Address', 'Full Name', 'Company', 'City', 'Order ID', 'Budget']
 const CONDITION_OPERATORS = [
   { v: 'equals', l: 'Equals' },
   { v: 'not_equals', l: 'Not Equals' },
@@ -2243,7 +2243,7 @@ function CustomSheetFieldsSection({
 
   const partDone = (x) => (x.source === 'static' ? Boolean(x.value?.trim()) : Boolean(x.questionId))
   const hasSource = (m) => (m.source === 'static' ? Boolean(m.value?.trim()) : m.source === 'composition' ? (m.parts ?? []).some(partDone) : Boolean(m.questionId))
-  const validMappings = mappings.filter(m => hasSource(m) && m.column)
+  const validMappings = mappings.filter(m => hasSource(m) && m.column?.trim())
   const canSave = Boolean(sheetUrl.trim()) && validMappings.length > 0
 
   return (
@@ -2300,6 +2300,9 @@ function CustomSheetFieldsSection({
           {/* Question -> column mapping */}
           <div className="space-y-2">
             <label className="label mb-0">Select the questions to be stored in google sheets</label>
+            <datalist id="sheet-column-names">
+              {COLUMN_PRESETS.map(c => <option key={c} value={c}/>)}
+            </datalist>
             <datalist id="sheet-static-choices">
               {[...new Set([...STATIC_CHOICES, ...mappings.flatMap(m => [m.source === 'static' ? m.value : null, ...(m.parts ?? []).map(x => x.source === 'static' ? x.value : null)])].filter(Boolean))].map(v => <option key={v} value={v}/>)}
             </datalist>
@@ -2356,12 +2359,8 @@ function CustomSheetFieldsSection({
                       <StaticValueInput listId="sheet-static-choices" value={row.value} onChange={v => updateMapping(row.id, { value: v })}/>
                     )}
                     {row.source === 'composition' && <div className="flex-1"/>}
-                    <div className="w-full sm:w-36 flex-shrink-0">
-                      <NativeSelect sm value={row.column} onChange={e => updateMapping(row.id, { column: e.target.value })}>
-                        <option value="">Column…</option>
-                        {COLUMN_PRESETS.map(c => <option key={c} value={c}>{c}</option>)}
-                      </NativeSelect>
-                    </div>
+                    <StaticValueInput listId="sheet-column-names" className="w-full sm:w-40 flex-shrink-0" placeholder="Column name…"
+                      value={row.column} onChange={v => updateMapping(row.id, { column: v })}/>
                     <button type="button" onClick={() => removeMapping(row.id)} className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0">
                       <Trash2 size={14}/>
                     </button>
