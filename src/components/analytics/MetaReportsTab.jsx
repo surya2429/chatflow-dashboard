@@ -113,26 +113,26 @@ function Dash({ color }) {
 }
 function MRow({ color, label, value, tip }) {
   return (
-    <div className="flex items-center gap-2 py-[5px] text-[11px]">
+    <div className="flex items-center gap-2 h-[34px] text-[11px]">
       <Dash color={color}/>
-      <span className="text-slate-600">{label}</span>
+      <span className="text-slate-600 truncate">{label}</span>
       {tip && <Tip text={tip}/>}
       <span className="flex-1"/>
-      <span className="text-slate-600 tabular-nums">{value}</span>
+      <span className="text-slate-700 tabular-nums font-medium">{value}</span>
     </div>
   )
 }
-function MCard({ title, tip, total, color, children }) {
+function MCard({ title, tip, total, color, children, className = '' }) {
   return (
-    <div className="rounded-lg border border-slate-300 bg-white px-4 py-3.5">
-      <div className="flex items-center gap-2 pb-2.5">
+    <div className={clsx('rounded-xl border border-slate-300 bg-white flex flex-col h-full overflow-hidden', className)}>
+      <div className="flex items-center gap-2 h-[46px] px-4 border-b border-slate-200 bg-slate-50/70 flex-shrink-0">
         <Dash color={color}/>
-        <span className="text-[12px] font-bold text-slate-800">{title}</span>
+        <span className="text-[12px] font-bold text-slate-800 truncate">{title}</span>
         {tip && <Tip text={tip}/>}
         <span className="flex-1"/>
-        <span className="text-[13px] font-bold text-slate-900 tabular-nums">{total}</span>
+        <span className="text-[14px] font-bold text-slate-900 tabular-nums">{total}</span>
       </div>
-      {children}
+      <div className="px-4 py-1.5 divide-y divide-slate-100 flex-1">{children}</div>
     </div>
   )
 }
@@ -146,30 +146,26 @@ function MetaView({ d, cur }) {
   }
   const cash = (v) => (cur === 'INR' ? `₹${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} INR` : `${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur}`)
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-        <MCard title="All messages" color="#6d28d9" total="">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-stretch">
+        <MCard className="lg:col-span-2" title="All messages" color="#6d28d9" total="">
           <MRow color="#db2777" label="Messages sent" tip="Messages sent from your WhatsApp Business Account." value={num(d.messages.sent)}/>
           <MRow color="#22d3ee" label="Messages delivered" tip="Messages that reached the customer's device." value={num(d.messages.delivered)}/>
           <MRow color="#a16207" label="Messages received" tip="Meta's reporting API doesn't return inbound counts, so this shows a dash when it isn't available." value={num(d.messages.received)}/>
         </MCard>
-        <MCard title="Messages delivered" tip="Delivered messages by pricing category, free and paid together." color="#0d9488" total={num(d.messages.delivered)}>
+        <MCard className="lg:col-span-2" title="Messages delivered" tip="Delivered messages by pricing category, free and paid together." color="#0d9488" total={num(d.messages.delivered)}>
           {list(d.deliveredByCategory, num)}
         </MCard>
-        <MCard title="Free messages delivered" tip="Replies inside the 24-hour customer service window and click-to-WhatsApp entry points cost nothing." color="#6d28d9" total={num(d.free.total)}>
+        <MCard className="lg:col-span-2" title="Free messages delivered" tip="Replies inside the 24-hour customer service window and click-to-WhatsApp entry points cost nothing." color="#6d28d9" total={num(d.free.total)}>
           <MRow color="#22d3ee" label="Free customer service" tip="Replies within the 24-hour customer service window." value={num(d.free.customerService)}/>
           <MRow color="#db2777" label="Free entry point" tip="Conversations started from a Click-to-WhatsApp ad or Facebook Page button." value={num(d.free.entryPoint)}/>
           {d.free.other > 0 && <MRow color="#94a3b8" label="Other free" value={num(d.free.other)}/>}
         </MCard>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start max-w-[820px]">
-        <MCard title="Paid messages delivered" tip="Delivered messages that Meta charges for." color="#6d28d9" total={num(d.paid.total)}>
+        <MCard className="lg:col-span-3" title="Paid messages delivered" tip="Delivered messages that Meta charges for." color="#6d28d9" total={num(d.paid.total)}>
           {list(d.paid.byCategory, num)}
         </MCard>
-        <MCard title="Approximate total charges" tip="Estimated from Meta's pricing for this period. Your invoice is the final figure." color="#6d28d9" total={cash(d.charges.total)}>
+        <MCard className="md:col-span-2 lg:col-span-3" title="Approximate total charges" tip="Estimated from Meta's pricing for this period. Your invoice is the final figure." color="#6d28d9" total={cash(d.charges.total)}>
           {list(d.charges.byCategory, cash)}
         </MCard>
-      </div>
     </div>
   )
 }
