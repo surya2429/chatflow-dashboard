@@ -1525,9 +1525,9 @@ function IntegrationDetailView({ integration, initialSection = 'overview', saved
   const [sheetUrl,      setSheetUrl]      = useState(() => savedState?.sheetConfig?.sheetUrl ?? '')
   const [sharedEmails,  setSharedEmails]  = useState(() => savedState?.sheetConfig?.sharedEmails ?? [])
   const [sheetMappings, setSheetMappings] = useState(() => savedState?.sheetConfig?.mappings ?? [
-    { id: 'm1', flowId: 'main', questionId: 'q1', column: 'User Name' },
-    { id: 'm2', flowId: 'main', questionId: 'q2', column: 'Mobile No' },
-    { id: 'm3', flowId: 'main', questionId: 'q3', column: 'Email Address' },
+    { id: 'm1', source: 'question', flowId: 'main', questionId: 'q1', column: 'User Name' },
+    { id: 'm2', source: 'question', flowId: 'main', questionId: 'q2', column: 'Mobile No' },
+    { id: 'm3', source: 'question', flowId: 'main', questionId: 'q3', column: 'Email Address' },
   ])
   const [sheetConditions, setSheetConditions] = useState(() => savedState?.sheetConfig?.conditions ?? [])
   const [sheetLogicOp,    setSheetLogicOp]    = useState(() => savedState?.sheetConfig?.logicOp ?? 'AND')
@@ -2190,11 +2190,20 @@ function CustomSheetFieldsSection({
   function removeEmail(email) { setSharedEmails(e => e.filter(x => x !== email)) }
 
   function addMapping() {
-    setMappings(m => [...m, { id: `m${Date.now()}`, flowId: 'main', questionId: '', column: '' }])
+    setMappings(m => [...m, { id: `m${Date.now()}`, source: 'question', flowId: 'main', questionId: '', value: '', column: '' }])
   }
   function updateMapping(id, patch) {
     setMappings(m => m.map(row => row.id === id ? { ...row, ...patch } : row))
   }
+  const newPart = () => ({ id: `p${Date.now()}${Math.random().toString(36).slice(2, 5)}`, source: 'question', flowId: 'main', questionId: '', value: '' })
+  function changeSource(row, source) {
+    updateMapping(row.id, { source, questionId: '', value: '', ...(source === 'composition' ? { parts: [newPart()] } : {}) })
+  }
+  function updatePart(row, partId, patch) {
+    updateMapping(row.id, { parts: (row.parts ?? []).map(x => x.id === partId ? { ...x, ...patch } : x) })
+  }
+  function addPart(row) { updateMapping(row.id, { parts: [...(row.parts ?? []), newPart()] }) }
+  function removePart(row, partId) { updateMapping(row.id, { parts: (row.parts ?? []).filter(x => x.id !== partId) }) }
   function removeMapping(id) {
     setMappings(m => m.filter(row => row.id !== id))
   }
@@ -2221,7 +2230,9 @@ function CustomSheetFieldsSection({
     }, 1000)
   }
 
-  const validMappings = mappings.filter(m => m.questionId && m.column)
+  const partDone = (x) => (x.source === 'static' ? Boolean(x.value?.trim()) : Boolean(x.questionId))
+  const hasSource = (m) => (m.source === 'static' ? Boolean(m.value?.trim()) : m.source === 'composition' ? (m.parts ?? []).some(partDone) : Boolean(m.questionId))
+  const validMappings = mappings.filter(m => hasSource(m) && m.column)
   const canSave = Boolean(sheetUrl.trim()) && validMappings.length > 0
 
   return (
@@ -2282,19 +2293,35 @@ function CustomSheetFieldsSection({
               {mappings.map(row => {
                 const flow = MOCK_FLOWS.find(f => f.id === row.flowId)
                 return (
-                  <div key={row.id} className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
-                    <span className="px-2.5 py-1.5 rounded-lg bg-slate-100 text-[11px] font-semibold text-slate-500 flex-shrink-0">Question</span>
-                    <div className="w-full sm:w-28 flex-shrink-0">
-                      <NativeSelect sm value={row.flowId} onChange={e => updateMapping(row.id, { flowId: e.target.value, questionId: '' })}>
-                        {MOCK_FLOWS.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  <div key={row.id}>
+                  <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+                    <div className="w-full sm:w-44 flex-shrink-0">
+                      <NativeSelect sm value={row.source || 'question'} onChange={e => changeSource(row, e.target.value)}>
+                        <option value="question">Question</option>
+                        <option value="static">Static Text / Select a choice</option>
+                        <option value="composition">Data Composition</option>
                       </NativeSelect>
                     </div>
-                    <div className="flex-1 min-w-[140px]">
-                      <NativeSelect sm value={row.questionId} onChange={e => updateMapping(row.id, { questionId: e.target.value })}>
-                        <option value="">Select question…</option>
-                        {(flow?.questions ?? []).map(q => <option key={q.id} value={q.id}>{q.label}</option>)}
-                      </NativeSelect>
-                    </div>
+                    {(row.source || 'question') === 'question' && (<>
+                      <div className="w-full sm:w-28 flex-shrink-0">
+                        <NativeSelect sm value={row.flowId} onChange={e => updateMapping(row.id, { flowId: e.target.value, questionId: '' })}>
+                          {MOCK_FLOWS.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                        </NativeSelect>
+                      </div>
+                      <div className="flex-1 min-w-[140px]">
+                        <NativeSelect sm value={row.questionId} onChange={e => updateMapping(row.id, { questionId: e.target.value })}>
+                          <option value="">Select question…</option>
+                          {(flow?.questions ?? []).map(q => <option key={q.id} value={q.id}>{q.label}</option>)}
+                        </NativeSelect>
+                      </div>
+                    </>)}
+                    {row.source === 'static' && (
+                      <div className="flex-1 min-w-[140px] flex items-center px-2.5 py-1.5 rounded-lg bg-slate-50 border border-surface-border">
+                        <input type="text" className="flex-1 bg-transparent text-[11px] outline-none" placeholder="Enter text here"
+                          value={row.value ?? ''} onChange={e => updateMapping(row.id, { value: e.target.value })}/>
+                      </div>
+                    )}
+                    {row.source === 'composition' && <div className="flex-1"/>}
                     <div className="w-full sm:w-36 flex-shrink-0">
                       <NativeSelect sm value={row.column} onChange={e => updateMapping(row.id, { column: e.target.value })}>
                         <option value="">Column…</option>
@@ -2304,6 +2331,52 @@ function CustomSheetFieldsSection({
                     <button type="button" onClick={() => removeMapping(row.id)} className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0">
                       <Trash2 size={14}/>
                     </button>
+                  </div>
+                  {/* Data composition: the cell holds these parts one after another. */}
+                  {row.source === 'composition' && (
+                    <div className="mt-1.5 mb-2 ml-6 pl-3 border-l-2 border-slate-100 space-y-1.5">
+                      <p className="text-[10px] text-slate-400">The column gets these joined together, in order.</p>
+                      {(row.parts ?? []).map((part, pi, all) => {
+                        const pFlow = MOCK_FLOWS.find(f => f.id === part.flowId)
+                        return (
+                          <div key={part.id} className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+                            <div className="w-full sm:w-36 flex-shrink-0">
+                              <NativeSelect sm value={part.source} onChange={e => updatePart(row, part.id, { source: e.target.value, questionId: '', value: '' })}>
+                                <option value="question">Question</option>
+                                <option value="static">Static Text</option>
+                              </NativeSelect>
+                            </div>
+                            {part.source === 'question' ? (<>
+                              <div className="w-full sm:w-28 flex-shrink-0">
+                                <NativeSelect sm value={part.flowId} onChange={e => updatePart(row, part.id, { flowId: e.target.value, questionId: '' })}>
+                                  {MOCK_FLOWS.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                                </NativeSelect>
+                              </div>
+                              <div className="flex-1 min-w-[140px]">
+                                <NativeSelect sm value={part.questionId} onChange={e => updatePart(row, part.id, { questionId: e.target.value })}>
+                                  <option value="">Select a question…</option>
+                                  {(pFlow?.questions ?? []).map(q => <option key={q.id} value={q.id}>{q.label}</option>)}
+                                </NativeSelect>
+                              </div>
+                            </>) : (
+                              <div className="flex-1 min-w-[140px] flex items-center px-2.5 py-1.5 rounded-lg bg-slate-50 border border-surface-border">
+                                <input type="text" className="flex-1 bg-transparent text-[11px] outline-none" placeholder="Enter text here"
+                                  value={part.value ?? ''} onChange={e => updatePart(row, part.id, { value: e.target.value })}/>
+                              </div>
+                            )}
+                            {pi === all.length - 1 && (
+                              <button type="button" onClick={() => addPart(row)} title="Add another part" aria-label="Add another part"
+                                className="p-1 rounded-md text-primary hover:bg-primary/10 flex-shrink-0"><Plus size={14}/></button>
+                            )}
+                            {all.length > 1 && (
+                              <button type="button" onClick={() => removePart(row, part.id)} title="Remove part" aria-label="Remove part"
+                                className="p-1 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 flex-shrink-0"><X size={12}/></button>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                   </div>
                 )
               })}
@@ -2377,7 +2450,7 @@ function CustomSheetFieldsSection({
           <div className="space-y-2">
             <label className="label mb-0">Sample Sheet Preview / Test Your Integration</label>
             {validMappings.length === 0 ? (
-              <p className="text-[11px] text-slate-400">Map at least one question to a column above to preview the sheet.</p>
+              <p className="text-[11px] text-slate-400">Map at least one value to a column above to preview the sheet.</p>
             ) : (
               <div className="border border-surface-border rounded-xl overflow-hidden">
                 <table className="w-full border-collapse">
@@ -2424,7 +2497,7 @@ function CustomSheetFieldsSection({
             <CheckCircle2 size={13}/> Save &amp; Activate
           </button>
           {savedFlash && <span className="ml-3 text-[11px] text-emerald-600 font-medium inline-flex items-center gap-1"><CheckCircle2 size={12}/> Saved</span>}
-          {!canSave && <p className="text-[10px] text-red-500 mt-2">Add a sheet URL and map at least one question to a column before activating.</p>}
+          {!canSave && <p className="text-[10px] text-red-500 mt-2">Add a sheet URL and map at least one value to a column before activating.</p>}
       </div>
     </div>
   )
