@@ -2158,6 +2158,17 @@ function IntegrationDetailView({ integration, initialSection = 'overview', saved
 /* generic managed connection; this lets a customer paste ANY sheet they    */
 /* own, share access to it, and precisely map bot questions to columns,     */
 /* including conditional insert/update logic — mirrors the reference flow. */
+/* Ready-made values for a static cell. The field is a text box with these as suggestions: type your own or pick one. */
+const STATIC_CHOICES = ['Website chat', 'WhatsApp', 'Instagram', 'Landing page', 'Lead', 'Customer', 'Yes', 'No']
+function StaticValueInput({ value, onChange, listId }) {
+  return (
+    <div className="relative flex-1 min-w-[140px]">
+      <input type="text" list={listId} value={value ?? ''} onChange={e => onChange(e.target.value)} placeholder="Type or select a choice"
+        className="w-full rounded-lg border border-surface-border bg-white pl-2.5 pr-7 py-1.5 text-[11px] text-slate-700 outline-none focus:border-primary [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-y-0 [&::-webkit-calendar-picker-indicator]:right-0 [&::-webkit-calendar-picker-indicator]:w-7 [&::-webkit-calendar-picker-indicator]:cursor-pointer"/>
+      <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/>
+    </div>
+  )
+}
 const COLUMN_PRESETS = ['User Name', 'Mobile No', 'Email Address', 'Full Name', 'Company', 'City', 'Order ID', 'Budget', 'Custom Field']
 const CONDITION_OPERATORS = [
   { v: 'equals', l: 'Equals' },
@@ -2289,6 +2300,9 @@ function CustomSheetFieldsSection({
           {/* Question -> column mapping */}
           <div className="space-y-2">
             <label className="label mb-0">Select the questions to be stored in google sheets</label>
+            <datalist id="sheet-static-choices">
+              {[...new Set([...STATIC_CHOICES, ...mappings.flatMap(m => [m.source === 'static' ? m.value : null, ...(m.parts ?? []).map(x => x.source === 'static' ? x.value : null)])].filter(Boolean))].map(v => <option key={v} value={v}/>)}
+            </datalist>
             <div className="rounded-xl border border-primary/20 bg-primary/[0.03] px-3.5 py-3 space-y-2">
               <p className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5"><Info size={12} className="text-primary"/> What can go into a column?</p>
               <dl className="space-y-1.5 text-[11px] leading-relaxed text-slate-600">
@@ -2300,7 +2314,7 @@ function CustomSheetFieldsSection({
                 </div>
                 <div>
                   <dt className="inline font-bold text-slate-800">Static Text / Select a choice</dt>
-                  <dd className="inline"> — saves the same fixed text for every visitor. You type it once; it never changes with the conversation.
+                  <dd className="inline"> — saves the same fixed text for every visitor. Type your own text, or pick a ready-made choice from the list. It never changes with the conversation.
                     <span className="block text-slate-500">Example: <i>Website chat</i> → column <b>Source</b> saves <i>Website chat</i> in every row, so you can tell where the lead came from.</span>
                   </dd>
                 </div>
@@ -2339,10 +2353,7 @@ function CustomSheetFieldsSection({
                       </div>
                     </>)}
                     {row.source === 'static' && (
-                      <div className="flex-1 min-w-[140px] flex items-center px-2.5 py-1.5 rounded-lg bg-slate-50 border border-surface-border">
-                        <input type="text" className="flex-1 bg-transparent text-[11px] outline-none" placeholder="Enter text here"
-                          value={row.value ?? ''} onChange={e => updateMapping(row.id, { value: e.target.value })}/>
-                      </div>
+                      <StaticValueInput listId="sheet-static-choices" value={row.value} onChange={v => updateMapping(row.id, { value: v })}/>
                     )}
                     {row.source === 'composition' && <div className="flex-1"/>}
                     <div className="w-full sm:w-36 flex-shrink-0">
@@ -2382,10 +2393,7 @@ function CustomSheetFieldsSection({
                                 </NativeSelect>
                               </div>
                             </>) : (
-                              <div className="flex-1 min-w-[140px] flex items-center px-2.5 py-1.5 rounded-lg bg-slate-50 border border-surface-border">
-                                <input type="text" className="flex-1 bg-transparent text-[11px] outline-none" placeholder="Enter text here"
-                                  value={part.value ?? ''} onChange={e => updatePart(row, part.id, { value: e.target.value })}/>
-                              </div>
+                              <StaticValueInput listId="sheet-static-choices" value={part.value} onChange={v => updatePart(row, part.id, { value: v })}/>
                             )}
                             {pi === all.length - 1 && (
                               <button type="button" onClick={() => addPart(row)} title="Add another part" aria-label="Add another part"
