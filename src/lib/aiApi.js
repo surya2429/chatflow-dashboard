@@ -55,6 +55,12 @@ function who(m) {
 }
 const bodyOf = (m) => (m.type === 'answer' ? `${m.label}: ${m.value}` : m.type === 'template' ? m.template?.body : m.text)
 
+/* The server reads at most 40 conversations, so send the newest 40 and say how many there are. */
+export const inboxPayload = (conversations) => ({
+  conversations: [...conversations].sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)).slice(0, 40).map(toAiConversation),
+  total: conversations.length,
+})
+
 export function toAiConversation(c) {
   return {
     id: c.id,

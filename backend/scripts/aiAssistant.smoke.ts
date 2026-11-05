@@ -22,6 +22,20 @@ const s = shapeResult('summary', '{"summary":"S","sentiment":"furious","urgency"
 assert.deepEqual(s, { summary: 'S', sentiment: 'neutral', urgency: 'high', topics: ['a', 'b', 'c', 'd'], nextStep: 'N' })
 assert.throws(() => shapeResult('inbox', 'no json here'))
 
+// asking across the inbox: only conversations we sent can be counted, each once; the count comes from the list
+const ask = buildPrompt('ask', { conversations: [{ ...conv, id: 'a' }, { ...conv, id: 'b' }, { ...conv, id: 'c' }], question: 'how many booked?', total: 120 })!
+assert.deepEqual(ask.ids, ['a', 'b', 'c'])
+assert.equal(ask.total, 120)
+const r = shapeResult('ask', '{"answer":"Two booked.\\n- A\\n- B","isCount":true,"matches":[{"id":"a","why":"booked 5pm"},{"id":"a","why":"dup"},{"id":"zzz","why":"made up"},{"id":"c"}]}', ask) as any
+assert.deepEqual(r.matches.map((m: any) => m.id), ['a', 'c'])
+assert.ok(r.isCount && r.analysed === 3 && r.total === 120 && r.answer.includes('\n'))
+assert.equal((shapeResult('ask', 'plain words', ask) as any).answer, 'plain words')     // a model that ignores the JSON format still answers
+assert.equal((shapeResult('ask', '{"answer":"x","isCount":true,"matches":[]}', { ids: [], total: 0 }) as any).isCount, false)
+// one open conversation
+const one = buildPrompt('ask', { conversation: { ...conv, messages: [{ who: 'customer', text: 'Book me for 5pm' }] }, question: 'did they book?' })!
+assert.deepEqual(one.ids, [])
+assert.ok(one.user.includes('Book me for 5pm'))
+
 // the handler: save verifies the key first, never returns it, run uses the stored one
 const mem = new Map<string, StoredAi>()
 const store: AiStore = { load: async (w) => mem.get(w) ?? null, save: async (w, v) => void mem.set(w, v), remove: async (w) => void mem.delete(w) }

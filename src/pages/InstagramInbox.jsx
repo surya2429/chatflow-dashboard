@@ -1027,7 +1027,7 @@ function ConversationList({ conversations, allConversations, activeId, onSelect,
 }
 
 /* ─── Chat window ─────────────────────────────────────────────── */
-function ChatWindow({ conversation, onSend, onSendTemplate, onTakeover, onResolve, onReopen, onStar, onArchive, onAddLabel, onRemoveLabel, onSnooze, onAssign, adminOnline, showPanel, onTogglePanel }) {
+function ChatWindow({ conversation, onSend, onSendTemplate, onTakeover, onResolve, onReopen, onStar, onArchive, onAddLabel, onRemoveLabel, onSnooze, onAssign, adminOnline, showPanel, onTogglePanel, allConversations }) {
   const [message, setMessage] = useState('')
   const [showMore, setShowMore] = useState(false)
   const [showLabels, setShowLabels] = useState(false)
@@ -1251,7 +1251,7 @@ function ChatWindow({ conversation, onSend, onSendTemplate, onTakeover, onResolv
 
       {/* Composer */}
       <div className="border-t border-surface-border bg-white flex-shrink-0">
-        <AiChatAssist conversation={conversation} onUseReply={t => setMessage(t)} />
+        <AiChatAssist conversation={conversation} conversations={allConversations} onUseReply={t => setMessage(t)} />
         <div className="px-3 py-2.5">
           <div className="flex items-end gap-2 rounded-xl px-3 py-2 border bg-surface border-surface-border">
             <div className="flex items-center gap-0.5 pb-0.5">
@@ -1686,7 +1686,7 @@ export default function InstagramInbox() {
           <>
             <ChatWindow conversation={active} onSend={sendMessage} onSendTemplate={sendTemplate} onTakeover={takeover} onResolve={resolve} onReopen={reopen}
               onStar={toggleStar} onArchive={archive} onAddLabel={addLabel} onRemoveLabel={removeLabel}
-              onSnooze={snoozeConversation} onAssign={assignAgent} adminOnline={adminOnline}
+              onSnooze={snoozeConversation} onAssign={assignAgent} adminOnline={adminOnline} allConversations={conversations}
               showPanel={showPanel} onTogglePanel={() => setShowPanel(p => !p)} />
             {showPanel && active && (
               <div className="hidden lg:flex flex-shrink-0">
