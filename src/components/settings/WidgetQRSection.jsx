@@ -274,6 +274,7 @@ function QrTab({ ml }) {
 /* ── Website widget tab ───────────────────────────────────────────────────────────────────────────── */
 const WIDGET_KEY = 'chatflow_wa_widget_v3'
 const MAX_QUICK = 3
+const MAX_MAIN_MESSAGE = 80
 const WIDGET_DEFAULTS = {
   linkMode: 'chat',                         // 'chat' = click-to-chat (number + message) · or a wa.me message-link URL
   phone: '919876543210',
@@ -287,7 +288,6 @@ const WIDGET_DEFAULTS = {
   subtitle: 'Typically replies in minutes',
   welcome: 'Hi 👋 How can we help you today?',
   cta: 'Start chat on WhatsApp',
-  label: '',
   color: '#5B5BF0',
   font: '',
   theme: 'light',
@@ -306,7 +306,7 @@ function loadWidget() {
   try {
     const saved = JSON.parse(localStorage.getItem(WIDGET_KEY) || '{}')
     const quick = Array.isArray(saved.quick) ? saved.quick.slice(0, MAX_QUICK) : WIDGET_DEFAULTS.quick
-    return { ...WIDGET_DEFAULTS, ...saved, quick }
+    return { ...WIDGET_DEFAULTS, ...saved, quick, message: [...String(saved.message ?? WIDGET_DEFAULTS.message)].slice(0, MAX_MAIN_MESSAGE).join('') }
   } catch { return WIDGET_DEFAULTS }
 }
 const digits = (s) => String(s || '').replace(/\D/g, '')
@@ -322,7 +322,7 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').repl
 
 /* The <script> tag for these settings: only values that differ from the script's own defaults, so it stays short.
    `src` and `extra` differ for the preview (local file, card forced open). */
-const SNIPPET_DEFAULTS = { name: 'Chat with us', subtitle: 'Typically replies in minutes', welcome: 'Hi 👋 How can we help you today?', cta: 'Start chat on WhatsApp', label: '', color: '#5B5BF0', font: '', theme: 'light', position: 'right' }
+const SNIPPET_DEFAULTS = { name: 'Chat with us', subtitle: 'Typically replies in minutes', welcome: 'Hi 👋 How can we help you today?', cta: 'Start chat on WhatsApp', color: '#5B5BF0', font: '', theme: 'light', position: 'right' }
 function snippetFor(w, src = WA_WIDGET_SRC, extra = []) {
   const chat = w.linkMode === 'chat'
   const at = (k, v) => `data-${k}="${esc(v)}"`
@@ -455,8 +455,11 @@ function WidgetTab({ ml }) {
               <input value={w.phone} inputMode="numeric" onChange={(e) => set('phone', e.target.value)} className={clsx(inputCls, !phoneOk && 'border-red-400')} placeholder="919876543210"/>
               {!phoneOk && <p className="text-[10px] text-red-500 mt-1">Enter 8–15 digits including the country code.</p>}
             </Field>
-            <Field label="Message for the main button" hint="They can edit it before sending.">
-              <textarea rows={2} value={w.message} onChange={(e) => set('message', e.target.value)} className={clsx(inputCls, 'resize-none')} maxLength={300}/>
+            <Field label="Message for the main button" hint="Typed into WhatsApp for the visitor, who can edit it before sending.">
+              <div className="relative">
+                <textarea rows={2} value={w.message} onChange={(e) => set('message', [...e.target.value].slice(0, MAX_MAIN_MESSAGE).join(''))} className={clsx(inputCls, 'resize-none pb-6')} aria-describedby="main-msg-count"/>
+                <span id="main-msg-count" className={clsx('absolute right-2.5 bottom-1.5 text-[10px] tabular-nums', [...w.message].length >= MAX_MAIN_MESSAGE ? 'text-amber-600 font-bold' : 'text-slate-400')}>{[...w.message].length}/{MAX_MAIN_MESSAGE}</span>
+              </div>
             </Field>
           </>) : (
             <p className="text-[11px] text-slate-500 flex gap-1.5"><Info size={12} className="flex-shrink-0 mt-0.5 text-slate-400"/> Uses the link's own message. Change it in the QR Codes &amp; Message Links tab.</p>
@@ -473,10 +476,7 @@ function WidgetTab({ ml }) {
             <Field label="Status line"><input value={w.subtitle} onChange={(e) => set('subtitle', e.target.value)} className={inputCls} maxLength={50}/></Field>
           </div>
           <Field label="Greeting message" hint="Shown as a chat bubble from your business."><textarea rows={2} value={w.welcome} onChange={(e) => set('welcome', e.target.value)} className={clsx(inputCls, 'resize-none')} maxLength={120}/></Field>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Main button text"><input value={w.cta} onChange={(e) => set('cta', e.target.value)} className={inputCls} maxLength={32}/></Field>
-            <Field label="Label next to the button" hint="Optional. Empty = just the icon."><input value={w.label} onChange={(e) => set('label', e.target.value)} className={inputCls} maxLength={28}/></Field>
-          </div>
+          <Field label="Main button text"><input value={w.cta} onChange={(e) => set('cta', e.target.value)} className={inputCls} maxLength={32}/></Field>
           <Toggle checked={w.qr} onChange={(v) => set('qr', v)} label="Show a QR code" hint="Shown right in the card, on computers only. It opens your main button’s chat."/>
         </div>
 
@@ -522,7 +522,7 @@ function WidgetTab({ ml }) {
           </Field>
           <div className="space-y-2.5 pt-1">
             <Toggle checked={w.mobile} onChange={(v) => set('mobile', v)} label="Show on phones" hint="On phones the card opens as a full-width sheet."/>
-            <Toggle checked={w.branding} onChange={(v) => set('branding', v)} label={'Show "Powered by ChatFlow"'}/>
+            <Toggle checked={w.branding} onChange={(v) => set('branding', v)} label={'Show "Powered by SmatBot"'}/>
           </div>
         </div>
       </div>

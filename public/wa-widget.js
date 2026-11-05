@@ -11,7 +11,7 @@
  *   data-phone   digits with country code        data-message  text typed in for the main button
  *   data-link    a wa.me Message link instead of phone + message
  *   data-q1 / data-q2 / data-q3   quick buttons as "Label|Message" (need data-phone)
- *   data-name, data-subtitle, data-welcome, data-cta, data-label (pill beside the button)
+ *   data-name, data-subtitle, data-welcome, data-cta
  *   data-color #hex (default #5B5BF0)   data-theme light|dark   data-position right|left   data-font (see WEB below)
  *   data-qr false   data-branding false   data-mobile false   data-open-after <seconds, once per visit>
  *   data-preview / data-device   used only by the Settings preview
@@ -242,13 +242,11 @@ function qrEncode(text, forceMask) {
       '--line:' + (dark ? 'rgba(255,255,255,.1)' : 'rgba(17,24,39,.09)') + ';--soft:' + (dark ? 'rgba(255,255,255,.06)' : '#f4f5f7') + ';' +
       'font:14px/1.4 ' + (font && font !== 'Georgia' ? '"' + font + '",' : font ? 'Georgia,"Times New Roman",serif,' : '') + 'ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased;color:var(--fg)}' +
     '.wrap{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));' + side + ':calc(20px + env(safe-area-inset-' + side + ',0px));display:flex;flex-direction:column;align-items:flex-' + (side === 'left' ? 'start' : 'end') + ';gap:10px}' +
-    '.launch{display:flex;align-items:center;gap:10px;flex-direction:row' + (side === 'left' ? '' : '-reverse') + '}' +
     '.fab{position:relative;width:54px;height:54px;border-radius:50%;border:0;cursor:pointer;display:flex;align-items:center;justify-content:center;background:var(--a);color:var(--on);box-shadow:0 6px 18px rgba(17,24,39,.22),0 1px 3px rgba(17,24,39,.2);transition:transform .2s cubic-bezier(.2,.9,.3,1.3)}' +
     '.fab:hover{transform:scale(1.06)}.fab:active{transform:scale(.95)}.fab svg{width:26px;height:26px;fill:currentColor}' +
     '.fab::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid var(--a);opacity:0;animation:ring 2.6s ease-out 1s 2}' +
     '@keyframes ring{0%{opacity:.5;transform:scale(1)}100%{opacity:0;transform:scale(1.5)}}' +
     ':focus-visible{outline:2px solid var(--a);outline-offset:2px}' +
-    '.tag{display:flex;align-items:center;gap:7px;background:var(--bg);font-size:13px;font-weight:600;padding:8px 12px;border-radius:999px;box-shadow:0 4px 14px rgba(17,24,39,.18),0 0 0 1px var(--line);white-space:nowrap}' +
     '.dot{width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0}' +
     '.card{width:min(300px,calc(100vw - 24px));max-height:calc(100vh - 100px);max-height:calc(100dvh - 100px);overflow-y:auto;scrollbar-width:none;border-radius:18px;background:var(--bg);' +
       'box-shadow:0 18px 44px -12px rgba(17,24,39,.35),0 0 0 1px var(--line);transform-origin:bottom ' + side + ';animation:pop .2s cubic-bezier(.2,.9,.3,1.1)}' +
@@ -270,9 +268,9 @@ function qrEncode(text, forceMask) {
     '.qr{display:flex;align-items:center;gap:12px;margin-top:12px;padding:10px;border-radius:12px;background:var(--soft)}' +
     '.tile{width:76px;height:76px;border-radius:7px;background:#fff;padding:3px;flex-shrink:0}.tile svg{display:block;width:100%;height:100%}' +
     '.qr strong{display:block;font-size:12.5px;font-weight:600}.qr p{font-size:11.5px;line-height:1.4;color:var(--mut);margin-top:2px}' +
-    '.pw{margin-top:8px;text-align:right;font-size:10.5px;color:var(--mut);opacity:.85}.pw b{font-weight:600}' +
+    '.pw{margin-top:10px;text-align:center;font-size:10.5px;color:var(--mut);opacity:.85}.pw b{font-weight:600}' +
     '.hide{display:none!important}' +
-    '.ph .card{width:calc(100vw - 16px)}.ph .wrap{' + side + ':8px;bottom:calc(8px + env(safe-area-inset-bottom,0px))}.ph .qr{display:none}.ph .body{padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}.ph .wrap.open .launch{display:none}' +
+    '.ph .card{width:calc(100vw - 16px)}.ph .wrap{' + side + ':8px;bottom:calc(8px + env(safe-area-inset-bottom,0px))}.ph .qr{display:none}.ph .body{padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}.ph .wrap.open .fab{display:none}' +
     (d.mobile === 'false' ? '.ph .wrap{display:none}' : '') +
     '@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}';
 
@@ -322,15 +320,14 @@ function qrEncode(text, forceMask) {
     el('div', 'body', '', [go].concat(
       quick.length ? [el('div', 'chips', '', quick.map(function (c) { var n = a('chip', c.u, c.l); n.title = c.l; return n; }))] : [],
       qr ? [qr] : [],
-      d.branding === 'false' ? [] : [el('div', 'pw', 'Powered by ', [el('b', '', 'ChatFlow')])]
+      d.branding === 'false' ? [] : [el('div', 'pw', 'Powered by ', [el('b', '', 'SmatBot')])]
     ))
   ]);
   card.setAttribute('role', 'dialog'); card.setAttribute('aria-label', name);
 
   var fab = el('button', 'fab', '', [svg(WA)]);
   fab.type = 'button'; fab.setAttribute('aria-label', 'Chat on WhatsApp'); fab.setAttribute('aria-expanded', 'false');
-  var tag = d.label ? el('div', 'tag', '', [el('span', 'dot'), document.createTextNode(d.label)]) : null;
-  var wrap = el('div', 'wrap', '', [card, el('div', 'launch', '', tag ? [fab, tag] : [fab])]);
+  var wrap = el('div', 'wrap', '', [card, fab]);
   var ui = el('div', 'ui', '', [wrap]);
   root.appendChild(el('style', '', css));
   root.appendChild(ui);
@@ -345,7 +342,6 @@ function qrEncode(text, forceMask) {
   function setOpen(v, focus) {
     isOpen = v;
     card.classList.toggle('hide', !v); wrap.classList.toggle('open', v);
-    if (tag) tag.classList.toggle('hide', v);
     fab.setAttribute('aria-expanded', v ? 'true' : 'false');
     if (v && focus) go.focus();
   }
