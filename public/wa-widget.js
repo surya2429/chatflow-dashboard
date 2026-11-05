@@ -5,7 +5,7 @@
  *   data-phone="919876543210" data-message="Hi, I have a question"></script>
  *
  * A floating button that opens a small card: a greeting, one "Start chat" button, up to three quick-message chips and
- * (on computers) a tucked-away "Scan to chat from your phone" QR code. Every button is a plain link to WhatsApp, so
+ * (on computers) a tucked-away "Scan to chat on phone" QR code. Every button is a plain link to WhatsApp, so
  * nothing about the visitor is sent to us. On phones the card spans the width above the button and the QR is left out.
  *
  * Options (data-* on the script tag; Settings → Widget & QR Codes builds this tag for you):
@@ -26,6 +26,7 @@
  *   data-open-after  seconds before the card opens by itself, once per visit; 0 = never    default 0
  *   data-mobile      "false" to hide the widget on phones                       default "true"
  *   data-branding    "false" to hide "Powered by ChatFlow"                      default "true"
+ *   data-preview / data-device   used only by the Settings preview
  *
  * Like the chat widget loader it adds exactly one element to the page and nothing to <head>; the UI lives in a
  * shadow root so the host page's CSS cannot reach it. All text is set with textContent (no HTML from options).
@@ -295,34 +296,35 @@ function qrEncode(text, forceMask) {
     '.dot{width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0}' +
 
     /* card: a slim header, the greeting as a chat bubble, one button, optional chips */
-    '.card{width:min(300px,calc(100vw - 24px));max-height:calc(100vh - 110px);max-height:calc(100dvh - 110px);overflow-y:auto;border-radius:20px;background:var(--bg);' +
+    '.card{width:min(288px,calc(100vw - 24px));max-height:calc(100vh - 100px);max-height:calc(100dvh - 100px);overflow-y:auto;border-radius:18px;background:var(--bg);' +
       'box-shadow:0 18px 44px -12px rgba(17,24,39,.35),0 0 0 1px var(--line);transform-origin:' + (left ? 'bottom left' : 'bottom right') + ';animation:pop .2s cubic-bezier(.2,.9,.3,1.1)}' +
     '@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}' +
-    '.head{display:flex;align-items:center;gap:10px;padding:14px 10px 0 14px}' +
-    '.av{width:34px;height:34px;border-radius:50%;background:var(--a);color:var(--on);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}' +
-    '.who{flex:1;min-width:0}.nm{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
-    '.st{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--mut);margin-top:1px}' +
-    '.x{border:0;background:transparent;width:28px;height:28px;border-radius:8px;color:var(--mut);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}.x:hover{background:var(--soft);color:var(--fg)}' +
+    '.head{display:flex;align-items:center;gap:9px;padding:12px 8px 0 12px}' +
+    '.av{width:30px;height:30px;border-radius:50%;background:var(--a);color:var(--on);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}' +
+    '.who{flex:1;min-width:0}.nm{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+    '.st{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--mut);margin-top:1px}' +
+    '.x{border:0;background:transparent;width:26px;height:26px;border-radius:8px;color:var(--mut);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}.x:hover{background:var(--soft);color:var(--fg)}' +
     '.x svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round}' +
-    '.msg{margin:12px 14px 0;padding:10px 12px;background:var(--soft);border-radius:4px 14px 14px 14px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word}' +
-    '.body{padding:12px 14px 12px}' +
-    '.go{display:flex;align-items:center;justify-content:center;gap:8px;height:42px;border-radius:12px;background:var(--a);color:var(--on);text-decoration:none;font-weight:600;font-size:14px;transition:filter .15s,transform .15s}' +
-    '.go:hover{filter:brightness(1.07)}.go:active{transform:scale(.985)}.go svg{width:18px;height:18px;fill:currentColor;flex-shrink:0}' +
-    '.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}' +
-    '.chip{display:inline-flex;align-items:center;max-width:100%;height:32px;padding:0 12px;border-radius:999px;font-size:13px;font-weight:500;color:var(--fg);text-decoration:none;box-shadow:inset 0 0 0 1px var(--line);' +
+    '.msg{margin:10px 12px 0;padding:8px 11px;background:var(--soft);border-radius:4px 12px 12px 12px;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-word}' +
+    '.body{padding:10px 12px 8px}' +
+    '.go{display:flex;align-items:center;justify-content:center;gap:8px;height:38px;border-radius:11px;background:var(--a);color:var(--on);text-decoration:none;font-weight:600;font-size:13.5px;transition:filter .15s,transform .15s}' +
+    '.go:hover{filter:brightness(1.07)}.go:active{transform:scale(.985)}.go svg{width:17px;height:17px;fill:currentColor;flex-shrink:0}' +
+    '.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}' +
+    '.chip{display:inline-flex;align-items:center;max-width:100%;height:28px;padding:0 11px;border-radius:999px;font-size:12.5px;font-weight:500;color:var(--fg);text-decoration:none;box-shadow:inset 0 0 0 1px var(--line);' +
       'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background .15s,box-shadow .15s}.chip:hover{background:var(--soft);box-shadow:inset 0 0 0 1px var(--a)}' +
-    '.qrb{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:8px;padding:7px;border:0;background:transparent;color:var(--mut);font:inherit;font-size:12px;border-radius:8px;cursor:pointer}' +
-    '.qrb:hover{color:var(--fg);background:var(--soft)}.qrb svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}' +
-    '.qrp{display:flex;align-items:center;gap:12px;margin-top:4px;padding:10px;border-radius:12px;background:var(--soft)}' +
-    '.qrp .tile{width:88px;height:88px;border-radius:8px;background:#fff;padding:4px;flex-shrink:0}.qrp svg{display:block;width:100%;height:100%}' +
-    '.qrp p{font-size:12px;line-height:1.4;color:var(--mut)}' +
-    '.pw{text-align:center;font-size:10.5px;color:var(--mut);opacity:.85;padding:0 0 10px}.pw b{font-weight:600}' +
+    '.foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;min-height:24px}' +
+    '.qrb{display:inline-flex;align-items:center;gap:5px;padding:4px 6px;margin-left:-6px;border:0;background:transparent;color:var(--mut);font:inherit;font-size:11.5px;border-radius:7px;cursor:pointer;white-space:nowrap}' +
+    '.qrb:hover{color:var(--fg);background:var(--soft)}.qrb svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}' +
+    '.qrp{display:flex;align-items:center;gap:10px;margin-top:4px;padding:8px;border-radius:11px;background:var(--soft)}' +
+    '.qrp .tile{width:80px;height:80px;border-radius:7px;background:#fff;padding:3px;flex-shrink:0}.qrp svg{display:block;width:100%;height:100%}' +
+    '.qrp p{font-size:11.5px;line-height:1.4;color:var(--mut)}' +
+    '.pw{margin-left:auto;font-size:10.5px;color:var(--mut);opacity:.85;white-space:nowrap}.pw b{font-weight:600}' +
     '.hide{display:none!important}' +
 
     /* phones: the card spans the width above the button; no QR (the visitor is already on their phone) */
-    '@media (max-width:640px){.card{width:calc(100vw - 16px)}.wrap{' + side + ':8px;bottom:calc(8px + env(safe-area-inset-bottom,0px))}.qrb,.qrp{display:none!important}.body{padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}.wrap.open .launch{display:none}}' +
+    '.ph .card{width:calc(100vw - 16px)}.ph .wrap{' + side + ':8px;bottom:calc(8px + env(safe-area-inset-bottom,0px))}.ph .qrb,.ph .qrp{display:none!important}.ph .body{padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}.ph .wrap.open .launch{display:none}' +
     '@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}' +
-    (d.mobile === 'false' ? '@media (max-width:640px){.wrap{display:none}}' : '');
+    (d.mobile === 'false' ? '.ph .wrap{display:none}' : '');
 
   var GLYPH = 'M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm0 1.67c2.2 0 4.26.86 5.82 2.42a8.225 8.225 0 0 1 2.41 5.83c0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.31a8.188 8.188 0 0 1-1.26-4.38c.01-4.54 3.7-8.24 8.25-8.24zM8.53 7.33c-.16 0-.43.06-.66.31-.22.25-.87.86-.87 2.07 0 1.22.89 2.39 1 2.56.14.17 1.76 2.67 4.25 3.73.59.27 1.05.42 1.41.53.59.19 1.13.16 1.56.1.48-.07 1.46-.6 1.67-1.18.21-.58.21-1.07.15-1.18-.07-.1-.23-.16-.48-.27-.25-.14-1.47-.74-1.69-.82-.23-.09-.39-.12-.56.12-.17.25-.64.81-.78.97-.14.17-.29.19-.53.07-.26-.13-1.06-.39-2-1.23-.74-.66-1.23-1.47-1.38-1.72-.12-.25-.01-.39.11-.5.11-.11.25-.29.37-.43.12-.14.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43-.14 0-.3-.01-.47-.01z';
   var NS = 'http://www.w3.org/2000/svg';
@@ -363,13 +365,14 @@ function qrEncode(text, forceMask) {
     body.appendChild(chips);
   }
 
-  /* QR: tucked behind a small link so the card stays compact; computers only */
+  /* footer row: a small QR link (computers only) and the branding; the QR opens below it */
   var code = showQr ? qrEncode(link) : null;
+  var foot = el('div', 'foot'), qrp = null;
   if (code) {
     var qrb = el('button', 'qrb'); qrb.type = 'button'; qrb.setAttribute('aria-expanded', 'false');
     qrb.appendChild(icon('M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM20 14v3M14 20h3M20 20v1'));
-    qrb.appendChild(document.createTextNode('Scan to chat from your phone'));
-    var qrp = el('div', 'qrp hide');
+    qrb.appendChild(document.createTextNode('Scan to chat on phone'));
+    qrp = el('div', 'qrp hide');
     var tile = el('div', 'tile');
     var N = code.size, M = 2, dd = '';
     for (var yy = 0; yy < N; yy++) {
@@ -391,10 +394,12 @@ function qrEncode(text, forceMask) {
       var shown = qrp.classList.toggle('hide') === false;
       qrb.setAttribute('aria-expanded', shown ? 'true' : 'false');
     });
-    body.appendChild(qrb); body.appendChild(qrp);
+    foot.appendChild(qrb);
   }
+  if (branding) { var pw = el('div', 'pw'); pw.appendChild(document.createTextNode('Powered by ')); pw.appendChild(el('b', '', 'ChatFlow')); foot.appendChild(pw); }
+  if (foot.childNodes.length) body.appendChild(foot);
+  if (qrp) body.appendChild(qrp);
   card.appendChild(body);
-  if (branding) { var pw = el('div', 'pw'); pw.appendChild(document.createTextNode('Powered by ')); pw.appendChild(el('b', '', 'ChatFlow')); card.appendChild(pw); }
 
   /* the closed button (+ optional pill) */
   var launch = el('div', 'launch');
@@ -408,6 +413,11 @@ function qrEncode(text, forceMask) {
   wrap.appendChild(card); wrap.appendChild(launch);
   ui.appendChild(wrap);
   root.appendChild(ui);
+
+  var mq = window.matchMedia ? window.matchMedia('(max-width:640px)') : null;
+  function applyPhone() { ui.classList.toggle('ph', preview ? d.device === 'mobile' : !!(mq && mq.matches)); }
+  applyPhone();
+  if (mq && mq.addEventListener) mq.addEventListener('change', applyPhone);
 
   var isOpen = false;
   function setOpen(v, focus) {

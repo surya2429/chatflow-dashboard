@@ -372,17 +372,17 @@ function WidgetPreview({ w, device }) {
   const [settled, setSettled] = useState(w)
   useEffect(() => { const t = setTimeout(() => setSettled(w), 250); return () => clearTimeout(t) }, [w])
   const doc = useMemo(() => {
-    const tag = snippetFor(settled, `${window.location.origin}/wa-widget.js`, ['data-preview="1"'])
+    const tag = snippetFor(settled, `${window.location.origin}/wa-widget.js`, ['data-preview="1"', device === 'mobile' ? 'data-device="mobile"' : null])
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
       html,body{margin:0;height:100%;background:linear-gradient(180deg,#f8fafc,#eef2f7);font-family:system-ui,sans-serif}
       .s{padding:22px;display:grid;gap:12px;opacity:.9}.b{background:#dfe5ee;border-radius:8px;height:10px}.h{height:16px;width:34%;background:#cdd5e1;border-radius:8px}
       .hero{height:110px;border-radius:16px;background:linear-gradient(135deg,#d9e0ec,#e8edf5)}
     </style></head><body><div class="s"><div class="h"></div><div class="b" style="width:92%"></div><div class="b" style="width:78%"></div><div class="hero"></div><div class="b" style="width:60%"></div><div class="b" style="width:84%"></div></div>${tag}</body></html>`
-  }, [settled])
+  }, [settled, device])
   return (
     <div className={clsx('mx-auto rounded-2xl border border-surface-border overflow-hidden bg-slate-100 transition-all', device === 'mobile' ? 'shadow-xl' : '')}
       style={{ width: frameW ?? '100%', maxWidth: '100%' }}>
-      <iframe title="Widget preview" srcDoc={doc} sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" className="block w-full border-0" style={{ height: device === 'mobile' ? 560 : 480 }}/>
+      <iframe title="Widget preview" srcDoc={doc} sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" className="block w-full border-0" style={{ height: device === 'mobile' ? 420 : 400 }}/>
     </div>
   )
 }
@@ -475,7 +475,7 @@ function WidgetTab({ ml }) {
             <Field label="Main button text"><input value={w.cta} onChange={(e) => set('cta', e.target.value)} className={inputCls} maxLength={32}/></Field>
             <Field label="Label next to the button" hint="Optional. Empty = just the icon."><input value={w.label} onChange={(e) => set('label', e.target.value)} className={inputCls} maxLength={28}/></Field>
           </div>
-          <Toggle checked={w.qr} onChange={(v) => set('qr', v)} label="Show a QR code" hint="A small “Scan to chat from your phone” link that expands the code. Computers only; it opens your main button’s chat."/>
+          <Toggle checked={w.qr} onChange={(v) => set('qr', v)} label="Show a QR code" hint="A small “Scan to chat on phone” link that expands the code. Computers only; it opens your main button’s chat."/>
         </div>
 
         <div className="rounded-xl border border-surface-border p-4 space-y-3">
