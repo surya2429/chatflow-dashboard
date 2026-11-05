@@ -293,9 +293,7 @@ function ConversationList({ onSelect, activeId, view, setView }) {
 
       {/* ── Row 1: title + view toggle + actions ── */}
       <div className="flex items-center gap-1.5 px-3 py-2 border-b border-surface-border flex-shrink-0">
-        <p className="text-[13px] font-bold text-slate-800 flex-1 truncate min-w-0">Website Chat</p>
-
-        <div className="flex items-center bg-slate-100 rounded-md p-0.5 flex-shrink-0">
+        <div className="flex items-center bg-slate-100 rounded-md p-0.5 flex-shrink-0 mr-auto">
           {[['chats', MessageCircle, 'Chats'], ['insights', Activity, 'Insights']].map(([k, Icon, lbl]) => (
             <button key={k} onClick={() => setView(k)}
               className={clsx('flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold transition-colors whitespace-nowrap',
