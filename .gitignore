@@ -40,3 +40,4 @@ logs/
 
 # Backups / archives (never commit)
 *.zip
+.dev-leads.json

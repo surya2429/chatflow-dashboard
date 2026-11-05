@@ -522,7 +522,7 @@ function WidgetTab({ ml }) {
           </Field>
           <div className="space-y-2.5 pt-1">
             <Toggle checked={w.mobile} onChange={(v) => set('mobile', v)} label="Show on phones" hint="On phones the card opens as a full-width sheet."/>
-            <Toggle checked={w.branding} onChange={(v) => set('branding', v)} label={'Show "Powered by SmatBot"'}/>
+            <Toggle checked={w.branding} onChange={(v) => set('branding', v)} label={'Show "Powered by SmatBot"'} hint="Clicking it opens a short form (name, email and phone required; company and website optional) and then takes the visitor to smatbot.com."/>
           </div>
         </div>
       </div>

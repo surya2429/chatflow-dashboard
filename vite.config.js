@@ -11,6 +11,7 @@ import { createFileBillingStore } from './backend/src/billing/fileStore.ts'
 import { loadLogo } from './backend/src/billing/logo.ts'
 import { metaReportResponse } from './backend/src/whatsapp/metaReports.ts'
 import { messageLinkResponse } from './backend/src/whatsapp/messageLinks.ts'
+import { createRateLimiter, handleLeadRequest } from './backend/src/leads/poweredByLead.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -331,9 +332,42 @@ function devMessageLinksApi(env) {
   }
 }
 
+/**
+ * Dev stand-in for backend/src/routes/leads.routes.ts: the "Powered by SmatBot" form's leads go into .dev-leads.json
+ * (gitignored) instead of Postgres. Same validation and rate limit as the API.
+ */
+function devLeadsApi() {
+  const file = join(__dirname, '.dev-leads.json')
+  const allow = createRateLimiter(5, 10 * 60_000)
+  const save = async (lead) => {
+    const all = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8') || '[]') : []
+    all.unshift({ ...lead, at: new Date().toISOString() })
+    writeFileSync(file, JSON.stringify(all, null, 2))
+  }
+  return {
+    name: 'dev-leads-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url?.startsWith('/api/leads/powered-by')) return next()
+        const send = (status, body) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.setHeader('Access-Control-Allow-Origin', '*'); res.end(JSON.stringify(body)) }
+        if (req.method === 'OPTIONS') { res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS'); res.setHeader('Access-Control-Allow-Headers', 'Content-Type'); return send(204, {}) }
+        const chunks = []
+        req.on('data', (c) => chunks.push(c))
+        req.on('end', async () => {
+          let body = {}
+          try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') } catch { /* validation reports it */ }
+          try { const r = await handleLeadRequest(body, req.socket.remoteAddress || 'dev', save, allow); send(r.status, r.body) }
+          catch (err) { console.error('[leads]', err); send(500, { error: 'internal_server_error' }) }
+        })
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   root: __dirname,
-  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, ''))],
+  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, '')), devLeadsApi()],
   // Vite's default bind on this machine only listens on [::1], so anything that
   // resolves `localhost` to 127.0.0.1 — most browsers, curl, the in-app preview
   // pane — cannot connect and the page just never loads. `host: true` binds

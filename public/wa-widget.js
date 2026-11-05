@@ -14,6 +14,7 @@
  *   data-name, data-subtitle, data-welcome, data-cta
  *   data-color #hex (default #5B5BF0)   data-theme light|dark   data-position right|left   data-font (see WEB below)
  *   data-qr false   data-branding false   data-mobile false   data-open-after <seconds, once per visit>
+ *   data-leads-url   where the "Powered by SmatBot" form posts (default: /api/leads/powered-by on this script's own host)
  *   data-preview / data-device   used only by the Settings preview
  *
  * One element is added to the page (a shadow root keeps the host's CSS out) - plus, only when a web font is chosen,
@@ -268,7 +269,17 @@ function qrEncode(text, forceMask) {
     '.qr{display:flex;align-items:center;gap:12px;margin-top:12px;padding:10px;border-radius:12px;background:var(--soft)}' +
     '.tile{width:76px;height:76px;border-radius:7px;background:#fff;padding:3px;flex-shrink:0}.tile svg{display:block;width:100%;height:100%}' +
     '.qr strong{display:block;font-size:12.5px;font-weight:600}.qr p{font-size:11.5px;line-height:1.4;color:var(--mut);margin-top:2px}' +
-    '.pw{margin-top:10px;text-align:center;font-size:10.5px;color:var(--mut);opacity:.85}.pw b{font-weight:600}' +
+    '.pw{display:block;width:100%;margin-top:10px;padding:2px;border:0;background:none;font:inherit;font-size:10.5px;text-align:center;color:var(--mut);opacity:.85;cursor:pointer}.pw:hover{opacity:1;color:var(--fg)}.pw b{font-weight:600}' +
+    '.pf{padding:14px 18px 16px}.pfh{display:flex;align-items:center;gap:6px;margin:0 0 4px -6px}.pfh strong{font-size:14px;font-weight:600}' +
+    '.pf .sub{font-size:12px;color:var(--mut);margin:0 0 12px}' +
+    '.f{margin-bottom:9px}.f label{display:block;font-size:11.5px;font-weight:600;margin-bottom:3px}.f i{font-style:normal;font-weight:400;color:var(--mut)}' +
+    '.f input{width:100%;height:34px;border:0;border-radius:9px;padding:0 10px;font:inherit;font-size:13px;color:var(--fg);background:var(--soft);box-shadow:inset 0 0 0 1px var(--line);outline:0}' +
+    '.f input:focus{box-shadow:inset 0 0 0 1.5px var(--a);background:var(--bg)}.f input[aria-invalid=true]{box-shadow:inset 0 0 0 1.5px #ef4444}' +
+    '.f small{display:block;color:#ef4444;font-size:11px;margin-top:2px}' +
+    '.pf button.go{width:100%;border:0;cursor:pointer;font:inherit;font-weight:600;font-size:13.5px;margin-top:4px}.pf button.go:disabled{opacity:.6;cursor:default}' +
+    '.pf .note{font-size:10.5px;color:var(--mut);text-align:center;margin-top:8px}.pf .err{font-size:11.5px;color:#ef4444;text-align:center;margin-top:8px}' +
+    '.ok{padding:30px 18px 24px;text-align:center}.ok .tick{width:42px;height:42px;margin:0 auto 12px;border-radius:50%;background:var(--a);color:var(--on);display:flex;align-items:center;justify-content:center}' +
+    '.ok .tick svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}.ok strong{display:block;font-size:15px}.ok p{font-size:12.5px;color:var(--mut);margin:4px 0 14px}.ok .go{margin-top:0}' +
     '.hide{display:none!important}' +
     '.ph .card{width:calc(100vw - 16px)}.ph .wrap{' + side + ':8px;bottom:calc(8px + env(safe-area-inset-bottom,0px))}.ph .qr{display:none}.ph .body{padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}.ph .wrap.open .fab{display:none}' +
     (d.mobile === 'false' ? '.ph .wrap{display:none}' : '') +
@@ -307,10 +318,86 @@ function qrEncode(text, forceMask) {
     qr = el('div', 'qr', '', [el('div', 'tile', '', [qs]), el('div', '', '', [el('strong', '', 'Scan to chat on your phone'), el('p', '', 'Point your camera at the code to open WhatsApp.')])]);
   }
 
+  /* "Powered by SmatBot": opens a short form (name, email, phone required; company, website optional), saves the lead,
+     then sends the visitor to smatbot.com */
+  var SITE = 'https://smatbot.com/?utm_source=wa-widget&utm_medium=powered-by';
+  var pw = el('button', 'pw', 'Powered by ', [el('b', '', 'SmatBot')]);
+  pw.type = 'button'; pw.setAttribute('aria-label', 'Powered by SmatBot - get SmatBot for your business');
+  var leadsUrl = d.leadsUrl || (function () { try { return new URL(self.src, location.href).origin + '/api/leads/powered-by'; } catch (e) { return ''; } })();
+  var EMAIL = /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/, DOMAIN = /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(:\d+)?(\/[^\s]*)?$/i;
+  function problems(v) {
+    var e = {}, digits = v.phone.replace(/\D/g, '');
+    if (v.name.length < 2) e.name = 'Enter your name.';
+    if (!EMAIL.test(v.email)) e.email = 'Enter a valid email address.';
+    if (!/^[\d\s()+.\-]+$/.test(v.phone) || digits.length < 7 || digits.length > 15) e.phone = 'Enter a valid phone number.';
+    if (v.website && !DOMAIN.test(v.website)) e.website = 'Enter a valid website, like example.com.';
+    return e;
+  }
+  function leadForm() {
+    var FIELDS = [['name', 'Name', 'text', 'name', 1], ['email', 'Email', 'email', 'email', 1], ['phone', 'Phone', 'tel', 'tel', 1], ['company', 'Company', 'text', 'organization', 0], ['website', 'Website', 'text', 'url', 0]];
+    var inputs = {}, errs = {};
+    var back = el('button', 'x', '', [svg('M15 6l-6 6 6 6')]); back.type = 'button'; back.setAttribute('aria-label', 'Back');
+    var form = el('form', 'pf');
+    form.noValidate = true;
+    form.appendChild(el('div', 'pfh', '', [back, el('strong', '', 'Get SmatBot for your business')]));
+    form.appendChild(el('p', 'sub', 'Tell us where to reach you and we\u2019ll take it from there.'));
+    FIELDS.forEach(function (f) {
+      var inp = el('input'); inp.name = f[0]; inp.type = f[2]; inp.autocomplete = f[3]; inp.id = 'cf-wa-' + f[0]; inp.required = !!f[4];
+      if (f[0] === 'website') { inp.inputMode = 'url'; inp.placeholder = 'example.com'; }
+      if (f[0] === 'phone') inp.placeholder = '+91 98765 43210';
+      var label = el('label', '', f[1], f[4] ? [el('span', '', ' *')] : [el('i', '', ' (optional)')]); label.htmlFor = inp.id;
+      var small = el('small'); small.hidden = true;
+      inputs[f[0]] = inp; errs[f[0]] = small;
+      form.appendChild(el('div', 'f', '', [label, inp, small]));
+    });
+    var send = el('button', 'go', 'Get started'); send.type = 'submit';
+    var fail = el('div', 'err'); fail.hidden = true;
+    form.appendChild(send); form.appendChild(fail);
+    form.appendChild(el('div', 'note', 'We\u2019ll only use these details to contact you about SmatBot.'));
+
+    function show(e) {
+      FIELDS.forEach(function (f) { var m = e[f[0]]; errs[f[0]].textContent = m || ''; errs[f[0]].hidden = !m; inputs[f[0]].setAttribute('aria-invalid', m ? 'true' : 'false'); });
+    }
+    function done(first) {
+      var tick = el('div', 'tick', '', [svg('M5 12l5 5 9-10')]);
+      var open = a('go', SITE, 'Open smatbot.com'); open.insertBefore(svg('M7 17L17 7M8 7h9v9'), open.firstChild);
+      main.classList.add('hide'); form.classList.add('hide');
+      card.appendChild(el('div', 'ok', '', [tick, el('strong', '', 'Thanks' + (first ? ', ' + first : '') + '!'), el('p', '', 'We\u2019ll be in touch soon. Taking you to smatbot.com\u2026'), open]));
+      var w = window.open(SITE, '_blank');          // allowed right after the click; if a pop-up blocker stops it, go in this tab
+      if (w) { w.opener = null; } else if (!preview) setTimeout(function () { location.href = SITE; }, 2500);
+    }
+    form.onsubmit = function (ev) {
+      ev.preventDefault();
+      var v = {};
+      FIELDS.forEach(function (f) { v[f[0]] = inputs[f[0]].value.trim(); });
+      var e = problems(v); show(e); fail.hidden = true;
+      var bad = FIELDS.filter(function (f) { return e[f[0]]; })[0];
+      if (bad) { inputs[bad[0]].focus(); return; }
+      send.disabled = true; send.textContent = 'Sending\u2026';
+      var finish = function () { done(v.name.split(' ')[0]); };
+      if (preview) return finish();                  // the Settings preview never creates a real lead
+      var ctl = window.AbortController ? new AbortController() : null, timer = setTimeout(function () { if (ctl) ctl.abort(); }, 5000);
+      v.sourceUrl = location.href;
+      fetch(leadsUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v), signal: ctl && ctl.signal })
+        .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) { return { ok: r.ok, status: r.status, body: b }; }); })
+        .then(function (r) {
+          clearTimeout(timer);
+          if (r.ok) return finish();
+          send.disabled = false; send.textContent = 'Get started';
+          if (r.body && r.body.fields) show(r.body.fields);
+          else { fail.textContent = r.status === 429 ? 'Too many attempts. Please try again later.' : 'Something went wrong. Please try again.'; fail.hidden = false; }
+        })
+        .catch(function () { clearTimeout(timer); send.disabled = false; send.textContent = 'Get started'; fail.textContent = 'Couldn\u2019t send. Check your connection and try again.'; fail.hidden = false; });
+    };
+    back.onclick = function () { form.remove(); main.classList.remove('hide'); pw.focus(); };
+    return { el: form, focus: function () { inputs.name.focus(); } };
+  }
+  pw.onclick = function () { var f = leadForm(); main.classList.add('hide'); card.appendChild(f.el); f.focus(); };
+
   var close = el('button', 'x', '', [svg('M6 6l12 12M18 6L6 18')]);
   close.type = 'button'; close.setAttribute('aria-label', 'Close');
   var go = a('go', link, d.cta || 'Start chat on WhatsApp', []); go.insertBefore(svg(WA, ''), go.firstChild);
-  var card = el('div', 'card hide', '', [
+  var main = el('div', 'main', '', [
     el('div', 'head', '', [
       el('div', 'av', (name.trim().charAt(0) || 'C').toUpperCase()),
       el('div', 'who', '', [el('div', 'nm', name), el('div', 'st', '', [el('span', 'dot'), document.createTextNode(d.subtitle || 'Typically replies in minutes')])]),
@@ -320,9 +407,10 @@ function qrEncode(text, forceMask) {
     el('div', 'body', '', [go].concat(
       quick.length ? [el('div', 'chips', '', quick.map(function (c) { var n = a('chip', c.u, c.l); n.title = c.l; return n; }))] : [],
       qr ? [qr] : [],
-      d.branding === 'false' ? [] : [el('div', 'pw', 'Powered by ', [el('b', '', 'SmatBot')])]
+      d.branding === 'false' ? [] : [pw]
     ))
   ]);
+  var card = el('div', 'card hide', '', [main]);
   card.setAttribute('role', 'dialog'); card.setAttribute('aria-label', name);
 
   var fab = el('button', 'fab', '', [svg(WA)]);
@@ -346,8 +434,9 @@ function qrEncode(text, forceMask) {
     if (v && focus) go.focus();
   }
   fab.onclick = function () { setOpen(!isOpen, true); };
-  close.onclick = function () { setOpen(false); fab.focus(); };
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && isOpen) { setOpen(false); fab.focus(); } });
+  function reset() { var f = card.querySelector('.pf, .ok'); while (f) { f.remove(); f = card.querySelector('.pf, .ok'); } main.classList.remove('hide'); }
+  close.onclick = function () { setOpen(false); reset(); fab.focus(); };
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && isOpen) { setOpen(false); reset(); fab.focus(); } });
 
   if (preview) setOpen(true);
   else if (openAfter) {
