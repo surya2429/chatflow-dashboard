@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Sparkles, Settings2, Loader2, Send, AlertTriangle, Lightbulb, X, MessageSquareText, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
 import { ai, inboxPayload, toAiConversation, useAiSettings } from '../../lib/aiApi'
@@ -198,6 +199,60 @@ function Section({ icon: Icon, title, tone = 'text-primary', children }) {
       <h4 className="text-[11px] font-bold text-slate-700 mb-2 flex items-center gap-1.5"><Icon size={12} className={tone} /> {title}</h4>
       {children}
     </div>
+  )
+}
+
+/* ═══ The ✨ icon in the inbox list header (next to refresh): ask about ALL chats in this inbox ═══ */
+export function AiInboxButton({ conversations }) {
+  const { settings } = useAiSettings()
+  const ctx = useConversations()
+  const all = conversations ?? ctx.allConversations        // Instagram keeps its own list, so its inbox passes it in
+  const [pos, setPos] = useState(null)                     // null = closed
+  const [setup, setSetup] = useState(false)
+  const btn = useRef(null)
+  const pop = useRef(null)
+
+  useEffect(() => {
+    if (!pos) return
+    const away = (e) => { if (!pop.current?.contains(e.target) && !btn.current?.contains(e.target)) setPos(null) }
+    const esc = (e) => { if (e.key === 'Escape') setPos(null) }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc) }
+  }, [pos])
+
+  function toggle() {
+    if (pos) return setPos(null)
+    const r = btn.current.getBoundingClientRect()
+    const w = Math.min(380, window.innerWidth - 16)
+    setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left - 16, window.innerWidth - w - 8)), width: w })
+  }
+
+  return (
+    <>
+      <button ref={btn} onClick={toggle} title="Ask AI about all chats" aria-label="Ask AI about all chats" aria-expanded={!!pos}
+        className={clsx('p-1.5 rounded-lg transition-colors', pos ? 'bg-primary-50 text-primary' : 'text-primary/80 hover:bg-primary-50 hover:text-primary')}>
+        <Sparkles size={12} />
+      </button>
+      {pos && createPortal(
+        <div ref={pop} role="dialog" aria-label="Ask AI about all chats" style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, maxHeight: `calc(100vh - ${pos.top + 12}px)` }}
+          className="z-50 overflow-y-auto bg-white rounded-xl border border-surface-border shadow-modal p-3.5">
+          <div className="flex items-center gap-2 mb-2.5">
+            <Sparkles size={13} className="text-primary" />
+            <p className="text-xs font-bold text-slate-800 flex-1">Ask AI · all {all.length} chats</p>
+            {settings?.configured && <button onClick={() => { setPos(null); setSetup(true) }} aria-label="AI settings" title="AI settings" className="p-1 rounded text-slate-300 hover:text-slate-500"><Settings2 size={12} /></button>}
+            <button onClick={() => setPos(null)} aria-label="Close" className="p-1 rounded text-slate-400 hover:text-slate-600"><X size={12} /></button>
+          </div>
+          {!settings ? <Loader2 size={14} className="animate-spin text-slate-400 mx-auto my-3" />
+            : settings.configured ? <AskAi conversations={all} compact />
+            : (
+              <div className="text-center py-2">
+                <p className="text-[11px] text-slate-500 mb-2.5">Connect an AI model to ask questions like “how many booked an appointment?”.</p>
+                <button onClick={() => { setPos(null); setSetup(true) }} className="btn-primary text-xs inline-flex items-center gap-1.5"><Sparkles size={12} /> Set up AI</button>
+              </div>
+            )}
+        </div>, document.body)}
+      {setup && <AiSetupDialog onClose={() => setSetup(false)} />}
+    </>
   )
 }
 

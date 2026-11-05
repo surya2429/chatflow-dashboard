@@ -24,7 +24,7 @@ import {
   EditableField, EditableCustomField, EditablePhoneField, ExternalLinkIcon,
 } from '../components/inbox/SharedInboxParts'
 import clsx from 'clsx'
-import { AiInboxInsights, AiChatAssist } from '../components/ai/AiAssist'
+import { AiInboxInsights, AiChatAssist, AiInboxButton } from '../components/ai/AiAssist'
 
 /**
  * Website Chat inbox — structural/behavioral parity with the WhatsApp inbox
@@ -305,6 +305,7 @@ function ConversationList({ onSelect, activeId, view, setView }) {
         </div>
 
         <div className="flex items-center gap-0.5 flex-shrink-0">
+          <AiInboxButton />
           <button className="p-1.5 rounded-lg text-slate-400 hover:bg-surface-hover hover:text-slate-600 transition-colors"><RefreshCw size={11} /></button>
         </div>
       </div>

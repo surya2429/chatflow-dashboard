@@ -10,7 +10,7 @@ import {
   BellOff, Bot, UserCheck,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { AiInboxInsights, AiChatAssist } from '../components/ai/AiAssist'
+import { AiInboxInsights, AiChatAssist, AiInboxButton } from '../components/ai/AiAssist'
 import { useApp } from '../context/AppContext'
 import { NativeSelect } from '../components/Select'
 import Select from '../components/Select'
@@ -892,6 +892,7 @@ function ConversationList({ conversations, allConversations, activeId, onSelect,
         </div>
 
         <div className="flex items-center gap-0.5 flex-shrink-0">
+          <AiInboxButton conversations={allConversations} />
           <button className="p-1.5 rounded-lg text-slate-400 hover:bg-surface-hover hover:text-slate-600 transition-colors"><RefreshCw size={11} /></button>
           <button onClick={onNewConversation} title="Start new conversation"
             className="p-1.5 rounded-md bg-primary text-white hover:bg-primary-hover transition-colors"><Plus size={12} /></button>
