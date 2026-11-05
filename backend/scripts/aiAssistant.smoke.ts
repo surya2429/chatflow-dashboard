@@ -35,6 +35,13 @@ assert.equal((shapeResult('ask', '{"answer":"x","isCount":true,"matches":[]}', {
 const one = buildPrompt('ask', { conversation: { ...conv, messages: [{ who: 'customer', text: 'Book me for 5pm' }] }, question: 'did they book?' })!
 assert.deepEqual(one.ids, [])
 assert.ok(one.user.includes('Book me for 5pm'))
+// a chat: earlier turns go in (last 8 only), follow-up questions are cleaned
+const turns = Array.from({ length: 12 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `turn${i}` }))
+const chat = buildPrompt('ask', { conversations: [conv], question: 'which of them are from India?', history: turns })!
+assert.ok(chat.user.includes('turn11') && chat.user.includes('turn4') && !chat.user.includes('turn3 ') && chat.user.includes('New question: which of them'))
+assert.ok(chat.system.includes('Lead with the direct answer'))
+const f = shapeResult('ask', '{"answer":"A","followUps":["one","two","three","four"]}', chat) as any
+assert.deepEqual(f.followUps, ['one', 'two', 'three'])
 
 // the handler: save verifies the key first, never returns it, run uses the stored one
 const mem = new Map<string, StoredAi>()

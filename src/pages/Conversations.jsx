@@ -1023,7 +1023,7 @@ function ConversationList({ onSelect, activeId, view, setView }) {
 
         {/* Actions */}
         <div className="flex items-center gap-0.5 flex-shrink-0">
-          <AiInboxButton />
+          <AiInboxButton onOpen={(id) => { setView('chats'); onSelect(id) }} />
           <button className="p-1.5 rounded-lg text-slate-400 hover:bg-surface-hover hover:text-slate-600 transition-colors"><RefreshCw size={11} /></button>
           <button onClick={() => setShowNewConv(true)} title="Start new conversation"
             className="p-1.5 rounded-md bg-primary text-white hover:bg-primary-hover transition-colors"><Plus size={12} /></button>

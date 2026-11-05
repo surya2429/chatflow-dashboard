@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Sparkles, Settings2, Loader2, Send, AlertTriangle, Lightbulb, X, MessageSquareText, RefreshCw } from 'lucide-react'
+import { Sparkles, Settings2, Loader2, AlertTriangle, Lightbulb, X, MessageSquareText, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
 import { ai, inboxPayload, toAiConversation, useAiSettings } from '../../lib/aiApi'
 import { useConversations } from '../../context/ConversationContext'
 import AiSetupDialog from './AiSetupDialog'
+import AiChat, { useThread } from './AiChat'
 
 const SENTIMENT = { positive: 'bg-emerald-50 text-emerald-700', neutral: 'bg-slate-100 text-slate-600', negative: 'bg-red-50 text-red-600' }
 const URGENCY = { low: 'bg-slate-100 text-slate-600', medium: 'bg-amber-50 text-amber-700', high: 'bg-red-50 text-red-600' }
@@ -22,8 +23,9 @@ function useAiTask() {
 }
 
 /* ═══ Inbox-wide: headline, top topics, complaints, chats needing attention, and "Ask AI" ═══ */
-export function AiInboxInsights({ conversations }) {
+export function AiInboxInsights({ conversations, onOpen }) {
   const { settings } = useAiSettings()
+  const thread = useThread()
   const [setup, setSetup] = useState(false)
   const [report, runReport] = useAiTask()
 
@@ -107,88 +109,13 @@ export function AiInboxInsights({ conversations }) {
 
           <div className={clsx(r && 'border-t border-surface-border pt-4')}>
             <p className="text-[11px] font-bold text-slate-700 mb-2">Ask AI about your chats</p>
-            <AskAi conversations={conversations} />
+            <div className="h-[460px] rounded-xl border border-surface-border bg-white overflow-hidden">
+              <AiChat thread={thread} conversations={conversations} onOpen={onOpen} />
+            </div>
           </div>
         </div>
       )}
       {setup && <AiSetupDialog onClose={() => setSetup(false)} />}
-    </div>
-  )
-}
-
-const SUGGEST_ALL = ['How many customers are interested in buying?', 'How many booked an appointment?', 'Which customers sound unhappy?']
-const SUGGEST_ONE = ['Is this customer interested?', 'Did they book an appointment?', 'What do they still need from us?']
-
-/* Ask a question about the open chat, or (scope "all") about every chat in the inbox. Questions like "how many booked an
-   appointment?" come back with the matching conversations listed, so the number can be checked. */
-function AskAi({ conversation, conversations, compact }) {
-  const [scope, setScope] = useState(conversation ? 'chat' : 'all')
-  const [q, setQ] = useState('')
-  const [asks, setAsks] = useState([])          // newest first: { q, scope, ...answer } | { q, scope, error }
-  const [busy, setBusy] = useState(false)
-  const id = conversation?.id
-  useEffect(() => { setAsks([]); setScope(conversation ? 'chat' : 'all') }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const names = Object.fromEntries((conversations || []).map((c) => [String(c.id), c.name]))
-  async function ask(text) {
-    const question = text.trim()
-    if (!question || busy) return
-    setBusy(true); setQ('')
-    try {
-      const payload = scope === 'chat' ? { conversation: toAiConversation(conversation) } : inboxPayload(conversations)
-      const answer = await ai.run('ask', { ...payload, question })
-      setAsks((a) => [{ q: question, scope, ...answer }, ...a])
-    } catch (e) { setAsks((a) => [{ q: question, scope, error: e.message }, ...a]) }
-    finally { setBusy(false) }
-  }
-
-  return (
-    <div>
-      {conversation && (
-        <div className="inline-flex bg-slate-100 rounded-md p-0.5 mb-2">
-          {[['chat', 'This chat'], ['all', `All chats (${conversations.length})`]].map(([k, lbl]) => (
-            <button key={k} onClick={() => setScope(k)} className={clsx('px-2.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors', scope === k ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700')}>{lbl}</button>
-          ))}
-        </div>
-      )}
-      <form onSubmit={(e) => { e.preventDefault(); ask(q) }} className="flex gap-2">
-        <input value={q} onChange={(e) => setQ(e.target.value)} maxLength={500} aria-label="Ask AI"
-          placeholder={scope === 'chat' ? 'Ask about this chat, e.g. did they book an appointment?' : 'Ask about all chats, e.g. how many are interested?'}
-          className="flex-1 min-w-0 rounded-lg border border-surface-border px-3 py-2 text-xs outline-none focus:border-primary placeholder:text-slate-400" />
-        <button type="submit" disabled={!q.trim() || busy} aria-label="Ask" className="btn-primary px-3 disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}</button>
-      </form>
-      {!asks.length && !busy && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {(scope === 'chat' ? SUGGEST_ONE : SUGGEST_ALL).map((t) => (
-            <button key={t} onClick={() => ask(t)} className="px-2.5 py-1 rounded-full border border-surface-border text-[10.5px] text-slate-500 hover:border-primary hover:text-primary transition-colors">{t}</button>
-          ))}
-        </div>
-      )}
-      <div className={clsx('mt-3 space-y-3 overflow-y-auto', compact && 'max-h-56')}>
-        {asks.map((a, i) => (
-          <div key={i} className="text-xs">
-            <p className="font-semibold text-slate-800">{a.q} <span className="font-normal text-[10px] text-slate-400">· {a.scope === 'chat' ? 'this chat' : 'all chats'}</span></p>
-            {a.error ? <p className="text-red-600 mt-0.5">{a.error}</p> : (
-              <>
-                {a.isCount && (
-                  <p className="mt-1">
-                    <span className="inline-flex items-baseline gap-1 px-2.5 py-1 rounded-lg bg-primary-50 text-primary">
-                      <b className="text-sm">{a.matches.length}</b><span className="text-[10.5px] font-semibold">of {a.analysed} conversations</span>
-                    </span>
-                    {a.total > a.analysed && <span className="text-[10px] text-amber-600 ml-2">Only the {a.analysed} most recent of {a.total} were checked.</span>}
-                  </p>
-                )}
-                {a.answer && <p className="text-slate-600 mt-1 whitespace-pre-wrap leading-relaxed">{a.answer}</p>}
-                {a.matches?.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {a.matches.map((m) => <span key={m.id} title={m.why} className="px-2 py-0.5 rounded-full bg-slate-100 text-[10.5px] text-slate-600">{names[m.id] || m.id}</span>)}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
@@ -203,10 +130,11 @@ function Section({ icon: Icon, title, tone = 'text-primary', children }) {
 }
 
 /* ═══ The ✨ icon in the inbox list header (next to refresh): ask about ALL chats in this inbox ═══ */
-export function AiInboxButton({ conversations }) {
+export function AiInboxButton({ conversations, onOpen }) {
   const { settings } = useAiSettings()
   const ctx = useConversations()
   const all = conversations ?? ctx.allConversations        // Instagram keeps its own list, so its inbox passes it in
+  const thread = useThread()
   const [pos, setPos] = useState(null)                     // null = closed
   const [setup, setSetup] = useState(false)
   const btn = useRef(null)
@@ -223,7 +151,7 @@ export function AiInboxButton({ conversations }) {
   function toggle() {
     if (pos) return setPos(null)
     const r = btn.current.getBoundingClientRect()
-    const w = Math.min(380, window.innerWidth - 16)
+    const w = Math.min(440, window.innerWidth - 16)
     setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left - 16, window.innerWidth - w - 8)), width: w })
   }
 
@@ -234,22 +162,26 @@ export function AiInboxButton({ conversations }) {
         <Sparkles size={12} />
       </button>
       {pos && createPortal(
-        <div ref={pop} role="dialog" aria-label="Ask AI about all chats" style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, maxHeight: `calc(100vh - ${pos.top + 12}px)` }}
-          className="z-50 overflow-y-auto bg-white rounded-xl border border-surface-border shadow-modal p-3.5">
-          <div className="flex items-center gap-2 mb-2.5">
-            <Sparkles size={13} className="text-primary" />
-            <p className="text-xs font-bold text-slate-800 flex-1">Ask AI · all {all.length} chats</p>
-            {settings?.configured && <button onClick={() => { setPos(null); setSetup(true) }} aria-label="AI settings" title="AI settings" className="p-1 rounded text-slate-300 hover:text-slate-500"><Settings2 size={12} /></button>}
-            <button onClick={() => setPos(null)} aria-label="Close" className="p-1 rounded text-slate-400 hover:text-slate-600"><X size={12} /></button>
+        <div ref={pop} role="dialog" aria-label="Ask AI about all chats"
+          style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, height: `min(640px, calc(100vh - ${pos.top + 12}px))` }}
+          className="z-50 flex flex-col bg-white rounded-2xl border border-surface-border shadow-modal overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-surface-border flex-shrink-0">
+            <span className="w-6 h-6 rounded-lg bg-primary-50 text-primary flex items-center justify-center"><Sparkles size={13} /></span>
+            <p className="text-[13px] font-bold text-slate-800 flex-1">Ask AI <span className="font-normal text-slate-400 text-xs">· {all.length} chats</span></p>
+            {thread.items.length > 0 && <button onClick={thread.clear} className="text-[11px] font-semibold text-slate-500 hover:text-primary px-2 py-1 rounded-lg hover:bg-slate-100">New chat</button>}
+            {settings?.configured && <button onClick={() => { setPos(null); setSetup(true) }} aria-label="AI settings" title="AI settings" className="p-1.5 rounded-lg text-slate-300 hover:text-slate-500 hover:bg-slate-100"><Settings2 size={13} /></button>}
+            <button onClick={() => setPos(null)} aria-label="Close" className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"><X size={13} /></button>
           </div>
-          {!settings ? <Loader2 size={14} className="animate-spin text-slate-400 mx-auto my-3" />
-            : settings.configured ? <AskAi conversations={all} compact />
-            : (
-              <div className="text-center py-2">
-                <p className="text-[11px] text-slate-500 mb-2.5">Connect an AI model to ask questions like “how many booked an appointment?”.</p>
-                <button onClick={() => { setPos(null); setSetup(true) }} className="btn-primary text-xs inline-flex items-center gap-1.5"><Sparkles size={12} /> Set up AI</button>
-              </div>
-            )}
+          <div className="flex-1 min-h-0">
+            {!settings ? <Loader2 size={14} className="animate-spin text-slate-400 mx-auto my-6" />
+              : settings.configured ? <AiChat thread={thread} conversations={all} onOpen={onOpen && ((id) => { setPos(null); onOpen(id) })} />
+              : (
+                <div className="text-center py-8 px-6">
+                  <p className="text-xs text-slate-500 mb-3">Connect an AI model to ask questions like “how many booked an appointment?”.</p>
+                  <button onClick={() => { setPos(null); setSetup(true) }} className="btn-primary text-xs inline-flex items-center gap-1.5"><Sparkles size={12} /> Set up AI</button>
+                </div>
+              )}
+          </div>
         </div>, document.body)}
       {setup && <AiSetupDialog onClose={() => setSetup(false)} />}
     </>
@@ -257,16 +189,18 @@ export function AiInboxButton({ conversations }) {
 }
 
 /* ═══ One conversation: summary + sentiment, and a suggested reply for the composer ═══ */
-export function AiChatAssist({ conversation, onUseReply, conversations }) {
+export function AiChatAssist({ conversation, onUseReply, conversations, onOpen }) {
   const { settings } = useAiSettings()
   const ctx = useConversations()
   const all = conversations ?? ctx.allConversations     // Instagram keeps its own list, so its inbox passes it in
+  const openChat = onOpen ?? (conversations ? undefined : ctx.setActiveId)
+  const thread = useThread()
   const [setup, setSetup] = useState(false)
   const [asking, setAsking] = useState(false)
   const [sum, runSum, clearSum] = useAiTask()
   const [rep, runRep, clearRep] = useAiTask()
   const id = conversation?.id
-  useEffect(() => { clearSum(); clearRep() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { clearSum(); clearRep(); thread.clear() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const ready = settings?.configured
   const one = () => ({ conversation: toAiConversation(conversation) })
@@ -307,8 +241,8 @@ export function AiChatAssist({ conversation, onUseReply, conversations }) {
         </div>
       )}
       {ready && asking && (
-        <div className="mt-2 rounded-lg border border-surface-border bg-slate-50/60 p-2.5">
-          <AskAi conversation={conversation} conversations={all} compact />
+        <div className="mt-2 h-[380px] rounded-xl border border-surface-border bg-white overflow-hidden">
+          <AiChat thread={thread} conversation={conversation} conversations={all} onOpen={openChat} />
         </div>
       )}
       {setup && <AiSetupDialog onClose={() => setSetup(false)} />}

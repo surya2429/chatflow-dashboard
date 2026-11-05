@@ -305,7 +305,7 @@ function ConversationList({ onSelect, activeId, view, setView }) {
         </div>
 
         <div className="flex items-center gap-0.5 flex-shrink-0">
-          <AiInboxButton />
+          <AiInboxButton onOpen={(id) => { setView('chats'); onSelect(id) }} />
           <button className="p-1.5 rounded-lg text-slate-400 hover:bg-surface-hover hover:text-slate-600 transition-colors"><RefreshCw size={11} /></button>
         </div>
       </div>
