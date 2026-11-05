@@ -24,6 +24,7 @@ import {
   EditableField, EditableCustomField, EditablePhoneField, ExternalLinkIcon,
 } from '../components/inbox/SharedInboxParts'
 import clsx from 'clsx'
+import { AiInboxInsights, AiChatAssist } from '../components/ai/AiAssist'
 
 /**
  * Website Chat inbox — structural/behavioral parity with the WhatsApp inbox
@@ -473,6 +474,7 @@ function InsightsPanel({ adminOnline }) {
             <p className="text-xs font-semibold text-emerald-800">You are online as an agent — conversations can be assigned to you</p>
           </div>
         )}
+        <AiInboxInsights conversations={allConversations} />
         <div>
           <h3 className="text-xs font-bold text-slate-800 mb-3 flex items-center gap-2"><Activity size={14} className="text-primary" /> Live Queue</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -911,6 +913,7 @@ function ChatWindow({ conversation, adminOnline, showPanel, onTogglePanel }) {
 
       {/* Composer */}
       <div className="border-t border-surface-border bg-white flex-shrink-0">
+        <AiChatAssist conversation={conversation} onUseReply={t => { setReplyMode('reply'); setMessage(t) }} />
         <div className="flex items-center px-3 py-2 border-b border-surface-border">
           <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-lg w-fit">
             {[['reply', 'Reply'], ['note', 'Private Note']].map(([k, lbl]) => (

@@ -70,6 +70,10 @@ const EnvSchema = z.object({
   BILLING_ADMIN_PASSWORD: z.string().min(8).optional(),
   // Shared secret other services send (x-usage-key) to report usage to POST /api/billing/usage.
   BILLING_USAGE_KEY: z.string().min(16).optional(),
+
+  // ── Inbox AI (src/ai) ────────────────────────────────────────────────────
+  // Encrypts the API key each workspace pastes into the dashboard. Unset = the AI setup popup cannot save a key.
+  AI_SETTINGS_SECRET: z.string().min(16).optional(),
 })
 
 export type Env = z.infer<typeof EnvSchema>

@@ -9,6 +9,7 @@ import { billingRouter } from './routes/billing.routes.js'
 import { whatsappReportsRouter } from './routes/whatsappReports.routes.js'
 import { messageLinksRouter } from './routes/messageLinks.routes.js'
 import { leadsRouter } from './routes/leads.routes.js'
+import { aiRouter } from './routes/ai.routes.js'
 
 export function createApp(): Express {
   const app = express()
@@ -18,6 +19,9 @@ export function createApp(): Express {
   // Files staff attach in the admin panel arrive as base64 JSON (up to 2 MB a file); every other
   // request keeps the default 100 KB limit below.
   app.use('/api/billing/admin/documents', express.json({ limit: '3mb' }))
+
+  // The AI route reads a larger body (trimmed conversations); it must be parsed before the 100 KB parser below.
+  app.use('/api/ai/run', express.json({ limit: '400kb' }))
 
   // Capture the exact raw bytes of the request body *before* JSON parsing —
   // signature verification (HMAC over raw bytes) would silently break if we
@@ -50,6 +54,7 @@ export function createApp(): Express {
   app.use('/api', whatsappReportsRouter)
   app.use('/api', messageLinksRouter)
   app.use('/api', leadsRouter)
+  app.use('/api', aiRouter)
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path })

@@ -12,6 +12,7 @@ import { loadLogo } from './backend/src/billing/logo.ts'
 import { metaReportResponse } from './backend/src/whatsapp/metaReports.ts'
 import { messageLinkResponse } from './backend/src/whatsapp/messageLinks.ts'
 import { createRateLimiter, handleLeadRequest } from './backend/src/leads/poweredByLead.ts'
+import { handleAiRequest } from './backend/src/ai/aiAssistant.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -365,9 +366,46 @@ function devLeadsApi() {
   }
 }
 
+/**
+ * Dev stand-in for backend/src/routes/ai.routes.ts: the model + (encrypted) API key chosen in the dashboard live in
+ * .dev-ai.json (gitignored) instead of Postgres. Same handler, so the AI behaves exactly like production.
+ */
+function devAiApi(env) {
+  const file = join(__dirname, '.dev-ai.json')
+  const read = () => (existsSync(file) ? JSON.parse(readFileSync(file, 'utf8') || '{}') : {})
+  const store = {
+    load: async (ws) => read()[ws] ?? null,
+    save: async (ws, s) => writeFileSync(file, JSON.stringify({ ...read(), [ws]: s }, null, 2)),
+    remove: async (ws) => { const all = read(); delete all[ws]; writeFileSync(file, JSON.stringify(all, null, 2)) },
+  }
+  const allow = createRateLimiter(30, 60_000)
+  const secret = env.AI_SETTINGS_SECRET || 'chatflow-dev-only-ai-secret'   // dev file only; production requires AI_SETTINGS_SECRET
+  return {
+    name: 'dev-ai-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = req.url?.match(/^\/api\/ai\/(settings|run)(?:\?.*)?$/)
+        if (!m) return next()
+        const chunks = []
+        req.on('data', (c) => chunks.push(c))
+        req.on('end', async () => {
+          let body = {}
+          try { body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') } catch { /* handler reports it */ }
+          res.setHeader('Content-Type', 'application/json')
+          try {
+            const r = await handleAiRequest({ method: req.method || 'GET', route: m[1], workspace: req.headers['x-workspace-id'] || 'default', body, ip: req.socket.remoteAddress || 'dev' }, { store, secret, allow })
+            res.statusCode = r.status; res.end(JSON.stringify(r.body))
+          } catch (err) { console.error('[ai]', err); res.statusCode = 500; res.end(JSON.stringify({ error: 'internal_server_error' })) }
+        })
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   root: __dirname,
-  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, '')), devLeadsApi()],
+  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, '')), devLeadsApi(), devAiApi(loadEnv(mode, __dirname, ''))],
   // Vite's default bind on this machine only listens on [::1], so anything that
   // resolves `localhost` to 127.0.0.1 — most browsers, curl, the in-app preview
   // pane — cannot connect and the page just never loads. `host: true` binds

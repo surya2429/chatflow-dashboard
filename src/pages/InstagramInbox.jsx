@@ -10,6 +10,7 @@ import {
   BellOff, Bot, UserCheck,
 } from 'lucide-react'
 import clsx from 'clsx'
+import { AiInboxInsights, AiChatAssist } from '../components/ai/AiAssist'
 import { useApp } from '../context/AppContext'
 import { NativeSelect } from '../components/Select'
 import Select from '../components/Select'
@@ -594,6 +595,7 @@ function InboxInsightsPanel({ allConversations, adminOnline }) {
             <p className="text-xs font-semibold text-emerald-800">You are online as an agent — conversations can be assigned to you</p>
           </div>
         )}
+        <AiInboxInsights conversations={allConversations} />
         <div>
           <h3 className="text-xs font-bold text-slate-800 mb-3 flex items-center gap-2"><Activity size={14} className="text-primary" /> Live Queue</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1249,6 +1251,7 @@ function ChatWindow({ conversation, onSend, onSendTemplate, onTakeover, onResolv
 
       {/* Composer */}
       <div className="border-t border-surface-border bg-white flex-shrink-0">
+        <AiChatAssist conversation={conversation} onUseReply={t => setMessage(t)} />
         <div className="px-3 py-2.5">
           <div className="flex items-end gap-2 rounded-xl px-3 py-2 border bg-surface border-surface-border">
             <div className="flex items-center gap-0.5 pb-0.5">
