@@ -272,7 +272,7 @@ function QrTab({ ml }) {
 }
 
 /* ── Website widget tab ───────────────────────────────────────────────────────────────────────────── */
-const WIDGET_KEY = 'chatflow_wa_widget_v2'
+const WIDGET_KEY = 'chatflow_wa_widget_v3'
 const MAX_QUICK = 3
 const WIDGET_DEFAULTS = {
   linkMode: 'chat',                         // 'chat' = click-to-chat (number + message) · or a wa.me message-link URL
@@ -283,18 +283,23 @@ const WIDGET_DEFAULTS = {
     { id: 'q2', label: 'Book a demo', message: 'Hi! I would like to book a demo.' },
   ],
   qr: true,
-  name: 'ChatFlow Support',
+  name: 'Chat with us',
   subtitle: 'Typically replies in minutes',
   welcome: 'Hi 👋 How can we help you today?',
   cta: 'Start chat on WhatsApp',
-  label: 'Chat with us',
+  label: '',
   color: '#5B5BF0',
+  font: '',
   theme: 'light',
   position: 'right',
   openAfter: 0,
   mobile: true,
   branding: true,
 }
+const FONT_OPTIONS = [
+  ['', 'System default'], ['Inter', 'Inter'], ['Poppins', 'Poppins'], ['DM Sans', 'DM Sans'], ['Manrope', 'Manrope'],
+  ['Nunito', 'Nunito (rounded)'], ['Roboto', 'Roboto'], ['Playfair Display', 'Playfair Display (serif)'], ['Georgia', 'Georgia (serif, no download)'],
+]
 const COLOR_PRESETS = ['#5B5BF0', '#0F172A', '#0EA5E9', '#059669', '#E11D48', '#F59E0B']
 
 function loadWidget() {
@@ -315,26 +320,23 @@ function targetUrl(w) {
 }
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-/* The <script> tag for these settings. `src` and `extra` differ for the preview (local file, card forced open). */
+/* The <script> tag for these settings: only values that differ from the script's own defaults, so it stays short.
+   `src` and `extra` differ for the preview (local file, card forced open). */
+const SNIPPET_DEFAULTS = { name: 'Chat with us', subtitle: 'Typically replies in minutes', welcome: 'Hi 👋 How can we help you today?', cta: 'Start chat on WhatsApp', label: '', color: '#5B5BF0', font: '', theme: 'light', position: 'right' }
 function snippetFor(w, src = WA_WIDGET_SRC, extra = []) {
   const chat = w.linkMode === 'chat'
+  const at = (k, v) => `data-${k}="${esc(v)}"`
   const quick = chat ? w.quick.filter(q => q.label.trim()).slice(0, MAX_QUICK) : []
-  const attrs = [
-    chat ? `data-phone="${esc(digits(w.phone))}"` : `data-link="${esc(w.linkMode)}"`,
-    chat && w.message ? `data-message="${esc(w.message)}"` : null,
-    ...quick.flatMap((q, i) => [`data-q${i + 1}-label="${esc(q.label.trim())}"`, q.message.trim() ? `data-q${i + 1}-message="${esc(q.message.trim())}"` : null]),
-    w.qr ? null : 'data-qr="false"',
-    `data-name="${esc(w.name)}"`, `data-subtitle="${esc(w.subtitle)}"`, `data-welcome="${esc(w.welcome)}"`, `data-cta="${esc(w.cta)}"`,
-    w.label ? `data-label="${esc(w.label)}"` : null,
-    `data-color="${esc(validHex(w.color) ? w.color : '#5B5BF0')}"`,
-    w.theme === 'dark' ? 'data-theme="dark"' : null,
-    `data-position="${w.position}"`,
-    w.openAfter > 0 ? `data-open-after="${w.openAfter}"` : null,
-    w.mobile ? null : 'data-mobile="false"',
-    w.branding ? null : 'data-branding="false"',
-    ...extra,
-  ].filter(Boolean)
-  return `<script src="${src}" async\n  ${attrs.join('\n  ')}></script>`
+  const look = Object.entries(SNIPPET_DEFAULTS)
+    .filter(([k, def]) => (k === 'color' ? (validHex(w.color) ? w.color : def) : w[k]) !== def)
+    .map(([k]) => at(k, k === 'color' ? w.color : w[k]))
+  const lines = [
+    [chat ? at('phone', digits(w.phone)) : at('link', w.linkMode), chat && w.message ? at('message', w.message) : null],
+    ...quick.map((q, i) => [at(`q${i + 1}`, `${q.label.trim().replace(/\|/g, '/')}|${q.message.trim()}`)]),
+    look,
+    [w.qr ? null : 'data-qr="false"', w.openAfter > 0 ? at('open-after', w.openAfter) : null, w.mobile ? null : 'data-mobile="false"', w.branding ? null : 'data-branding="false"', ...extra],
+  ].map(l => l.filter(Boolean).join(' ')).filter(Boolean)
+  return `<script src="${src}" async\n  ${lines.join('\n  ')}></script>`
 }
 
 function Field({ label, hint, children, className }) {
@@ -374,7 +376,7 @@ function WidgetPreview({ w, device }) {
   const doc = useMemo(() => {
     const tag = snippetFor(settled, `${window.location.origin}/wa-widget.js`, ['data-preview="1"', device === 'mobile' ? 'data-device="mobile"' : null])
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
-      html,body{margin:0;height:100%;background:linear-gradient(180deg,#f8fafc,#eef2f7);font-family:system-ui,sans-serif}
+      html,body{margin:0;height:100%;overflow:hidden;background:linear-gradient(180deg,#f8fafc,#eef2f7);font-family:system-ui,sans-serif}
       .s{padding:22px;display:grid;gap:12px;opacity:.9}.b{background:#dfe5ee;border-radius:8px;height:10px}.h{height:16px;width:34%;background:#cdd5e1;border-radius:8px}
       .hero{height:110px;border-radius:16px;background:linear-gradient(135deg,#d9e0ec,#e8edf5)}
     </style></head><body><div class="s"><div class="h"></div><div class="b" style="width:92%"></div><div class="b" style="width:78%"></div><div class="hero"></div><div class="b" style="width:60%"></div><div class="b" style="width:84%"></div></div>${tag}</body></html>`
@@ -382,7 +384,7 @@ function WidgetPreview({ w, device }) {
   return (
     <div className={clsx('mx-auto rounded-2xl border border-surface-border overflow-hidden bg-slate-100 transition-all', device === 'mobile' ? 'shadow-xl' : '')}
       style={{ width: frameW ?? '100%', maxWidth: '100%' }}>
-      <iframe title="Widget preview" srcDoc={doc} sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" className="block w-full border-0" style={{ height: device === 'mobile' ? 420 : 400 }}/>
+      <iframe title="Widget preview" srcDoc={doc} sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" scrolling="no" className="block w-full border-0" style={{ height: device === 'mobile' ? 440 : 480 }}/>
     </div>
   )
 }
@@ -475,7 +477,7 @@ function WidgetTab({ ml }) {
             <Field label="Main button text"><input value={w.cta} onChange={(e) => set('cta', e.target.value)} className={inputCls} maxLength={32}/></Field>
             <Field label="Label next to the button" hint="Optional. Empty = just the icon."><input value={w.label} onChange={(e) => set('label', e.target.value)} className={inputCls} maxLength={28}/></Field>
           </div>
-          <Toggle checked={w.qr} onChange={(v) => set('qr', v)} label="Show a QR code" hint="A small “Scan to chat on phone” link that expands the code. Computers only; it opens your main button’s chat."/>
+          <Toggle checked={w.qr} onChange={(v) => set('qr', v)} label="Show a QR code" hint="Shown right in the card, on computers only. It opens your main button’s chat."/>
         </div>
 
         <div className="rounded-xl border border-surface-border p-4 space-y-3">
@@ -488,6 +490,11 @@ function WidgetTab({ ml }) {
               ))}
               <input value={w.color} onChange={(e) => set('color', e.target.value)} className={clsx(inputCls, 'w-28 font-mono', !validHex(w.color) && 'border-red-400')} maxLength={7} aria-label="Colour hex code"/>
             </div>
+          </Field>
+          <Field label="Font" hint="Web fonts are loaded from Google Fonts only when chosen; “System default” loads nothing.">
+            <select value={w.font} onChange={(e) => set('font', e.target.value)} className={inputCls}>
+              {FONT_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Theme">

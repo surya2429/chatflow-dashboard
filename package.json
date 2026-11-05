@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "build:wa-widget": "esbuild public/wa-widget.js --minify --outfile=public/wa-widget.min.js",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
