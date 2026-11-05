@@ -1,7 +1,7 @@
 // WidgetQRSection.jsx — Settings → "Widget & QR Codes" (WhatsApp).
 //
-//   Website Widget            a floating "Chat on WhatsApp" button + greeting card for the merchant's site. It is a
-//                             plain link to WhatsApp (click-to-chat, or a message link) — public/wa-widget.js.
+//   Website Widget            a floating "Chat on WhatsApp" button + card for the merchant's site: main button, up to
+//                             three quick buttons (own message each) and a QR code. Plain links to WhatsApp — public/wa-widget.js.
 //   QR Codes & Message Links  WhatsApp's own "message links": a wa.me/message/<code> short link + QR code that opens
 //                             a chat with a message already typed in. Managed through Meta's QR Codes and Short
 //                             Links API (backend/src/whatsapp/messageLinks.ts): create, edit, delete.
@@ -15,11 +15,6 @@ import {
 import { messageLinks, MAX_MESSAGE_CHARS } from '../../lib/messageLinksApi'
 
 const WA_WIDGET_SRC = 'https://cdn.chatflow.io/v2/wa-widget.js'
-const GLYPH = 'M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0 0 12.04 2zm0 1.67c2.2 0 4.26.86 5.82 2.42a8.225 8.225 0 0 1 2.41 5.83c0 4.54-3.7 8.23-8.24 8.23-1.48 0-2.93-.39-4.19-1.15l-.3-.17-3.12.82.83-3.04-.2-.31a8.188 8.188 0 0 1-1.26-4.38c.01-4.54 3.7-8.24 8.25-8.24zM8.53 7.33c-.16 0-.43.06-.66.31-.22.25-.87.86-.87 2.07 0 1.22.89 2.39 1 2.56.14.17 1.76 2.67 4.25 3.73.59.27 1.05.42 1.41.53.59.19 1.13.16 1.56.1.48-.07 1.46-.6 1.67-1.18.21-.58.21-1.07.15-1.18-.07-.1-.23-.16-.48-.27-.25-.14-1.47-.74-1.69-.82-.23-.09-.39-.12-.56.12-.17.25-.64.81-.78.97-.14.17-.29.19-.53.07-.26-.13-1.06-.39-2-1.23-.74-.66-1.23-1.47-1.38-1.72-.12-.25-.01-.39.11-.5.11-.11.25-.29.37-.43.12-.14.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43-.14 0-.3-.01-.47-.01z'
-const WaGlyph = ({ size = 20, className }) => (
-  <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" className={className} aria-hidden="true"><path d={GLYPH}/></svg>
-)
-
 const charCount = (s) => [...s].length
 
 /* ── Message links state, shared by both tabs ─────────────────────────────────────────────────────────
@@ -277,25 +272,37 @@ function QrTab({ ml }) {
 }
 
 /* ── Website widget tab ───────────────────────────────────────────────────────────────────────────── */
-const WIDGET_KEY = 'chatflow_wa_widget'
+const WIDGET_KEY = 'chatflow_wa_widget_v2'
+const MAX_QUICK = 3
 const WIDGET_DEFAULTS = {
   linkMode: 'chat',                         // 'chat' = click-to-chat (number + message) · or a wa.me message-link URL
   phone: '919876543210',
   message: 'Hi! I have a question.',
+  quick: [
+    { id: 'q1', label: 'See pricing', message: 'Hi! Could you share your pricing?' },
+    { id: 'q2', label: 'Book a demo', message: 'Hi! I would like to book a demo.' },
+  ],
+  qr: true,
   name: 'ChatFlow Support',
   subtitle: 'Typically replies in minutes',
   welcome: 'Hi 👋 How can we help you today?',
   cta: 'Start chat on WhatsApp',
   label: 'Chat with us',
-  color: '#25D366',
+  color: '#5B5BF0',
+  theme: 'light',
   position: 'right',
   openAfter: 0,
   mobile: true,
+  branding: true,
 }
-const COLOR_PRESETS = ['#25D366', '#128C7E', '#0066ff', '#8B5CF6', '#F59E0B', '#111827']
+const COLOR_PRESETS = ['#5B5BF0', '#0F172A', '#0EA5E9', '#059669', '#E11D48', '#F59E0B']
 
 function loadWidget() {
-  try { return { ...WIDGET_DEFAULTS, ...JSON.parse(localStorage.getItem(WIDGET_KEY) || '{}') } } catch { return WIDGET_DEFAULTS }
+  try {
+    const saved = JSON.parse(localStorage.getItem(WIDGET_KEY) || '{}')
+    const quick = Array.isArray(saved.quick) ? saved.quick.slice(0, MAX_QUICK) : WIDGET_DEFAULTS.quick
+    return { ...WIDGET_DEFAULTS, ...saved, quick }
+  } catch { return WIDGET_DEFAULTS }
 }
 const digits = (s) => String(s || '').replace(/\D/g, '')
 const validHex = (c) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)
@@ -307,16 +314,27 @@ function targetUrl(w) {
   return `https://wa.me/${p}${w.message ? `?text=${encodeURIComponent(w.message)}` : ''}`
 }
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-function snippetFor(w) {
+
+/* The <script> tag for these settings. `src` and `extra` differ for the preview (local file, card forced open). */
+function snippetFor(w, src = WA_WIDGET_SRC, extra = []) {
+  const chat = w.linkMode === 'chat'
+  const quick = chat ? w.quick.filter(q => q.label.trim()).slice(0, MAX_QUICK) : []
   const attrs = [
-    w.linkMode === 'chat' ? `data-phone="${esc(digits(w.phone))}"` : `data-link="${esc(w.linkMode)}"`,
-    w.linkMode === 'chat' && w.message ? `data-message="${esc(w.message)}"` : null,
+    chat ? `data-phone="${esc(digits(w.phone))}"` : `data-link="${esc(w.linkMode)}"`,
+    chat && w.message ? `data-message="${esc(w.message)}"` : null,
+    ...quick.flatMap((q, i) => [`data-q${i + 1}-label="${esc(q.label.trim())}"`, q.message.trim() ? `data-q${i + 1}-message="${esc(q.message.trim())}"` : null]),
+    w.qr ? null : 'data-qr="false"',
     `data-name="${esc(w.name)}"`, `data-subtitle="${esc(w.subtitle)}"`, `data-welcome="${esc(w.welcome)}"`, `data-cta="${esc(w.cta)}"`,
     w.label ? `data-label="${esc(w.label)}"` : null,
-    `data-color="${esc(validHex(w.color) ? w.color : '#25D366')}"`, `data-position="${w.position}"`,
-    w.openAfter > 0 ? `data-open-after="${w.openAfter}"` : null, w.mobile ? null : 'data-mobile="false"',
+    `data-color="${esc(validHex(w.color) ? w.color : '#5B5BF0')}"`,
+    w.theme === 'dark' ? 'data-theme="dark"' : null,
+    `data-position="${w.position}"`,
+    w.openAfter > 0 ? `data-open-after="${w.openAfter}"` : null,
+    w.mobile ? null : 'data-mobile="false"',
+    w.branding ? null : 'data-branding="false"',
+    ...extra,
   ].filter(Boolean)
-  return `<script src="${WA_WIDGET_SRC}" async\n  ${attrs.join('\n  ')}></script>`
+  return `<script src="${src}" async\n  ${attrs.join('\n  ')}></script>`
 }
 
 function Field({ label, hint, children, className }) {
@@ -329,49 +347,76 @@ function Field({ label, hint, children, className }) {
   )
 }
 
-/* The same widget as public/wa-widget.js, drawn on a mock page so changes show instantly. */
-function WidgetPreview({ w, device }) {
-  const [open, setOpen] = useState(true)
-  const color = validHex(w.color) ? w.color : '#25D366'
-  const left = w.position === 'left'
-  const url = targetUrl(w)
+function Toggle({ checked, onChange, label, hint }) {
   return (
-    <div className={clsx('relative mx-auto rounded-xl border border-surface-border bg-slate-50 overflow-hidden transition-all', device === 'mobile' ? 'w-[300px]' : 'w-full')} style={{ height: 440 }}>
-      {/* a stand-in website */}
-      <div className="p-4 space-y-2.5 opacity-70" aria-hidden="true">
-        <div className="h-3 w-1/3 rounded bg-slate-200"/>
-        <div className="h-2 w-full rounded bg-slate-200"/><div className="h-2 w-5/6 rounded bg-slate-200"/><div className="h-2 w-2/3 rounded bg-slate-200"/>
-        <div className="h-20 w-full rounded-lg bg-slate-200 mt-3"/>
-        <div className="h-2 w-4/5 rounded bg-slate-200"/><div className="h-2 w-3/5 rounded bg-slate-200"/>
+    <label className="flex items-start gap-3 cursor-pointer select-none">
+      <button type="button" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}
+        className={clsx('relative w-9 h-5 rounded-full flex-shrink-0 transition-colors mt-0.5', checked ? 'bg-primary' : 'bg-slate-300')}>
+        <span className={clsx('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', checked ? 'left-[18px]' : 'left-0.5')}/>
+      </button>
+      <span>
+        <span className="block text-xs font-semibold text-slate-700">{label}</span>
+        {hint && <span className="block text-[10.5px] text-slate-400 mt-0.5 leading-snug">{hint}</span>}
+      </span>
+    </label>
+  )
+}
+
+/* The widget itself, running in a frame — the very file visitors get (public/wa-widget.js), so the preview can
+   never drift from the real thing. Phone size triggers the widget's own mobile layout.
+   allow-same-origin: without it the frame's origin is opaque and Vite's dev server refuses to serve it the script;
+   the frame only ever holds our own script and the (attribute-escaped) settings of the person editing them. */
+function WidgetPreview({ w, device }) {
+  const frameW = device === 'mobile' ? 375 : null
+  // Re-render the frame a moment after the last edit, not on every keystroke.
+  const [settled, setSettled] = useState(w)
+  useEffect(() => { const t = setTimeout(() => setSettled(w), 250); return () => clearTimeout(t) }, [w])
+  const doc = useMemo(() => {
+    const tag = snippetFor(settled, `${window.location.origin}/wa-widget.js`, ['data-preview="1"'])
+    return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+      html,body{margin:0;height:100%;background:linear-gradient(180deg,#f8fafc,#eef2f7);font-family:system-ui,sans-serif}
+      .s{padding:22px;display:grid;gap:12px;opacity:.9}.b{background:#dfe5ee;border-radius:8px;height:10px}.h{height:16px;width:34%;background:#cdd5e1;border-radius:8px}
+      .hero{height:110px;border-radius:16px;background:linear-gradient(135deg,#d9e0ec,#e8edf5)}
+    </style></head><body><div class="s"><div class="h"></div><div class="b" style="width:92%"></div><div class="b" style="width:78%"></div><div class="hero"></div><div class="b" style="width:60%"></div><div class="b" style="width:84%"></div></div>${tag}</body></html>`
+  }, [settled])
+  return (
+    <div className={clsx('mx-auto rounded-2xl border border-surface-border overflow-hidden bg-slate-100 transition-all', device === 'mobile' ? 'shadow-xl' : '')}
+      style={{ width: frameW ?? '100%', maxWidth: '100%' }}>
+      <iframe title="Widget preview" srcDoc={doc} sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" className="block w-full border-0" style={{ height: device === 'mobile' ? 560 : 480 }}/>
+    </div>
+  )
+}
+
+function QuickButtons({ w, set }) {
+  const chat = w.linkMode === 'chat'
+  const list = w.quick
+  const update = (id, patch) => set('quick', list.map(q => q.id === id ? { ...q, ...patch } : q))
+  return (
+    <div className="rounded-xl border border-surface-border p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Quick buttons</p>
+        <span className="text-[10px] font-semibold text-slate-400 tabular-nums">{list.length} of {MAX_QUICK}</span>
       </div>
-      <div className={clsx('absolute bottom-4 flex flex-col gap-3', left ? 'left-4 items-start' : 'right-4 items-end')}>
-        {open && (
-          <div className="rounded-2xl bg-white shadow-xl overflow-hidden" style={{ width: device === 'mobile' ? 260 : 300 }}>
-            <div className="flex items-center gap-2.5 px-3.5 py-3 text-white" style={{ background: color }}>
-              <span className="w-9 h-9 rounded-full bg-white/25 flex items-center justify-center flex-shrink-0"><WaGlyph size={20}/></span>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-bold leading-tight truncate">{w.name || 'Chat with us'}</p>
-                <p className="text-[11px] opacity-90 mt-0.5 truncate">{w.subtitle}</p>
-              </div>
-              <button onClick={() => setOpen(false)} aria-label="Close preview card" className="w-7 h-7 rounded-md text-lg leading-none hover:bg-white/20">×</button>
+      <p className="text-[11px] text-slate-500 leading-relaxed">Shortcuts under the main button. Each one opens WhatsApp with its own message already typed — e.g. "See pricing", "Track my order".</p>
+      {!chat && (
+        <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex gap-1.5"><Info size={12} className="flex-shrink-0 mt-0.5"/> Quick buttons need your WhatsApp number. Switch "Open WhatsApp with" to the number option above to use them.</p>
+      )}
+      <div className={clsx('space-y-2.5', !chat && 'opacity-50 pointer-events-none')}>
+        {list.map((q, i) => (
+          <div key={q.id} className="rounded-lg border border-surface-border bg-slate-50/60 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-md bg-white border border-surface-border text-[10px] font-bold text-slate-500 flex items-center justify-center flex-shrink-0">{i + 1}</span>
+              <input value={q.label} onChange={(e) => update(q.id, { label: e.target.value })} className={inputCls} placeholder="Button text, e.g. See pricing" maxLength={24} aria-label={`Quick button ${i + 1} text`}/>
+              <button onClick={() => set('quick', list.filter(x => x.id !== q.id))} aria-label={`Remove quick button ${i + 1}`} className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 flex-shrink-0"><Trash2 size={14}/></button>
             </div>
-            <div className="p-3.5" style={{ background: '#efeae2' }}>
-              <div className="inline-block max-w-[90%] bg-white text-[12px] leading-snug text-slate-900 px-3 py-2 shadow-sm whitespace-pre-wrap break-words" style={{ borderRadius: '0 12px 12px 12px' }}>{w.welcome}</div>
-            </div>
-            <div className="p-3 bg-white">
-              <a href={url || undefined} target="_blank" rel="noopener noreferrer" onClick={(e) => !url && e.preventDefault()}
-                className={clsx('flex items-center justify-center gap-2 w-full rounded-full py-2.5 text-[12px] font-bold text-white', !url && 'opacity-50 cursor-not-allowed')} style={{ background: color }}>
-                <WaGlyph size={15}/> {w.cta || 'Start chat'}
-              </a>
-            </div>
+            <textarea value={q.message} onChange={(e) => update(q.id, { message: e.target.value })} rows={2} maxLength={300} className={clsx(inputCls, 'resize-none')} placeholder="Message typed in when they tap it" aria-label={`Quick button ${i + 1} message`}/>
           </div>
-        )}
-        <div className={clsx('flex items-center gap-2.5', left ? 'flex-row' : 'flex-row-reverse')}>
-          <button onClick={() => setOpen(o => !o)} aria-label={open ? 'Close chat card' : 'Open chat card'} className="w-14 h-14 rounded-full text-white shadow-lg flex items-center justify-center hover:scale-105 transition-transform" style={{ background: color }}>
-            <WaGlyph size={28}/>
-          </button>
-          {w.label && !open && <span className="bg-white text-slate-800 text-[12px] font-semibold px-3 py-1.5 rounded-full shadow-md whitespace-nowrap">{w.label}</span>}
-        </div>
+        ))}
+        {list.length === 0 && <p className="text-[11px] text-slate-400 text-center py-2">No quick buttons yet.</p>}
+        <button disabled={list.length >= MAX_QUICK} onClick={() => set('quick', [...list, { id: `q${Date.now()}`, label: '', message: '' }])}
+          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-slate-300 text-xs font-semibold text-slate-600 hover:border-primary hover:text-primary hover:bg-primary/5 disabled:opacity-40 disabled:hover:border-slate-300 disabled:hover:text-slate-600 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors">
+          <Plus size={13}/> {list.length >= MAX_QUICK ? 'Maximum of 3 reached' : 'Add quick button'}
+        </button>
       </div>
     </div>
   )
@@ -392,7 +437,7 @@ function WidgetTab({ ml }) {
   const snippet = useMemo(() => snippetFor(w), [w])
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-5 items-start">
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] gap-5 items-start">
       {/* settings */}
       <div className="space-y-4 min-w-0">
         <div className="rounded-xl border border-surface-border p-4 space-y-3">
@@ -408,33 +453,34 @@ function WidgetTab({ ml }) {
               <input value={w.phone} inputMode="numeric" onChange={(e) => set('phone', e.target.value)} className={clsx(inputCls, !phoneOk && 'border-red-400')} placeholder="919876543210"/>
               {!phoneOk && <p className="text-[10px] text-red-500 mt-1">Enter 8–15 digits including the country code.</p>}
             </Field>
-            <Field label="Message typed in for the visitor" hint="They can edit it before sending.">
+            <Field label="Message for the main button" hint="They can edit it before sending.">
               <textarea rows={2} value={w.message} onChange={(e) => set('message', e.target.value)} className={clsx(inputCls, 'resize-none')} maxLength={300}/>
             </Field>
           </>) : (
             <p className="text-[11px] text-slate-500 flex gap-1.5"><Info size={12} className="flex-shrink-0 mt-0.5 text-slate-400"/> Uses the link's own message. Change it in the QR Codes &amp; Message Links tab.</p>
           )}
-          <div className="flex items-center gap-2 pt-1">
-            <button className={btnGhost} disabled={!url} onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}><ExternalLink size={12}/> Test the link</button>
-          </div>
+          <button className={btnGhost} disabled={!url} onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}><ExternalLink size={12}/> Test the link</button>
         </div>
+
+        <QuickButtons w={w} set={set}/>
 
         <div className="rounded-xl border border-surface-border p-4 space-y-3">
           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">What visitors see</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Business name"><input value={w.name} onChange={(e) => set('name', e.target.value)} className={inputCls} maxLength={40}/></Field>
-            <Field label="Line under the name"><input value={w.subtitle} onChange={(e) => set('subtitle', e.target.value)} className={inputCls} maxLength={50}/></Field>
+            <Field label="Status line"><input value={w.subtitle} onChange={(e) => set('subtitle', e.target.value)} className={inputCls} maxLength={50}/></Field>
           </div>
-          <Field label="Greeting"><textarea rows={2} value={w.welcome} onChange={(e) => set('welcome', e.target.value)} className={clsx(inputCls, 'resize-none')} maxLength={160}/></Field>
+          <Field label="Greeting message" hint="Shown as a chat bubble from your business."><textarea rows={2} value={w.welcome} onChange={(e) => set('welcome', e.target.value)} className={clsx(inputCls, 'resize-none')} maxLength={120}/></Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Button text"><input value={w.cta} onChange={(e) => set('cta', e.target.value)} className={inputCls} maxLength={32}/></Field>
-            <Field label="Label next to the button" hint="Optional. Leave empty for just the icon."><input value={w.label} onChange={(e) => set('label', e.target.value)} className={inputCls} maxLength={28}/></Field>
+            <Field label="Main button text"><input value={w.cta} onChange={(e) => set('cta', e.target.value)} className={inputCls} maxLength={32}/></Field>
+            <Field label="Label next to the button" hint="Optional. Empty = just the icon."><input value={w.label} onChange={(e) => set('label', e.target.value)} className={inputCls} maxLength={28}/></Field>
           </div>
+          <Toggle checked={w.qr} onChange={(v) => set('qr', v)} label="Show a QR code" hint="A small “Scan to chat from your phone” link that expands the code. Computers only; it opens your main button’s chat."/>
         </div>
 
         <div className="rounded-xl border border-surface-border p-4 space-y-3">
           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Look &amp; behaviour</p>
-          <Field label="Colour">
+          <Field label="Accent colour" hint="Buttons, header and highlights. Text colour adjusts automatically to stay readable.">
             <div className="flex items-center gap-2 flex-wrap">
               {COLOR_PRESETS.map(c => (
                 <button key={c} onClick={() => set('color', c)} aria-label={`Colour ${c}`} aria-pressed={w.color.toLowerCase() === c.toLowerCase()}
@@ -444,24 +490,33 @@ function WidgetTab({ ml }) {
             </div>
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Theme">
+              <div className="flex gap-1.5">
+                {[['light', 'Light'], ['dark', 'Dark']].map(([id, label]) => (
+                  <button key={id} onClick={() => set('theme', id)} aria-pressed={w.theme === id}
+                    className={clsx('flex-1 px-3 py-2 rounded-lg border text-xs font-semibold', w.theme === id ? 'border-primary bg-primary/5 text-primary' : 'border-surface-border text-slate-600 hover:bg-slate-50')}>{label}</button>
+                ))}
+              </div>
+            </Field>
             <Field label="Position">
               <div className="flex gap-1.5">
                 {['left', 'right'].map(p => (
                   <button key={p} onClick={() => set('position', p)} aria-pressed={w.position === p}
-                    className={clsx('flex-1 px-3 py-2 rounded-lg border text-xs font-semibold capitalize', w.position === p ? 'border-primary bg-primary/5 text-primary' : 'border-surface-border text-slate-600 hover:bg-slate-50')}>Bottom {p}</button>
+                    className={clsx('flex-1 px-3 py-2 rounded-lg border text-xs font-semibold capitalize', w.position === p ? 'border-primary bg-primary/5 text-primary' : 'border-surface-border text-slate-600 hover:bg-slate-50')}>{p}</button>
                 ))}
               </div>
             </Field>
-            <Field label="Open the card automatically" hint="Once per visit. 0 = only when clicked.">
-              <div className="flex items-center gap-2">
-                <input type="number" min={0} max={120} value={w.openAfter} onChange={(e) => set('openAfter', Math.max(0, Math.min(120, parseInt(e.target.value, 10) || 0)))} className={clsx(inputCls, 'w-20')}/>
-                <span className="text-xs text-slate-500">seconds</span>
-              </div>
-            </Field>
           </div>
-          <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
-            <input type="checkbox" className="accent-primary" checked={w.mobile} onChange={(e) => set('mobile', e.target.checked)}/> Show on phones
-          </label>
+          <Field label="Open the card automatically" hint="Once per visit. 0 = only when clicked.">
+            <div className="flex items-center gap-2">
+              <input type="number" min={0} max={120} value={w.openAfter} onChange={(e) => set('openAfter', Math.max(0, Math.min(120, parseInt(e.target.value, 10) || 0)))} className={clsx(inputCls, 'w-20')}/>
+              <span className="text-xs text-slate-500">seconds</span>
+            </div>
+          </Field>
+          <div className="space-y-2.5 pt-1">
+            <Toggle checked={w.mobile} onChange={(v) => set('mobile', v)} label="Show on phones" hint="On phones the card opens as a full-width sheet."/>
+            <Toggle checked={w.branding} onChange={(v) => set('branding', v)} label={'Show "Powered by ChatFlow"'}/>
+          </div>
         </div>
       </div>
 
@@ -469,7 +524,7 @@ function WidgetTab({ ml }) {
       <div className="space-y-4 min-w-0 xl:sticky xl:top-0">
         <div className="rounded-xl border border-surface-border p-4">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Preview</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Live preview</p>
             <div className="inline-flex rounded-lg bg-slate-100 p-0.5" role="group" aria-label="Preview size">
               {[['desktop', Monitor], ['mobile', Smartphone]].map(([id, Icon]) => (
                 <button key={id} onClick={() => setDevice(id)} aria-pressed={device === id} aria-label={`${id} preview`}
@@ -478,6 +533,7 @@ function WidgetTab({ ml }) {
             </div>
           </div>
           <WidgetPreview w={w} device={device}/>
+          <p className="text-[10.5px] text-slate-400 mt-2">This is the real widget, so buttons open WhatsApp exactly as they will on your site. Close the card with × to see the launcher.</p>
         </div>
 
         <div className="rounded-xl border border-surface-border p-4">
