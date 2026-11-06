@@ -42,3 +42,4 @@ logs/
 *.zip
 .dev-leads.json
 .dev-ai.json
+.dev-ctwa-connection.json

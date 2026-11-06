@@ -28,6 +28,11 @@ export const ctwa = {
   leads:     ()           => call('GET', '/leads?limit=500'),
   lead:      (waId)       => call('GET', `/lead?waId=${encodeURIComponent(String(waId).replace(/\D/g, ''))}`),
   sendEvent: (payload)    => call('POST', '/events', payload),
+  // the customer's Meta account, connected with the Facebook popup
+  connection:   ()             => call('GET', '/connect'),
+  connect:      (code, session) => call('POST', '/connect', { code, session }),
+  selectAssets: (sel)          => call('POST', '/connect/select', sel),
+  disconnect:   ()             => call('DELETE', '/connect'),
 }
 
 /* ── formatting shared by the CTWA screens ── */

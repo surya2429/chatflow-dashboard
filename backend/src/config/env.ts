@@ -79,6 +79,14 @@ const EnvSchema = z.object({
   // With the ad account, Page and a token the CTWA section runs on live Meta data (create / manage ads, insights,
   // Conversions API). Without them it shows editable sample data. The token needs ads_management + ads_read
   // (and whatsapp_business_manage_events for conversion events; WA_ACCESS_TOKEN is used for those).
+  // Connect through Facebook's popup (the customer just clicks "Connect"): the platform's own Meta app, set once.
+  // META_LOGIN_CONFIG_ID is a Facebook Login for Business configuration (Embedded Signup variation) that requests
+  // ads_management, ads_read, business_management, pages_show_list, whatsapp_business_management and
+  // whatsapp_business_manage_events. CONNECTIONS_SECRET encrypts the tokens customers hand over (falls back to AI_SETTINGS_SECRET).
+  META_APP_ID: z.string().regex(/^\d+$/).optional(),
+  META_APP_SECRET: z.string().min(16).optional(),
+  META_LOGIN_CONFIG_ID: z.string().regex(/^\d+$/).optional(),
+  CONNECTIONS_SECRET: z.string().min(16).optional(),
   META_AD_ACCOUNT_ID: z.string().regex(/^(act_)?\d+$/, 'digits, optionally prefixed act_').optional(),
   META_PAGE_ID: z.string().regex(/^\d+$/).optional(),
   META_ADS_ACCESS_TOKEN: z.string().min(20).optional(),

@@ -8,6 +8,8 @@ import AdsTable from '../components/ctwa/AdsTable'
 import CreateAd from '../components/ctwa/CreateAd'
 import Leads from '../components/ctwa/Leads'
 import Setup from '../components/ctwa/Setup'
+import { ConnectButton } from '../components/ctwa/ConnectMeta'
+import { useMetaConnection } from '../components/ctwa/useMetaConnection'
 import { Banner, Spinner } from '../components/ctwa/ui'
 
 const TABS = [['overview', 'Overview'], ['ads', 'Ads'], ['create', 'Create ad'], ['leads', 'Leads'], ['setup', 'Setup']]
@@ -42,6 +44,8 @@ export default function CtwaAds() {
   }, [days])
 
   useEffect(() => { setLoading(true); load() }, [load])
+  // connecting, choosing or disconnecting an account changes what the ads and leads show
+  const meta = useMetaConnection(() => { setLoading(true); load() })
   useEffect(() => { ctwa.status().then((s) => setPageName(s.page?.name || '')).catch(() => {}) }, [])
   useEffect(() => () => clearTimeout(timer.current), [])
 
@@ -85,12 +89,18 @@ export default function CtwaAds() {
         <Banner tone={notice.tone === 'error' ? 'error' : 'ok'} action={<button onClick={() => setNotice(null)} aria-label="Dismiss" className="p-0.5 opacity-60 hover:opacity-100"><X size={14} /></button>}>{notice.message}</Banner>
       )}
       {dash?.mode === 'sample' && tab !== 'setup' && (
-        <Banner tone="info" action={<button onClick={() => setTab('setup')} className="font-semibold underline whitespace-nowrap">Connect Meta</button>}>
-          You are looking at sample data. Create, pause and edit ads to try everything; nothing reaches Meta until an ad account is connected.
+        <Banner tone="info" action={
+          meta.conn?.needsSelection ? <button onClick={() => setTab('setup')} className="font-semibold underline whitespace-nowrap">Choose account</button>
+          : meta.canConnect ? <ConnectButton meta={meta} label="Connect Facebook" className="!py-1.5 whitespace-nowrap" />
+          : <button onClick={() => setTab('setup')} className="font-semibold underline whitespace-nowrap">How to connect</button>}>
+          {meta.conn?.needsSelection
+            ? 'Facebook is connected. Choose which ad account and Page to use and your real ads will appear here.'
+            : 'You are looking at sample data. Create, pause and edit ads to try everything; nothing reaches Meta until you connect your Facebook ads account.'}
         </Banner>
       )}
+      {meta.error && tab !== 'setup' && <Banner tone="error" action={<button onClick={meta.clearError} className="font-semibold underline">Dismiss</button>}>{meta.error}</Banner>}
 
-      {tab === 'setup' ? <Setup />
+      {tab === 'setup' ? <Setup meta={meta} />
         : error ? <Banner tone="error" action={<button onClick={() => { setLoading(true); load() }} className="font-semibold underline">Try again</button>}>{error}</Banner>
         : !data ? <Spinner />
         : tab === 'overview' ? <Overview data={data} />
