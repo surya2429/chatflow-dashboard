@@ -23,6 +23,7 @@ export function parseCsv(text) {
 const HEADERS = {
   retailerId: ['id', 'sku', 'retailerid', 'contentid'], name: ['title', 'name', 'productname'], description: ['description'],
   availability: ['availability', 'stock status'], condition: ['condition'], price: ['price'], currency: ['currency'],
+  groupId: ['itemgroupid', 'groupid'], size: ['size'], color: ['color', 'colour'],
   url: ['link', 'url', 'producturl'], imageUrl: ['imagelink', 'imageurl', 'image'], brand: ['brand'], salePrice: ['saleprice'],
   inventory: ['quantitytosellonfacebook', 'inventory', 'stock', 'quantity'],
 }
@@ -40,15 +41,26 @@ const stock = (v) => { const t = norm(v); return !t ? 'in stock' : t.startsWith(
 const cond = (v) => norm(v) || 'new'
 
 /** rows (first row = headers) → products for the import call, plus a note about columns that were not recognised. */
-export function rowsToProducts(rows, defaultCurrency = 'INR') {
+/** partial: a file of extra details (supplementary data): only the columns present are sent, nothing is defaulted, only `id` is required. */
+export function rowsToProducts(rows, defaultCurrency = 'INR', partial = false) {
   if (rows.length < 2) return { products: [], unknown: [], missing: ['id', 'title'] }
   const map = rows[0].map((h) => FIELD_OF[norm(h)] ?? null)
   const unknown = rows[0].filter((_, i) => !map[i] && rows[0][i].trim()).map((h) => h.trim())
-  const missing = ['retailerId', 'name', 'price'].filter((f) => !map.includes(f)).map((f) => ({ retailerId: 'id', name: 'title', price: 'price' })[f])
+  const missing = (partial ? ['retailerId'] : ['retailerId', 'name', 'price']).filter((f) => !map.includes(f)).map((f) => ({ retailerId: 'id', name: 'title', price: 'price' })[f])
   const products = rows.slice(1).map((r) => {
     const p = {}
     map.forEach((f, i) => { if (f) p[f] = (r[i] ?? '').trim() })
     const main = splitPrice(p.price), sale = splitPrice(p.salePrice)
+    if (partial) {
+      const o = { retailerId: p.retailerId }
+      for (const k of ['name', 'description', 'url', 'imageUrl', 'brand', 'groupId', 'size', 'color']) if (p[k]) o[k] = p[k]
+      if (p.availability) o.availability = stock(p.availability)
+      if (p.condition) o.condition = cond(p.condition)
+      if (p.price) { o.price = main.amount; o.currency = (p.currency || main.currency || defaultCurrency).toUpperCase() }
+      if (p.salePrice) { o.salePrice = sale.amount; o.currency ||= (p.currency || sale.currency || defaultCurrency).toUpperCase() }
+      if (p.inventory) o.inventory = Number(p.inventory)
+      return o
+    }
     return {
       ...p, price: main.amount, currency: (p.currency || main.currency || sale.currency || defaultCurrency).toUpperCase(),
       salePrice: p.salePrice ? sale.amount : null, availability: stock(p.availability), condition: cond(p.condition),
@@ -59,7 +71,12 @@ export function rowsToProducts(rows, defaultCurrency = 'INR') {
 }
 
 export const TEMPLATE_CSV = [
-  'id,title,description,availability,condition,price,sale_price,link,image_link,brand,quantity_to_sell_on_facebook',
-  'SKU-001,Cotton T-Shirt,Soft organic cotton tee in 5 colours,in stock,new,799.00 INR,599.00 INR,https://yourstore.com/tshirt,https://yourstore.com/img/tshirt.jpg,Terra,120',
-  'SKU-002,Steel Water Bottle,1 litre insulated bottle,in stock,new,1299.00 INR,,https://yourstore.com/bottle,https://yourstore.com/img/bottle.jpg,Hydra,45',
+  'id,title,description,availability,condition,price,sale_price,link,image_link,brand,item_group_id,size,color,quantity_to_sell_on_facebook',
+  'SKU-001-M,Cotton T-Shirt (M),Soft organic cotton tee,in stock,new,799.00 INR,599.00 INR,https://yourstore.com/tshirt,https://yourstore.com/img/tshirt.jpg,Terra,TSHIRT,M,White,120',
+  'SKU-001-L,Cotton T-Shirt (L),Soft organic cotton tee,in stock,new,799.00 INR,599.00 INR,https://yourstore.com/tshirt,https://yourstore.com/img/tshirt.jpg,Terra,TSHIRT,L,White,80',
+  'SKU-002,Steel Water Bottle,1 litre insulated bottle,in stock,new,1299.00 INR,,https://yourstore.com/bottle,https://yourstore.com/img/bottle.jpg,Hydra,,,,45',
+].join('\r\n')
+export const SUPPLEMENTARY_CSV = [
+  'id,brand,size,color',
+  'SKU-002,Hydra,1 L,Steel',
 ].join('\r\n')

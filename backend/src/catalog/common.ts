@@ -1,5 +1,5 @@
 // common.ts — validating products and messages, and translating to / from Meta's field names. Pure.
-import { AVAILABILITY, CONDITIONS, CatalogError, type OutMessage, type Product } from './types.js'
+import { AVAILABILITY, CONDITIONS, CatalogError, type OutMessage, type Product, type SetFilter } from './types.js'
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : NaN)
@@ -37,6 +37,7 @@ export function cleanProduct(raw: unknown, partial = false): Partial<Product> & 
   if (has('imageUrl')) { out.imageUrl = str(b.imageUrl, 2000); if (!/^https?:\/\/[^\s]+$/i.test(out.imageUrl)) f.imageUrl = 'Add a link to the product image (https://…, JPEG or PNG, at least 500 × 500 px).' }
   if (has('url')) { out.url = str(b.url, 2000); if (!/^https?:\/\/[^\s]+$/i.test(out.url)) f.url = 'Add the link to the product page (https://…).' }
   if (has('brand')) { out.brand = str(b.brand, 100); if (!out.brand) f.brand = 'Enter the brand.' }
+  for (const k of ['groupId', 'size', 'color'] as const) if (b[k] !== undefined) out[k] = str(b[k], 100)
   if (b.inventory !== undefined && b.inventory !== null && b.inventory !== '') {
     const n = num(b.inventory)
     if (!Number.isInteger(n) || n < 0 || n > 10_000_000) f.inventory = 'Stock must be a whole number, 0 or more.'
@@ -59,6 +60,9 @@ export function toFeed(p: Partial<Product> & { retailerId: string }): Record<str
   if (p.url !== undefined) d.link = p.url
   if (p.imageUrl !== undefined) d.image_link = p.imageUrl
   if (p.brand !== undefined) d.brand = p.brand
+  if (p.groupId) d.item_group_id = p.groupId
+  if (p.size) d.size = p.size
+  if (p.color) d.color = p.color
   if (p.inventory != null) d.quantity_to_sell_on_facebook = p.inventory
   return d
 }
@@ -78,6 +82,7 @@ export function fromGraph(r: Record<string, any>): Product {
     availability: String(r.availability).includes('out') ? 'out of stock' : 'in stock',
     condition: (CONDITIONS as readonly string[]).includes(r.condition) ? r.condition : 'new',
     imageUrl: String(r.image_url ?? ''), url: String(r.url ?? ''), brand: String(r.brand ?? ''),
+    groupId: String(r.item_group_id ?? ''), size: String(r.size ?? ''), color: String(r.color ?? ''),
     inventory: Number.isFinite(Number(r.inventory)) && r.inventory !== null && r.inventory !== undefined ? Number(r.inventory) : null,
     reviewStatus: String(r.review_status ?? ''), reviewNote: rejected,
   }
@@ -119,4 +124,32 @@ export function toCloudMessage(m: OutMessage): Record<string, unknown> {
   if (m.kind === 'product') return { ...base, interactive: { type: 'product', ...(m.body ? { body: { text: m.body } } : {}), ...footer, action: { catalog_id: m.catalogId, product_retailer_id: m.retailerId } } }
   if (m.kind === 'products') return { ...base, interactive: { type: 'product_list', header: { type: 'text', text: m.header }, body: { text: m.body }, ...footer, action: { catalog_id: m.catalogId, sections: [{ title: m.sectionTitle, product_items: m.retailerIds.map((id) => ({ product_retailer_id: id })) }] } } }
   return { ...base, interactive: { type: 'catalog_message', body: { text: m.body }, ...footer, action: { name: 'catalog_message', ...(m.thumbnailRetailerId ? { parameters: { thumbnail_product_retailer_id: m.thumbnailRetailerId } } : {}) } } }
+}
+
+/** A product set from the form: the chosen products, or rules (name contains / brand is / availability is). Returns Meta's filter. */
+export function buildFilter(raw: unknown): SetFilter {
+  const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const ids = [...new Set((Array.isArray(b.retailerIds) ? b.retailerIds : []).map((x) => str(x, 100)).filter((x) => SKU.test(x)))].slice(0, 5000)
+  if (ids.length) return { retailer_id: { is_any: ids } }
+  const r = (b.rules && typeof b.rules === 'object' ? b.rules : {}) as Record<string, unknown>
+  const parts: SetFilter[] = []
+  const name = str(r.name, 100), brand = str(r.brand, 100)
+  if (name) parts.push({ name: { i_contains: name } })
+  if (brand) parts.push({ brand: { eq: brand } })
+  if ((AVAILABILITY as readonly unknown[]).includes(r.availability)) parts.push({ availability: { eq: r.availability } })
+  if (!parts.length) throw new CatalogError('Pick some products, or add a rule (name contains, brand, availability).', 400, 'invalid_request', { filter: 'Pick some products, or add a rule.' })
+  return parts.length === 1 ? parts[0]! : { and: parts }
+}
+
+/** Does a product match a set filter? Only the sample catalog needs this (Meta evaluates sets itself). */
+export function matchFilter(p: Product, f: SetFilter): boolean {
+  if (Array.isArray(f.and)) return (f.and as SetFilter[]).every((x) => matchFilter(p, x))
+  const field = Object.keys(f)[0]
+  if (!field) return true
+  const cond = f[field] as Record<string, unknown>
+  const v = field === 'retailer_id' ? p.retailerId : String((p as unknown as Record<string, unknown>)[field] ?? '')
+  if (Array.isArray(cond.is_any)) return (cond.is_any as unknown[]).map(String).includes(v)
+  if (typeof cond.eq === 'string') return v === cond.eq
+  if (typeof cond.i_contains === 'string') return v.toLowerCase().includes(cond.i_contains.toLowerCase())
+  return false
 }

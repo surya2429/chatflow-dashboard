@@ -4,12 +4,13 @@ import { Download, FileSpreadsheet, Loader2, X } from 'lucide-react'
 import { catalog } from '../../lib/catalogApi'
 import { download } from '../ai/aiTable'
 import { Banner } from '../ctwa/ui'
-import { TEMPLATE_CSV, parseCsv, rowsToProducts } from './csv'
+import { SUPPLEMENTARY_CSV, TEMPLATE_CSV, parseCsv, rowsToProducts } from './csv'
 
 const MAX = 1000
 
 /** Add or update many products from a CSV file (Meta's catalog feed columns). The same file can be imported again to update. */
-export default function ImportDialog({ catalogId, currency, onClose, onDone }) {
+export default function ImportDialog({ catalogId, currency, mode = 'add', onClose, onDone }) {
+  const update = mode === 'update'
   const [parsed, setParsed] = useState(null)       // { name, products, unknown, missing }
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -19,7 +20,7 @@ export default function ImportDialog({ catalogId, currency, onClose, onDone }) {
     setError(''); setResult(null); setParsed(null)
     if (!file) return
     if (file.size > 2 * 1024 * 1024) return setError('That file is over 2 MB. Split it into smaller files.')
-    const r = rowsToProducts(parseCsv(await file.text()), currency)
+    const r = rowsToProducts(parseCsv(await file.text()), currency, update)
     if (r.missing.length) return setError(`The file needs these columns: ${r.missing.join(', ')}. Download the template to see the format.`)
     if (!r.products.length) return setError('The file has no products.')
     if (r.products.length > MAX) return setError(`Import up to ${MAX} products at a time.`)
@@ -28,21 +29,23 @@ export default function ImportDialog({ catalogId, currency, onClose, onDone }) {
 
   async function run() {
     setBusy(true); setError('')
-    try { setResult(await catalog.importMany(catalogId, parsed.products)); onDone() }
+    try { setResult(await catalog.importMany(catalogId, parsed.products, mode)); onDone() }
     catch (e) { setError(e.message) }
     finally { setBusy(false) }
   }
 
   return createPortal(
     <div className="fixed inset-0 z-[70] bg-slate-900/40 flex items-center justify-center p-4" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Import products" className="bg-white rounded-2xl shadow-modal w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div role="dialog" aria-label={update ? 'Update product details' : 'Import products'} className="bg-white rounded-2xl shadow-modal w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-surface-border">
-          <h2 className="text-sm font-bold text-slate-900">Import products from a file</h2>
+          <h2 className="text-sm font-bold text-slate-900">{update ? 'Add missing details from a file' : 'Import products from a file'}</h2>
           <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X size={16} /></button>
         </div>
         <div className="p-5 space-y-4">
-          <p className="text-xs text-slate-500 leading-relaxed">Use a CSV file with Meta’s catalog columns (<span className="font-mono text-[11px]">id, title, description, price, link, image_link, brand…</span>). Products whose SKU already exists are updated, the rest are added. A file you exported from here can be edited and imported again.</p>
-          <button onClick={() => download('catalog-template.csv', '﻿' + TEMPLATE_CSV, 'text/csv;charset=utf-8')} className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"><Download size={13} /> Download a template</button>
+          {update
+            ? <p className="text-xs text-slate-500 leading-relaxed">Use a CSV file with an <span className="font-mono text-[11px]">id</span> column and only the columns you want to fill in or correct (for example <span className="font-mono text-[11px]">brand, size, color, price</span>). Only products that already exist are changed, and only in the columns the file has. Nothing is added.</p>
+            : <p className="text-xs text-slate-500 leading-relaxed">Use a CSV file with Meta’s catalog columns (<span className="font-mono text-[11px]">id, title, description, price, link, image_link, brand, item_group_id…</span>). Products whose SKU already exists are updated, the rest are added. A file you exported from here can be edited and imported again.</p>}
+          <button onClick={() => download(update ? 'catalog-supplementary-template.csv' : 'catalog-template.csv', '﻿' + (update ? SUPPLEMENTARY_CSV : TEMPLATE_CSV), 'text/csv;charset=utf-8')} className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"><Download size={13} /> Download a template</button>
 
           <label className="flex flex-col items-center gap-2 border-2 border-dashed border-surface-border rounded-xl py-7 cursor-pointer hover:border-primary/50 hover:bg-primary-50/30 text-center">
             <FileSpreadsheet size={22} className="text-slate-400" />

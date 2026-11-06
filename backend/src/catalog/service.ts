@@ -3,11 +3,13 @@
 //   POST /catalogs {name}              create a catalog
 //   GET  /products?catalog=            the catalog's products
 //   POST /products {catalog, product}  add · PATCH same: change (partial) · DELETE /products?catalog=&id=
-//   POST /products/import {catalog, products[]}   add or update many (CSV)
+//   POST /products/import {catalog, products[], mode?}   add or update many (CSV); mode 'update' only changes products that exist
+//   POST /products/bulk {catalog, retailerIds[], action}   action: 'in stock' | 'out of stock' | 'delete'
+//   GET  /sets?catalog= · GET /sets/products?set= · POST /sets {catalog, name, retailerIds | rules} · DELETE /sets?catalog=&id=
 //   POST /whatsapp {catalog}           connect the catalog to the WhatsApp Business account
 //   POST /commerce {phoneNumberId, isCatalogVisible?, isCartEnabled?}
 //   POST /send {catalog, kind, to, ...} share products or the catalog in a WhatsApp chat
-import { cleanMessage, cleanProduct, SKU } from './common.js'
+import { buildFilter, cleanMessage, cleanProduct, SKU } from './common.js'
 import { CatalogError, type CatalogBackend } from './types.js'
 
 export interface CatalogRequest { method: string; path: string; query: Record<string, string>; body: Record<string, unknown> }
@@ -49,18 +51,29 @@ export async function handleCatalogRequest(req: CatalogRequest, b: CatalogBacken
         const rows = Array.isArray(body.products) ? body.products : []
         if (!rows.length) throw new CatalogError('The file has no products.', 400, 'invalid_request')
         if (rows.length > MAX_IMPORT) throw new CatalogError(`Import up to ${MAX_IMPORT} products at a time.`, 400, 'invalid_request')
+        const update = body.mode === 'update'
         const good: ReturnType<typeof cleanProduct>[] = [], invalid: { row: number; retailerId: string; message: string }[] = []
         const seen = new Set<string>()
         rows.forEach((r, i) => {
           try {
-            const p = cleanProduct(r)
+            const p = cleanProduct(r, update)
+            if (update && Object.keys(p).length < 2) throw new CatalogError('Nothing to update in this row.')
             if (seen.has(p.retailerId)) throw new CatalogError('This SKU appears twice in the file.')
             seen.add(p.retailerId); good.push(p)
           } catch (e) { invalid.push({ row: i + 1, retailerId: String(object(r).retailerId ?? ''), message: e instanceof CatalogError ? (e.fields ? Object.values(e.fields).join(' ') : e.message) : 'Invalid row.' }) }
         })
         // UPDATE with upsert: products that exist are changed, new ones are added, so the same file can be imported again
-        const r = good.length ? await b.write(id, good.map((product) => ({ method: 'UPDATE' as const, product }))) : { sent: 0, errors: [], warnings: [] }
+        const r = good.length ? await b.write(id, good.map((product) => ({ method: 'UPDATE' as const, product })), { allowUpsert: !update }) : { sent: 0, errors: [], warnings: [] }
         return { status: 200, body: { ok: true, ...r, invalid } }
+      }
+      if (method === 'POST' && seg[1] === 'bulk') {
+        const id = catalogId(body.catalog)
+        const ids = [...new Set((Array.isArray(body.retailerIds) ? body.retailerIds : []).map(String).filter((x) => SKU.test(x)))]
+        if (!ids.length || ids.length > MAX_IMPORT) throw new CatalogError(`Pick between 1 and ${MAX_IMPORT} products.`, 400, 'invalid_request')
+        const action = body.action
+        if (action !== 'in stock' && action !== 'out of stock' && action !== 'delete') throw new CatalogError('Choose what to do with the products.', 400, 'invalid_request')
+        const r = await b.write(id, ids.map((retailerId) => action === 'delete' ? { method: 'DELETE' as const, product: { retailerId } } : { method: 'UPDATE' as const, product: { retailerId, availability: action } }), { allowUpsert: false })
+        return { status: 200, body: { ok: true, ...r } }
       }
       if (method === 'POST' && seg.length === 1) {
         const r = await b.write(catalogId(body.catalog), [{ method: 'CREATE', product: cleanProduct(body.product) }])
@@ -78,6 +91,17 @@ export async function handleCatalogRequest(req: CatalogRequest, b: CatalogBacken
         await b.write(catalogId(req.query.catalog), [{ method: 'DELETE', product: { retailerId } }])
         return { status: 200, body: { ok: true } }
       }
+    }
+
+    if (seg[0] === 'sets') {
+      if (method === 'GET' && seg.length === 1) return { status: 200, body: { sets: await b.sets(catalogId(req.query.catalog)) } }
+      if (method === 'GET' && seg[1] === 'products') return { status: 200, body: { ...(await b.products(catalogId(req.query.set))) } }
+      if (method === 'POST' && seg.length === 1) {
+        const name = typeof body.name === 'string' ? body.name.trim().slice(0, 100) : ''
+        if (name.length < 2) throw new CatalogError('Some details need fixing.', 400, 'invalid_request', { name: 'Give the set a name (at least 2 characters).' })
+        return { status: 201, body: { ok: true, set: await b.createSet(catalogId(body.catalog), name, buildFilter(body)) } }
+      }
+      if (method === 'DELETE' && seg.length === 1) { await b.deleteSet(catalogId(req.query.id)); return { status: 200, body: { ok: true } } }
     }
 
     if (method === 'POST' && seg[0] === 'whatsapp') {

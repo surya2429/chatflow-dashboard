@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { encryptKey } from '../src/ai/aiAssistant.js'
 import type { ConnectionStore, StoredConnection } from '../src/ctwa/connect.js'
-import { cleanMessage, cleanProduct, fromGraph, toCloudMessage, toFeed } from '../src/catalog/common.js'
+import { buildFilter, cleanMessage, cleanProduct, fromGraph, matchFilter, toCloudMessage, toFeed } from '../src/catalog/common.js'
 import { createCatalogRuntime } from '../src/catalog/runtime.js'
 
 const SECRET = 'connections-secret-123'
@@ -41,12 +41,13 @@ let r = await call(sampleRt, 'GET', '/status')
 assert.equal(r.body.mode, 'sample'); assert.equal(r.body.catalogs.length, 1); assert.equal(r.body.connectedId, null); assert.equal(r.body.commerce['sample-phone'].isCatalogVisible, false)
 const CAT = 'sample-catalog'
 r = await call(sampleRt, 'GET', '/products', {}, { catalog: CAT })
-assert.equal(r.body.products.length, 12)
+assert.equal(r.body.products.length, 16)
+assert.equal(r.body.products.filter((p: any) => p.groupId === 'TSHIRT').length, 3)
 r = await call(sampleRt, 'POST', '/products', { catalog: CAT, product: NEW }); assert.equal(r.status, 201)
 r = await call(sampleRt, 'POST', '/products', { catalog: CAT, product: { ...NEW, price: -1 } }); assert.equal(r.status, 400); assert.ok(r.body.fields.price)
 r = await call(sampleRt, 'PATCH', '/products', { catalog: CAT, product: { retailerId: 'NEW1', availability: 'out of stock' } }); assert.equal(r.status, 200)
 r = await call(sampleRt, 'GET', '/products', {}, { catalog: CAT })
-assert.equal(r.body.products.length, 13); assert.equal(r.body.products.find((p: any) => p.retailerId === 'NEW1').availability, 'out of stock')
+assert.equal(r.body.products.length, 17); assert.equal(r.body.products.find((p: any) => p.retailerId === 'NEW1').availability, 'out of stock')
 r = await call(sampleRt, 'POST', '/products/import', { catalog: CAT, products: [{ ...NEW, retailerId: 'IMP1' }, { ...NEW, retailerId: 'IMP1' }, { ...NEW, retailerId: 'IMP2', price: 'abc' }, { ...NEW, retailerId: 'SP001', price: 7000 }] })
 assert.equal(r.body.sent, 2); assert.equal(r.body.invalid.length, 2); assert.equal(r.body.invalid[0].row, 2)
 r = await call(sampleRt, 'DELETE', '/products', {}, { catalog: CAT, id: 'NEW1' }); assert.equal(r.status, 200)
@@ -57,6 +58,28 @@ r = await call(sampleRt, 'POST', '/commerce', { phoneNumberId: 'sample-phone', i
 r = await call(sampleRt, 'POST', '/send', { catalog: CAT, phoneNumberId: 'sample-phone', kind: 'products', to: '919876543210', retailerIds: ['SP001', 'SP002'], body: 'Offers' }); assert.equal(r.body.simulated, true)
 r = await call(sampleRt, 'POST', '/send', { catalog: CAT, phoneNumberId: 'sample-phone', kind: 'product', to: '919876543210', retailerIds: ['NOPE'] }); assert.equal(r.status, 400)
 r = await call(sampleRt, 'POST', '/catalogs', { name: 'Summer' }); assert.equal(r.status, 201)
+
+// bulk actions
+r = await call(sampleRt, 'POST', '/products/bulk', { catalog: CAT, retailerIds: ['SP002', 'SP002-S'], action: 'out of stock' }); assert.equal(r.body.sent, 2)
+r = await call(sampleRt, 'GET', '/products', {}, { catalog: CAT }); assert.equal(r.body.products.filter((p: any) => p.groupId === 'TSHIRT' && p.availability === 'out of stock').length, 3)
+r = await call(sampleRt, 'POST', '/products/bulk', { catalog: CAT, retailerIds: ['SP005'], action: 'explode' }); assert.equal(r.status, 400)
+// supplementary data: only existing products change, with only the columns given
+r = await call(sampleRt, 'POST', '/products/import', { catalog: CAT, mode: 'update', products: [{ retailerId: 'SP005', brand: 'Bean Co', size: '250g' }, { retailerId: 'GHOST', brand: 'X' }, { retailerId: 'SP006' }] })
+assert.equal(r.body.sent, 1); assert.equal(r.body.errors.length, 1); assert.equal(r.body.invalid.length, 1)
+r = await call(sampleRt, 'GET', '/products', {}, { catalog: CAT }); const sp5 = r.body.products.find((p: any) => p.retailerId === 'SP005'); assert.equal(sp5.brand, 'Bean Co'); assert.equal(sp5.price, 649); assert.equal(sp5.size, '250g')
+assert.equal(r.body.products.some((p: any) => p.retailerId === 'GHOST'), false)
+// product sets
+r = await call(sampleRt, 'GET', '/sets', {}, { catalog: CAT }); assert.equal(r.body.sets[0].name, 'All Products'); assert.equal(r.body.sets[0].productCount, r.body.products?.length ?? r.body.sets[0].productCount)
+r = await call(sampleRt, 'POST', '/sets', { catalog: CAT, name: 'Shoes', rules: { name: 'running' } }); assert.equal(r.status, 201); assert.equal(r.body.set.productCount, 3)
+const shoesId = r.body.set.id
+r = await call(sampleRt, 'GET', '/sets/products', {}, { set: shoesId }); assert.equal(r.body.products.length, 3)
+r = await call(sampleRt, 'POST', '/sets', { catalog: CAT, name: 'Picks', retailerIds: ['SP001', 'SP003'] }); assert.equal(r.body.set.productCount, 2)
+r = await call(sampleRt, 'POST', '/sets', { catalog: CAT, name: 'Empty' }); assert.equal(r.status, 400)
+r = await call(sampleRt, 'DELETE', '/sets', {}, { catalog: CAT, id: shoesId }); assert.equal(r.status, 200)
+r = await call(sampleRt, 'DELETE', '/sets', {}, { catalog: CAT, id: 'set-all' }); assert.equal(r.status, 400)
+assert.deepEqual(buildFilter({ retailerIds: ['A', 'B', 'A', 'bad id'] }), { retailer_id: { is_any: ['A', 'B'] } })
+assert.deepEqual(buildFilter({ rules: { name: 'shirt', brand: 'Terra' } }), { and: [{ name: { i_contains: 'shirt' } }, { brand: { eq: 'Terra' } }] })
+assert.equal(matchFilter({ name: 'Red Shirt', brand: 'Terra' } as any, { and: [{ name: { i_contains: 'shirt' } }, { brand: { eq: 'Terra' } }] }), true)
 
 // ── live mode: the exact requests Meta receives ──
 mem.set('w1', { tokenEnc: encryptKey(TOKEN, SECRET), userName: 'Owner', businessId: '4242', adAccounts: [], pages: [], wabas: [{ id: '999', name: 'WABA' }], datasetId: null, selected: { adAccountId: null, pageId: null, wabaId: '999' }, connectedAt: new Date().toISOString() })
@@ -72,6 +95,8 @@ const fetchImpl = (async (url: string, init: any = {}) => {
   if (path === '999/product_catalogs') return init.method === 'POST' ? reply({ success: true }) : reply({ data: [{ id: '555' }] })
   if (path === '555/products') return reply({ data: [{ id: 'm1', retailer_id: 'SKU1', name: 'One', price: '₹100.00', currency: 'INR', availability: 'in stock', condition: 'new', review_status: 'approved' }], paging: { cursors: { after: 'abc' }, next: 'https://graph.facebook.com/next' } })
   if (path === '555/items_batch') return reply({ handles: ['h1'], validation_status: batchErrors })
+  if (path === '555/product_sets') return init.method === 'POST' ? reply({ id: 'set9' }) : reply({ data: [{ id: 'set1', name: 'All Products', product_count: '2' }] })
+  if (path === 'set9') return reply({ success: true })
   if (path === '999/phone_numbers') return reply({ data: [{ id: '888', display_phone_number: '+91 98765 43210', verified_name: 'Shop' }] })
   if (path === '888/whatsapp_commerce_settings') return init.method === 'POST' ? reply({ success: true }) : reply({ data: [{ is_cart_enabled: true, is_catalog_visible: true, id: '1' }] })
   if (path === '888/messages') return reply({ messages: [{ id: 'wamid.1' }] })
@@ -106,6 +131,14 @@ batchErrors = [{ retailer_id: 'NEW1', errors: [{ message: 'Image is too small' }
 r = await call(liveRt, 'POST', '/products', { catalog: '555', product: NEW }); assert.equal(r.status, 422); assert.match(r.body.message, /Image is too small/)
 batchErrors = []
 
+calls.length = 0
+r = await call(liveRt, 'GET', '/sets', {}, { catalog: '555' }); assert.deepEqual(r.body.sets, [{ id: 'set1', name: 'All Products', productCount: 2 }])
+await call(liveRt, 'POST', '/sets', { catalog: '555', name: 'Picks', retailerIds: ['A', 'B'] })
+assert.deepEqual(Object.fromEntries(new URLSearchParams(calls.find((c) => c.path === '555/product_sets' && c.method === 'POST')!.body)), { name: 'Picks', filter: '{"retailer_id":{"is_any":["A","B"]}}' })
+await call(liveRt, 'DELETE', '/sets', {}, { catalog: '555', id: 'set9' }); assert.ok(calls.some((c) => c.method === 'DELETE' && c.path === 'set9'))
+calls.length = 0
+await call(liveRt, 'POST', '/products/import', { catalog: '555', mode: 'update', products: [{ retailerId: 'SKU1', brand: 'New brand' }] })
+assert.equal(new URLSearchParams(calls.find((c) => c.path === '555/items_batch')!.body).get('allow_upsert'), 'false')
 calls.length = 0
 await call(liveRt, 'POST', '/commerce', { phoneNumberId: '888', isCatalogVisible: true })
 assert.equal(calls.find((c) => c.method === 'POST')!.query.get('is_catalog_visible'), 'true')

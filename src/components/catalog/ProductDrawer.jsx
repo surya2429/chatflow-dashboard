@@ -3,7 +3,7 @@ import { ImageIcon, Loader2 } from 'lucide-react'
 import { catalog } from '../../lib/catalogApi'
 import { Banner, Drawer, Field, inputCls } from '../ctwa/ui'
 
-const BLANK = { retailerId: '', name: '', description: '', brand: '', condition: 'new', price: '', salePrice: '', availability: 'in stock', inventory: '', imageUrl: '', url: '' }
+const BLANK = { retailerId: '', name: '', description: '', brand: '', groupId: '', size: '', color: '', condition: 'new', price: '', salePrice: '', availability: 'in stock', inventory: '', imageUrl: '', url: '' }
 const num = (v) => (v === '' || v === null || v === undefined ? null : Number(v))
 
 /** Add a product, or change one. Meta reviews every new or changed product, so it shows as "In review" for a while afterwards. */
@@ -34,6 +34,11 @@ export default function ProductDrawer({ catalogId, product, currency, onClose, o
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="SKU (content ID)" error={errors.retailerId} hint="Unique. WhatsApp messages refer to the product by this."><input value={f.retailerId} onChange={set('retailerId')} disabled={editing} className={inputCls} placeholder="SKU-001" /></Field>
           <Field label="Brand" error={errors.brand}><input value={f.brand} onChange={set('brand')} className={inputCls} /></Field>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Field label="Variant group ID" hint="Same ID = variants of one item"><input value={f.groupId} onChange={set('groupId')} className={inputCls} placeholder="TSHIRT" /></Field>
+          <Field label="Size"><input value={f.size} onChange={set('size')} className={inputCls} /></Field>
+          <Field label="Colour"><input value={f.color} onChange={set('color')} className={inputCls} /></Field>
         </div>
         <Field label="Name" error={errors.name}><input value={f.name} onChange={set('name')} maxLength={200} className={inputCls} /></Field>
         <Field label="Description" error={errors.description}><textarea value={f.description} onChange={set('description')} rows={3} className={inputCls} /></Field>

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Package, Send, Settings2, RefreshCw, Plus, X } from 'lucide-react'
+import { Package, Send, Settings2, RefreshCw, Layers, X } from 'lucide-react'
 import clsx from 'clsx'
 import { catalog } from '../lib/catalogApi'
-import { NativeSelect } from '../components/Select'
+import { AddMenu, CatalogSwitcher } from '../components/catalog/HeaderMenus'
+import SetsTab, { SetDrawer } from '../components/catalog/SetsTab'
 import ProductsTab from '../components/catalog/ProductsTab'
 import ProductDrawer from '../components/catalog/ProductDrawer'
 import ImportDialog from '../components/catalog/ImportDialog'
@@ -12,7 +13,7 @@ import CatalogSettings from '../components/catalog/CatalogSettings'
 import { useMetaConnection } from '../components/ctwa/useMetaConnection'
 import { Banner, Spinner } from '../components/ctwa/ui'
 
-const TABS = [['products', 'Products', Package], ['share', 'Share on WhatsApp', Send], ['settings', 'Settings', Settings2]]
+const TABS = [['products', 'Products', Package], ['sets', 'Sets', Layers], ['share', 'Share on WhatsApp', Send], ['settings', 'Settings', Settings2]]
 const KEY = 'catalog.selected'
 const remembered = () => { try { return localStorage.getItem(KEY) || '' } catch { return '' } }
 
@@ -31,7 +32,9 @@ export default function FacebookCatalog() {
   const [syncedAt, setSyncedAt] = useState(null)
   const [notice, setNotice] = useState(null)
   const [editing, setEditing] = useState(null)      // a product, or {} for a new one
-  const [importing, setImporting] = useState(false)
+  const [importing, setImporting] = useState(null)   // null | 'add' | 'update'
+  const [setsKey, setSetsKey] = useState(0)       // bumped when a set is created, so the Sets tab reloads
+  const [newSet, setNewSet] = useState(null)         // null | SKUs to start the set with
   const timer = useRef(null)
 
   const notify = useCallback((message, tone = 'ok') => { setNotice({ message, tone }); clearTimeout(timer.current); timer.current = setTimeout(() => setNotice(null), 6000) }, [])
@@ -80,16 +83,12 @@ export default function FacebookCatalog() {
           <p className="text-[11px] text-slate-400">Your product catalog on Meta: manage products and sell on WhatsApp</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {status?.catalogs.length > 1 && (
-            <NativeSelect value={catalogId} onChange={(e) => setCatalogId(e.target.value)} sm className="!w-48">
-              {status.catalogs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </NativeSelect>
-          )}
+          {status?.catalogs.length > 0 && <CatalogSwitcher catalogs={status.catalogs} value={catalogId} onChange={setCatalogId} onManage={() => setTab('settings')} />}
           {syncedAt && <span className="hidden md:inline text-[10.5px] text-slate-400 whitespace-nowrap">Synced {syncedAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</span>}
           <button onClick={sync} disabled={syncing} title="Pull the latest products and review results from Meta" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary-50 text-primary text-xs font-semibold hover:bg-primary-100 hover:border-primary/50 transition-colors whitespace-nowrap disabled:opacity-60">
             <RefreshCw size={12} className={clsx(syncing && 'animate-spin')} /> {syncing ? 'Syncing…' : 'Sync from Meta'}
           </button>
-          <button onClick={() => setEditing({})} disabled={!catalogId} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-semibold hover:bg-primary-hover transition-colors shadow-sm whitespace-nowrap disabled:opacity-50"><Plus size={13} /> Add product</button>
+          <AddMenu disabled={!catalogId} onManual={() => setEditing({})} onFile={() => setImporting('add')} onSupplementary={() => setImporting('update')} />
         </div>
       </div>
 
@@ -111,11 +110,13 @@ export default function FacebookCatalog() {
         : error ? <Banner tone="error" action={<button onClick={() => { setLoading(true); load() }} className="font-semibold underline">Try again</button>}>{error}</Banner>
         : loading && !list ? <Spinner />
         : !catalogId ? <Banner tone="warn" action={<button onClick={() => setTab('settings')} className="font-semibold underline whitespace-nowrap">Open Settings</button>}>No catalog yet. Connect Facebook and choose or create a catalog in Settings.</Banner>
+        : tab === 'sets' ? <SetsTab key={setsKey} catalogId={catalogId} products={products} notify={notify} onCreate={() => setNewSet([])} />
         : tab === 'share' ? <ShareTab status={status} catalogId={catalogId} products={products} notify={notify} />
-        : <ProductsTab catalogId={catalogId} products={products} truncated={list.truncated} reload={load} notify={notify} onEdit={setEditing} onAdd={() => setEditing({})} onImport={() => setImporting(true)} />}
+        : <ProductsTab catalogId={catalogId} products={products} truncated={list.truncated} total={status?.catalogs.find((c) => c.id === catalogId)?.productCount} reload={load} notify={notify} onEdit={setEditing} onAdd={() => setEditing({})} onImport={() => setImporting('add')} onCreateSet={setNewSet} />}
 
       {editing && <ProductDrawer catalogId={catalogId} product={editing.retailerId ? editing : null} currency={currency} onClose={() => setEditing(null)} onSaved={saved} notify={notify} />}
-      {importing && <ImportDialog catalogId={catalogId} currency={currency} onClose={() => setImporting(false)} onDone={load} />}
+      {importing && <ImportDialog catalogId={catalogId} currency={currency} mode={importing} onClose={() => setImporting(null)} onDone={load} />}
+      {newSet && <SetDrawer catalogId={catalogId} products={products} initialIds={newSet} onClose={() => setNewSet(null)} onSaved={() => { setNewSet(null); setSetsKey((k) => k + 1); setTab('sets') }} notify={notify} />}
     </div>
   )
 }

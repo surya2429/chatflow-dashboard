@@ -4,7 +4,7 @@
 //   WhatsApp   GET/POST /{waba}/product_catalogs · GET/POST /{phone}/whatsapp_commerce_settings · POST /{phone}/messages
 // The token is the customer's (from the Facebook popup) or the server's; it goes in the Authorization header only.
 import { fromGraph, toCloudMessage, toFeed } from './common.js'
-import { CatalogError, type BatchResult, type CatalogBackend, type CatalogInfo, type Commerce, type OutMessage, type Product, type WriteOp } from './types.js'
+import { CatalogError, type BatchResult, type CatalogBackend, type CatalogInfo, type Commerce, type OutMessage, type Product, type ProductSet, type WriteOp } from './types.js'
 
 export interface MetaCatalogConfig {
   token: string
@@ -18,8 +18,9 @@ export interface MetaCatalogConfig {
   fetchImpl?: typeof fetch
 }
 
-const PRODUCT_FIELDS = 'retailer_id,name,description,price,sale_price,currency,availability,condition,image_url,url,brand,inventory,review_status,review_rejection_reasons'
-const MAX_PRODUCTS = 500          // shortcut: the screen loads the first 500 products of a catalog; upgrade to server-side paging beyond that
+const PRODUCT_FIELDS = 'retailer_id,name,description,price,sale_price,currency,availability,condition,image_url,url,brand,inventory,review_status,review_rejection_reasons,item_group_id,size,color'
+const MAX_PRODUCTS = 3000         // shortcut: the screen loads the first 3,000 products (15 calls); upgrade to server-side paging and search beyond that
+const PAGE = 200
 const BATCH = 500                 // items per items_batch call (Meta allows 5000, recommends under 3000)
 const ID = /^\d{3,25}$/
 
@@ -105,7 +106,7 @@ export function createMetaCatalog(c: MetaCatalogConfig): CatalogBackend {
       const out: Product[] = []
       let after = ''
       while (out.length < MAX_PRODUCTS) {
-        const r = await graph('GET', `${catalogId}/products`, { query: { fields: PRODUCT_FIELDS, limit: '100', ...(after ? { after } : {}) } })
+        const r = await graph('GET', `${catalogId}/products`, { query: { fields: PRODUCT_FIELDS, limit: String(PAGE), ...(after ? { after } : {}) } })
         for (const row of r.data ?? []) out.push(fromGraph(row))
         after = r.paging?.next ? String(r.paging.cursors?.after ?? '') : ''
         if (!after) return { products: out, truncated: false }
@@ -113,12 +114,12 @@ export function createMetaCatalog(c: MetaCatalogConfig): CatalogBackend {
       return { products: out.slice(0, MAX_PRODUCTS), truncated: true }
     },
 
-    async write(catalogId, ops) {
+    async write(catalogId, ops, opts = {}) {
       const res: BatchResult = { sent: 0, errors: [], warnings: [] }
       for (let i = 0; i < ops.length; i += BATCH) {
         const chunk = ops.slice(i, i + BATCH)
         const requests = chunk.map((o: WriteOp) => ({ method: o.method, data: o.method === 'DELETE' ? { id: o.product.retailerId } : toFeed(o.product) }))
-        const r = await graph('POST', `${catalogId}/items_batch`, { form: { item_type: 'PRODUCT_ITEM', requests: JSON.stringify(requests) } })
+        const r = await graph('POST', `${catalogId}/items_batch`, { form: { item_type: 'PRODUCT_ITEM', requests: JSON.stringify(requests), ...(opts.allowUpsert === false ? { allow_upsert: 'false' } : {}) } })
         // the batch is processed on Meta's side; per-row problems it finds up front come back as validation_status
         const bad = new Set<string>()
         for (const v of r.validation_status ?? []) {
@@ -129,6 +130,18 @@ export function createMetaCatalog(c: MetaCatalogConfig): CatalogBackend {
       }
       return res
     },
+
+    async sets(catalogId) {
+      const r = await graph('GET', `${catalogId}/product_sets`, { query: { fields: 'id,name,product_count', limit: '100' } })
+      return (r.data ?? []).map((s: any): ProductSet => ({ id: String(s.id), name: String(s.name ?? ''), productCount: Number.isFinite(Number(s.product_count)) ? Number(s.product_count) : null }))
+    },
+
+    async createSet(catalogId, name, filter) {
+      const r = await graph('POST', `${catalogId}/product_sets`, { form: { name, filter: JSON.stringify(filter) } })
+      return { id: String(r.id), name, productCount: null }
+    },
+
+    async deleteSet(setId) { await graph('DELETE', setId) },
 
     async phoneNumbers() {
       if (!c.wabaId) return []
