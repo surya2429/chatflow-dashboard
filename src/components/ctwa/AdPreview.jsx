@@ -10,14 +10,14 @@ export default function AdPreview({ pageName = 'Your business', headline, primar
 
   return (
     <div>
-      <div className="inline-flex bg-slate-100 rounded-lg p-0.5 mb-3" role="tablist">
+      {welcome.greeting && <div className="inline-flex bg-slate-100 rounded-lg p-0.5 mb-3" role="tablist">
         {[['feed', 'Feed ad'], ['chat', 'WhatsApp chat']].map(([k, l]) => (
           <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)}
             className={clsx('px-3 py-1 rounded-md text-[11px] font-semibold transition-colors', view === k ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700')}>{l}</button>
         ))}
-      </div>
+      </div>}
 
-      {view === 'feed' ? (
+      {view === 'feed' || !welcome.greeting ? (
         <div className="max-w-[340px] mx-auto bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden text-slate-900">
           <div className="flex items-center gap-2.5 px-3 py-2.5">
             <span className="w-9 h-9 rounded-full bg-emerald-500 text-white font-bold flex items-center justify-center text-sm">{initial}</span>
