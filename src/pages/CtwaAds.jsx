@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { ctwa, lastDays } from '../lib/ctwaApi'
 import Overview from '../components/ctwa/Overview'
 import AdsTable from '../components/ctwa/AdsTable'
+import AdDetail from '../components/ctwa/AdDetail'
 import CreateAd from '../components/ctwa/CreateAd'
 import Leads from '../components/ctwa/Leads'
 import Setup from '../components/ctwa/Setup'
@@ -28,6 +29,7 @@ export default function CtwaAds() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState(null)
+  const [openAdId, setOpenAdId] = useState(null)
   const timer = useRef(null)
 
   const notify = useCallback((message, tone = 'ok') => {
@@ -104,9 +106,13 @@ export default function CtwaAds() {
         : error ? <Banner tone="error" action={<button onClick={() => { setLoading(true); load() }} className="font-semibold underline">Try again</button>}>{error}</Banner>
         : !data ? <Spinner />
         : tab === 'overview' ? <Overview data={data} />
-        : tab === 'ads' ? <AdsTable data={data} reload={load} notify={notify} onCreate={() => setTab('create')} />
+        : tab === 'ads' ? <AdsTable data={data} reload={load} notify={notify} onCreate={() => setTab('create')} onOpenAd={(a) => setOpenAdId(a.id)} />
         : tab === 'create' ? <CreateAd data={data} notify={notify} onDone={() => { load(); setTab('ads') }} />
         : <Leads leads={leads?.leads ?? []} ads={data.ads} currency={data.currency} mode={leads?.mode} capiLive={leads?.capiLive} reload={load} notify={notify} />}
+      {data?.ads.find((a) => a.id === openAdId) && (
+        <AdDetail ad={data.ads.find((a) => a.id === openAdId)} stats={data.leadStats?.[openAdId]} currency={data.currency} mode={data.mode} capiLive={leads?.capiLive}
+          rangeLabel={RANGES.find(([v]) => v === days)?.[1]} onClose={() => setOpenAdId(null)} onChanged={load} notify={notify} />
+      )}
     </div>
   )
 }

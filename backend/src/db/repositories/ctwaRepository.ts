@@ -1,5 +1,5 @@
 import { query } from '../pool.js'
-import type { CtwaStore, Lead, LeadEvent } from '../../ctwa/types.js'
+import type { CtwaStore, Lead, LeadEvent, LeadStats } from '../../ctwa/types.js'
 
 interface Row {
   id: string; wa_id: string; contact_name: string | null; ctwa_clid: string | null; source_id: string | null; source_type: string | null
@@ -32,8 +32,23 @@ export const ctwaRepository: CtwaStore = {
     return rows.length > 0
   },
 
-  async listLeads(limit) {
-    return (await query<Row>(`${SELECT} GROUP BY r.id ORDER BY r.created_at DESC LIMIT $1`, [limit])).map(toLead)
+  async listLeads(limit, sourceId) {
+    return (await query<Row>(`${SELECT} WHERE ($2::text IS NULL OR r.source_id = $2) GROUP BY r.id ORDER BY r.created_at DESC LIMIT $1`, [limit, sourceId ?? null])).map(toLead)
+  },
+
+  async statsBySource(range) {
+    const rows = await query<{ source_id: string; leads: string; qualified: string; purchases: string; revenue: string }>(
+      `SELECT r.source_id,
+              count(DISTINCT r.id) AS leads,
+              count(DISTINCT r.id) FILTER (WHERE e.event_name = 'QualifiedLead' AND e.status = 'sent') AS qualified,
+              count(e.id) FILTER (WHERE e.event_name = 'Purchase' AND e.status = 'sent') AS purchases,
+              COALESCE(sum(e.value) FILTER (WHERE e.event_name = 'Purchase' AND e.status = 'sent'), 0) AS revenue
+         FROM ctwa_referrals r LEFT JOIN ctwa_events e ON e.referral_id = r.id
+        WHERE r.source_id IS NOT NULL AND r.created_at >= to_timestamp($1) AND r.created_at <= to_timestamp($2) + interval '1 second'
+        GROUP BY r.source_id`, [range.start, range.end])
+    const out: Record<string, LeadStats> = {}
+    for (const r of rows) out[r.source_id] = { leads: Number(r.leads), qualified: Number(r.qualified), purchases: Number(r.purchases), revenue: Number(r.revenue) }
+    return out
   },
 
   async latestForWaId(waId) {

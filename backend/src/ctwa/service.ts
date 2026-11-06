@@ -20,8 +20,8 @@ export async function handleCtwaRequest(req: CtwaRequest, d: CtwaDeps): Promise<
 
     if (method === 'GET' && seg[0] === 'dashboard') {
       const range = parseRange(req.query, d.now?.())
-      const [currency, data] = await Promise.all([d.ads.currency(), d.ads.dashboard(range)])
-      return { status: 200, body: { mode: d.ads.mode, currency, range, ...data } }
+      const [currency, data, leadStats] = await Promise.all([d.ads.currency(), d.ads.dashboard(range), d.store.statsBySource(range)])
+      return { status: 200, body: { mode: d.ads.mode, currency, range, ...data, leadStats } }
     }
 
     if (method === 'GET' && seg[0] === 'status') {
@@ -43,7 +43,9 @@ export async function handleCtwaRequest(req: CtwaRequest, d: CtwaDeps): Promise<
 
     if (method === 'GET' && seg[0] === 'leads') {
       const limit = Math.min(Math.max(Math.floor(Number(req.query.limit)) || 200, 1), 500)
-      return { status: 200, body: { mode: d.ads.mode, capiLive: d.capi !== null, leads: await d.store.listLeads(limit) } }
+      const adId = req.query.adId === undefined ? undefined : String(req.query.adId)
+      if (adId !== undefined && !ID.test(adId)) throw new CtwaError('That ad id is not valid.', 400, 'invalid_request')
+      return { status: 200, body: { mode: d.ads.mode, capiLive: d.capi !== null, leads: await d.store.listLeads(limit, adId) } }
     }
 
     if (method === 'GET' && seg[0] === 'lead') {

@@ -53,6 +53,7 @@ export interface Dashboard {
   totals: AdMetrics
   daily: DailyPoint[]
   ads: CtwaAd[]
+  leadStats: Record<string, LeadStats>
 }
 
 export const OBJECTIVES = ['OUTCOME_ENGAGEMENT', 'OUTCOME_LEADS', 'OUTCOME_SALES', 'OUTCOME_TRAFFIC'] as const
@@ -96,7 +97,7 @@ export interface SetupInfo {
 export interface AdsBackend {
   mode: 'live' | 'sample'
   currency(): Promise<string>
-  dashboard(range: { start: number; end: number }): Promise<Omit<Dashboard, 'mode' | 'currency' | 'range'>>
+  dashboard(range: { start: number; end: number }): Promise<Omit<Dashboard, 'mode' | 'currency' | 'range' | 'leadStats'>>
   createAd(input: CreateAdInput): Promise<CreatedAd>
   updateAd(adId: string, patch: AdPatch): Promise<void>
   setup(): Promise<SetupInfo>
@@ -129,10 +130,16 @@ export interface Referral {
 export interface LeadEvent { eventName: string; value: number | null; currency: string | null; status: 'sent' | 'failed' | 'simulated'; error: string | null; at: string }
 export interface Lead extends Referral { id: string; adName: string | null; events: LeadEvent[] }
 
+/** What one ad brought in, for the Ads table and the ad's own page. Revenue is the sum of the Purchase events reported for its leads. */
+export interface LeadStats { leads: number; qualified: number; purchases: number; revenue: number }
+
 export interface CtwaStore {
   /** false when this message was already recorded (Meta redelivers webhooks) */
   saveReferral(r: Referral): Promise<boolean>
-  listLeads(limit: number): Promise<Lead[]>
+  /** newest first; `sourceId` narrows it to the leads of one ad */
+  listLeads(limit: number, sourceId?: string): Promise<Lead[]>
+  /** per ad id, for referrals created inside the range (unix seconds) */
+  statsBySource(range: { start: number; end: number }): Promise<Record<string, LeadStats>>
   /** the newest ad referral for a WhatsApp number, if the chat came from an ad */
   latestForWaId(waId: string): Promise<Lead | null>
   logEvent(waId: string, ctwaClid: string | null, e: LeadEvent): Promise<void>

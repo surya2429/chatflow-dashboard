@@ -8,8 +8,9 @@ import { Card, StatusPill, Switch, inputCls } from './ui'
 const FILTERS = [['all', 'All'], ['ACTIVE', 'Active'], ['PAUSED', 'Paused'], ['issues', 'Needs attention']]
 const ATTENTION = new Set(['DISAPPROVED', 'WITH_ISSUES', 'PENDING_REVIEW', 'IN_PROCESS', 'PENDING_BILLING_INFO'])
 
-export default function AdsTable({ data, reload, notify, onCreate }) {
+export default function AdsTable({ data, reload, notify, onCreate, onOpenAd }) {
   const { ads, currency } = data
+  const stats = (a) => data.leadStats?.[a.id] ?? { leads: 0, qualified: 0, purchases: 0, revenue: 0 }
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState('all')
   const [busy, setBusy] = useState('')            // ad id with a request in flight
@@ -26,8 +27,8 @@ export default function AdsTable({ data, reload, notify, onCreate }) {
   const sum = useMemo(() => rows.reduce((a, x) => ({ spend: a.spend + x.metrics.spend, impressions: a.impressions + x.metrics.impressions, clicks: a.clicks + x.metrics.clicks, conversations: a.conversations + x.metrics.conversations }), { spend: 0, impressions: 0, clicks: 0, conversations: 0 }), [rows])
 
   const exportTable = useMemo(() => ({
-    columns: [['name', 'Ad'], ['campaign', 'Campaign'], ['status', 'Status'], ['budget', 'Daily budget'], ['spend', 'Spend'], ['impressions', 'Impressions'], ['reach', 'Reach'], ['clicks', 'Clicks'], ['ctr', 'CTR %'], ['conversations', 'Conversations'], ['cpc', 'Cost per conversation']].map(([key, label]) => ({ key, label })),
-    rows: rows.map((a) => ({ id: a.id, name: a.name, campaign: a.campaignName, status: a.effectiveStatus, budget: a.dailyBudget ?? '', spend: a.metrics.spend, impressions: a.metrics.impressions, reach: a.metrics.reach, clicks: a.metrics.clicks, ctr: a.metrics.ctr ?? '', conversations: a.metrics.conversations, cpc: a.metrics.costPerConversation ?? '' })),
+    columns: [['name', 'Ad'], ['campaign', 'Campaign'], ['status', 'Status'], ['budget', 'Daily budget'], ['spend', 'Spend'], ['impressions', 'Impressions'], ['reach', 'Reach'], ['clicks', 'Clicks'], ['ctr', 'CTR %'], ['conversations', 'Conversations'], ['cpc', 'Cost per conversation'], ['leads', 'Leads'], ['sales', 'Sales']].map(([key, label]) => ({ key, label })),
+    rows: rows.map((a) => ({ id: a.id, name: a.name, campaign: a.campaignName, status: a.effectiveStatus, budget: a.dailyBudget ?? '', spend: a.metrics.spend, impressions: a.metrics.impressions, reach: a.metrics.reach, clicks: a.metrics.clicks, ctr: a.metrics.ctr ?? '', conversations: a.metrics.conversations, cpc: a.metrics.costPerConversation ?? '', leads: stats(a).leads, sales: stats(a).revenue })),
   }), [rows])
 
   async function run(id, fn, ok) {
@@ -94,6 +95,8 @@ export default function AdsTable({ data, reload, notify, onCreate }) {
                 <th className={clsx(th, 'text-right')}>CTR</th>
                 <th className={clsx(th, 'text-right')}>Conversations</th>
                 <th className={clsx(th, 'text-right')}>Cost / conv.</th>
+                <th className={clsx(th, 'text-right')}>Leads</th>
+                <th className={clsx(th, 'text-right')}>Sales</th>
                 <th className={th} />
               </tr>
             </thead>
@@ -116,7 +119,7 @@ export default function AdsTable({ data, reload, notify, onCreate }) {
                               <button onClick={() => setEdit(null)} aria-label="Cancel" className="p-1 text-slate-400"><X size={13} /></button>
                             </span>
                           ) : (
-                            <p className="font-semibold text-slate-800 truncate max-w-[240px] flex items-center gap-1.5">{a.name}
+                            <p className="font-semibold text-slate-800 truncate max-w-[240px] flex items-center gap-1.5"><button onClick={() => onOpenAd(a)} title="See this ad's leads and details" className="truncate text-left hover:text-primary hover:underline">{a.name}</button>
                               <button onClick={() => setEdit({ id: a.id, field: 'name', value: a.name })} aria-label={`Rename ${a.name}`} className="text-slate-300 hover:text-slate-600"><Pencil size={11} /></button>
                             </p>
                           )}
@@ -148,6 +151,8 @@ export default function AdsTable({ data, reload, notify, onCreate }) {
                     <td className={num_}>{pct(a.metrics.ctr)}</td>
                     <td className={clsx(num_, 'font-bold text-slate-900')}>{num(a.metrics.conversations)}</td>
                     <td className={num_}>{money(a.metrics.costPerConversation, currency, 2)}</td>
+                    <td className={num_}><button onClick={() => onOpenAd(a)} title="See the leads from this ad" className="font-bold text-primary hover:underline">{num(stats(a).leads)}</button></td>
+                    <td className={num_}>{stats(a).revenue ? money(stats(a).revenue, currency) : '—'}</td>
                     <td className="px-3 py-3 whitespace-nowrap text-right">
                       {confirm === a.id ? (
                         <span className="inline-flex items-center gap-1.5 text-[11px]">Archive?
@@ -161,7 +166,7 @@ export default function AdsTable({ data, reload, notify, onCreate }) {
                   </tr>
                 )
               })}
-              {!rows.length && <tr><td colSpan={11} className="py-10 text-center text-slate-400">No ads match.</td></tr>}
+              {!rows.length && <tr><td colSpan={13} className="py-10 text-center text-slate-400">No ads match.</td></tr>}
             </tbody>
             {rows.length > 0 && (
               <tfoot>
@@ -175,6 +180,8 @@ export default function AdsTable({ data, reload, notify, onCreate }) {
                   <td className={num_}>{pct(sum.impressions ? (sum.clicks / sum.impressions) * 100 : null)}</td>
                   <td className={num_}>{num(sum.conversations)}</td>
                   <td className={num_}>{money(sum.conversations ? sum.spend / sum.conversations : null, currency, 2)}</td>
+                  <td className={num_}>{num(rows.reduce((n, a) => n + stats(a).leads, 0))}</td>
+                  <td className={num_}>{money(rows.reduce((n, a) => n + stats(a).revenue, 0), currency)}</td>
                   <td />
                 </tr>
               </tfoot>

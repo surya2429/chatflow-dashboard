@@ -25,7 +25,7 @@ export const ctwa = {
   createAd:  (input)      => call('POST', '/ads', input),
   updateAd:  (id, patch)  => call('PATCH', `/ads/${encodeURIComponent(id)}`, patch),
   archiveAd: (id)         => call('DELETE', `/ads/${encodeURIComponent(id)}`),
-  leads:     ()           => call('GET', '/leads?limit=500'),
+  leads:     (adId)       => call('GET', `/leads?limit=500${adId ? `&adId=${encodeURIComponent(adId)}` : ''}`),
   lead:      (waId)       => call('GET', `/lead?waId=${encodeURIComponent(String(waId).replace(/\D/g, ''))}`),
   sendEvent: (payload)    => call('POST', '/events', payload),
   // the customer's Meta account, connected with the Facebook popup

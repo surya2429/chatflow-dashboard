@@ -3,7 +3,7 @@
 // leads for the sample conversations. Everything is editable in memory — create, pause, change the budget —
 // so the whole section can be tried before any real ad exists. Nothing here ever talks to Meta.
 import {
-  CtwaError, type AdPatch, type AdsBackend, type CreateAdInput, type CreatedAd, type CtwaAd, type CtwaStore, type DailyPoint, type Lead, type LeadEvent, type Referral,
+  CtwaError, type AdPatch, type AdsBackend, type CreateAdInput, type CreatedAd, type CtwaAd, type CtwaStore, type DailyPoint, type Lead, type LeadEvent, type LeadStats, type Referral,
 } from './types.js'
 import { day, emptyMetrics, finishMetrics, sumMetrics } from './common.js'
 
@@ -120,11 +120,24 @@ export function createSampleAds(now: () => number = Date.now, currency = 'INR'):
 
 /* ── sample leads: the people those ads sent to WhatsApp ───────────────────────────────────────────────────── */
 const PEOPLE: [string, string, number, number][] = [
-  // name, wa number, ad index (1-based), days ago
-  ['Priya Sharma', '919876543210', 1, 0], ['Rahul Mehta', '918234109876', 3, 0], ['Anita Desai', '919812345670', 4, 1], ['Karan Malhotra', '919900112233', 4, 1],
-  ['Sneha Iyer', '919845671234', 3, 2], ['Mohit Verma', '918899776655', 1, 3], ['Divya Nair', '919447123456', 7, 3], ['Arjun Reddy', '919100223344', 2, 4],
+  // name, wa number, ad index (1-based), days ago.  The first seven are people who also have a chat in the sample inbox.
+  ['Priya Sharma', '919876543210', 1, 0], ['Rahul Mehta', '918234109876', 3, 0], ['Meera Joshi', '918800123456', 4, 1], ['Suresh Verma', '919450067890', 4, 2],
+  ['Nisha Agarwal', '919600134567', 7, 3], ['Kavya Reddy', '918800122334', 1, 5], ['Arjun Nair', '917700988123', 2, 6],
+  ['Karan Malhotra', '919900112233', 4, 1], ['Sneha Iyer', '919845671234', 3, 2], ['Mohit Verma', '918899776655', 1, 3], ['Divya Menon', '919447123456', 7, 3],
   ['Pooja Gupta', '919811223344', 5, 5], ['Imran Khan', '919322110099', 4, 6], ['Neha Kapoor', '919876001122', 1, 8], ['Rohit Jain', '919555667788', 3, 9],
   ['Tanvi Shah', '919999888777', 2, 12], ['Sameer Joshi', '919123456780', 6, 15],
+]
+// what has already been reported to Meta for some of them: [wa number, event, value, hours after the chat started]
+const EVENTS: [string, string, number | null, number][] = [
+  ['919876543210', 'LeadSubmitted', null, 1], ['919876543210', 'QualifiedLead', null, 5],
+  ['918234109876', 'LeadSubmitted', null, 2],
+  ['918800123456', 'LeadSubmitted', null, 1], ['918800123456', 'QualifiedLead', null, 4], ['918800123456', 'Purchase', 2499, 20],
+  ['919450067890', 'LeadSubmitted', null, 3],
+  ['919600134567', 'LeadSubmitted', null, 2], ['919600134567', 'QualifiedLead', null, 26],
+  ['918800122334', 'LeadSubmitted', null, 2], ['918800122334', 'QualifiedLead', null, 8], ['918800122334', 'Purchase', 4999, 52],
+  ['919900112233', 'LeadSubmitted', null, 1], ['919900112233', 'Purchase', 1899, 30],
+  ['919845671234', 'LeadSubmitted', null, 2],
+  ['919811223344', 'LeadSubmitted', null, 1], ['919811223344', 'QualifiedLead', null, 6],
 ]
 
 /** `seed: false` = an empty in-memory store (the dev server uses it with real Meta credentials, where fake leads would mislead). */
@@ -138,6 +151,12 @@ export function createSampleStore(now: () => number = Date.now, seed = true): Ct
       waMessageId: `sample_wamid_${i + 1}`, phoneNumberId: null, createdAt: new Date(now() - ago * DAY - (i % 7) * 3600_000).toISOString(), adName: s.name, events: [],
     }
   })
+  if (seed) {
+    for (const [wa, eventName, value, hours] of EVENTS) {
+      const l = leads.find((x) => x.waId === wa)
+      if (l) l.events.push({ eventName, value, currency: value === null ? null : 'INR', status: 'simulated', error: null, at: new Date(Math.min(Date.parse(l.createdAt) + hours * 3600_000, now())).toISOString() })
+    }
+  }
   return {
     names,
     async saveReferral(r: Referral) {
@@ -145,7 +164,19 @@ export function createSampleStore(now: () => number = Date.now, seed = true): Ct
       leads.unshift({ ...r, id: `sample_lead_new_${leads.length + 1}`, adName: r.sourceId ? names.get(r.sourceId) ?? null : null, events: [] })
       return true
     },
-    async listLeads(limit) { return [...leads].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit) },
+    async listLeads(limit, sourceId) { return leads.filter((l) => !sourceId || l.sourceId === sourceId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit) },
+    async statsBySource(range) {
+      const out: Record<string, LeadStats> = {}
+      for (const l of leads) {
+        const t = Date.parse(l.createdAt) / 1000
+        if (!l.sourceId || t < range.start || t > range.end + 1) continue          // +1s: a lead from this very second still counts
+        const s = (out[l.sourceId] ??= { leads: 0, qualified: 0, purchases: 0, revenue: 0 })
+        s.leads++
+        if (l.events.some((e) => e.eventName === 'QualifiedLead' && e.status !== 'failed')) s.qualified++
+        for (const e of l.events) if (e.eventName === 'Purchase' && e.status !== 'failed') { s.purchases++; s.revenue += e.value ?? 0 }
+      }
+      return out
+    },
     async latestForWaId(waId) { return [...leads].filter((l) => l.waId === waId).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null },
     async logEvent(waId, clid, e: LeadEvent) {
       const l = leads.find((x) => x.waId === waId && (clid === null || x.ctwaClid === clid))

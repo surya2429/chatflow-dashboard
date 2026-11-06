@@ -187,17 +187,28 @@ const leads: any = await call('GET', '/leads')
 assert.equal(leads.status, 200); assert.ok(leads.body.leads.length >= 10); assert.equal(leads.body.capiLive, false)
 assert.equal(((await call('GET', '/lead', {}, { waId: '+91 98765 43210' })) as any).body.lead.contactName, 'Priya Sharma')
 assert.equal(((await call('GET', '/lead', {}, { waId: '919000000000' })) as any).body.lead, null)
-const ev: any = await call('POST', '/events', { waId: '919876543210', eventName: 'QualifiedLead' })
+const ev: any = await call('POST', '/events', { waId: '919555667788', eventName: 'QualifiedLead' })
 assert.equal(ev.status, 200); assert.equal(ev.body.status, 'simulated')
-assert.equal((await call('POST', '/events', { waId: '919876543210', eventName: 'QualifiedLead' })).status, 409)      // once per lead
-assert.equal((await call('POST', '/events', { waId: '919876543210', eventName: 'Purchase' })).status, 400)          // a purchase needs a value
-assert.equal((await call('POST', '/events', { waId: '919876543210', eventName: 'Purchase', value: 4999, currency: 'INR' })).status, 200)
-assert.equal((await call('POST', '/events', { waId: '919876543210', eventName: 'Purchase', value: 100, currency: 'INR' })).status, 200)   // purchases can repeat
+assert.equal((await call('POST', '/events', { waId: '919555667788', eventName: 'QualifiedLead' })).status, 409)      // once per lead
+assert.equal((await call('POST', '/events', { waId: '919555667788', eventName: 'Purchase' })).status, 400)          // a purchase needs a value
+assert.equal((await call('POST', '/events', { waId: '919555667788', eventName: 'Purchase', value: 4999, currency: 'INR' })).status, 200)
+assert.equal((await call('POST', '/events', { waId: '919555667788', eventName: 'Purchase', value: 100, currency: 'INR' })).status, 200)   // purchases can repeat
 assert.equal((await call('POST', '/events', { waId: '919000000000', eventName: 'LeadSubmitted' })).status, 404)    // not from an ad
-assert.equal((await call('POST', '/events', { waId: '919876543210', eventName: 'Nope' })).status, 400)
-const after2: any = await call('GET', '/lead', {}, { waId: '919876543210' })
+assert.equal((await call('POST', '/events', { waId: '919555667788', eventName: 'Nope' })).status, 400)
+const after2: any = await call('GET', '/lead', {}, { waId: '919555667788' })
 assert.deepEqual(after2.body.lead.events.map((e: any) => e.eventName), ['QualifiedLead', 'Purchase', 'Purchase'])
 assert.equal(((await call('GET', '/nothing')) as any).status, 404)
+
+// per-ad view: leads of one ad, and the numbers that go beside each ad in the table
+const byAd: any = await call('GET', '/leads', {}, { adId: 'sample_ad_1' })
+assert.ok(byAd.body.leads.length >= 3 && byAd.body.leads.every((l: any) => l.sourceId === 'sample_ad_1'))
+assert.equal(((await call('GET', '/leads', {}, { adId: '../x' })) as any).status, 400)
+const dash2: any = await call('GET', '/dashboard')
+const st = dash2.body.leadStats
+assert.equal(Object.values(st).reduce((n: number, s: any) => n + s.leads, 0), leads.body.leads.length)          // every lead belongs to an ad
+assert.ok(st.sample_ad_1.leads === byAd.body.leads.length && st.sample_ad_1.qualified >= 1)
+assert.ok(st.sample_ad_4.purchases >= 1 && st.sample_ad_4.revenue >= 2499)
+assert.deepEqual(await createSampleStore(() => Date.parse('2026-11-05T12:00:00Z')).statsBySource({ start: 0, end: 1 }), {})        // outside the range: nothing
 
 /* ── Conversions API ────────────────────────────────────────────────────────────────────────────────────── */
 const body = buildCapiBody({ wabaId: 'W1', partnerAgent: 'acme' }, 'CLID', validateEvent({ eventName: 'Purchase', value: '499.5', currency: 'inr' }), 1_700_000_000)
@@ -216,6 +227,6 @@ assert.deepEqual(capiCalls.map((c) => `${c.method} ${c.url.pathname.replace('/v2
 // live mode without a WhatsApp Business Account id refuses to pretend an event was sent
 const liveNoCapi = createCtwa({ version: 'v20.0', adAccountId: '5', pageId: '7', adsToken: 'x'.repeat(30) }, createSampleStore(Date.now, true))
 assert.equal(liveNoCapi.ads.mode, 'live'); assert.equal(liveNoCapi.capi, null)
-assert.equal((await handleCtwaRequest({ method: 'POST', path: '/events', query: {}, body: { waId: '919876543210', eventName: 'LeadSubmitted' } }, liveNoCapi)).status, 503)
+assert.equal((await handleCtwaRequest({ method: 'POST', path: '/events', query: {}, body: { waId: '919123456780', eventName: 'LeadSubmitted' } }, liveNoCapi)).status, 503)
 
 console.log('ctwa ok')

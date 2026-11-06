@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { money, num } from '../../lib/ctwaApi'
 import { ExportMenu } from '../ai/AiData'
 import EventDialog, { eventLabel } from './EventDialog'
+import LeadDetail from './LeadDetail'
 import { Card, Stat, inputCls } from './ui'
 
 const when = (iso) => new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -27,6 +28,7 @@ export default function Leads({ leads, ads, currency, mode, capiLive, reload, no
   const [q, setQ] = useState('')
   const [adFilter, setAdFilter] = useState('all')
   const [dialog, setDialog] = useState(null)       // { lead, initial }
+  const [openId, setOpenId] = useState(null)         // the lead whose full story is open
 
   const adName = useMemo(() => Object.fromEntries(ads.map((a) => [a.id, a.name])), [ads])
   const rows = useMemo(() => leads.map((l) => ({ ...l, adName: l.adName || adName[l.sourceId] || null })), [leads, adName])
@@ -80,12 +82,13 @@ export default function Leads({ leads, ads, currency, mode, capiLive, reload, no
             </thead>
             <tbody>
               {shown.map((l) => (
-                <tr key={l.id} className="border-b border-surface-border/70 hover:bg-slate-50/60 align-top">
+                <tr key={l.id} onClick={() => setOpenId(l.id)} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && setOpenId(l.id)} aria-label={`Open ${l.contactName || l.waId}`}
+                  className="border-b border-surface-border/70 hover:bg-slate-50 cursor-pointer align-top focus:outline-none focus:bg-slate-50">
                   <td className="px-4 py-3 whitespace-nowrap"><p className="font-semibold text-slate-800">{l.contactName || 'Unknown'}</p><p className="text-[10.5px] text-slate-400">+{l.waId}</p></td>
                   <td className="px-4 py-3 max-w-[280px]"><p className="font-semibold text-slate-700 truncate">{l.adName || l.headline || '—'}</p>{l.adName && l.headline && <p className="text-[10.5px] text-slate-400 truncate">{l.headline}</p>}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-slate-600">{when(l.createdAt)}</td>
                   <td className="px-4 py-3"><EventChips events={l.events} /></td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right">
+                  <td className="px-4 py-3 whitespace-nowrap text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="inline-flex items-center gap-1.5">
                       {!has(l, 'QualifiedLead') && <button onClick={() => setDialog({ lead: l, initial: 'QualifiedLead' })} className="px-2.5 py-1 rounded-lg border border-surface-border text-[11px] font-semibold text-slate-600 hover:border-primary hover:text-primary">Qualified</button>}
                       <button onClick={() => setDialog({ lead: l, initial: 'Purchase' })} className="px-2.5 py-1 rounded-lg border border-surface-border text-[11px] font-semibold text-slate-600 hover:border-primary hover:text-primary">Purchase</button>
@@ -100,6 +103,7 @@ export default function Leads({ leads, ads, currency, mode, capiLive, reload, no
         </div>
       </Card>
 
+      {rows.find((l) => l.id === openId) && <LeadDetail lead={rows.find((l) => l.id === openId)} currency={currency} mode={mode} capiLive={capiLive} onClose={() => setOpenId(null)} onChanged={reload} notify={notify} />}
       {dialog && <EventDialog lead={dialog.lead} initial={dialog.initial} currency={currency} onClose={() => setDialog(null)} onSent={sent} />}
     </div>
   )

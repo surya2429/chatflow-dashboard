@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Loader2 } from 'lucide-react'
+import { Loader2, X } from 'lucide-react'
 import { STATUS_STYLE, statusLabel } from '../../lib/ctwaApi'
 
 export const inputCls = 'w-full rounded-lg border border-surface-border bg-white px-3 py-2 text-xs text-slate-800 outline-none focus:border-primary placeholder:text-slate-400 disabled:bg-slate-50 disabled:text-slate-400'
@@ -69,4 +71,26 @@ export function Banner({ tone = 'info', children, action }) {
       {action}
     </div>
   )
+}
+
+/** A panel that slides in from the right over the page (Escape or a click outside closes it). */
+const openDrawers = []                              // drawers can stack (an ad's page over the list, a lead over the ad): Escape closes only the top one
+export function Drawer({ title, sub, onClose, width = 'max-w-[600px]', z = 'z-[60]', children }) {
+  useEffect(() => {
+    const me = {}
+    openDrawers.push(me)
+    const esc = (e) => { if (e.key === 'Escape' && openDrawers[openDrawers.length - 1] === me) onClose() }
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('keydown', esc); openDrawers.splice(openDrawers.indexOf(me), 1) }
+  }, [onClose])
+  return createPortal(
+    <div className={clsx('fixed inset-0 bg-slate-900/30 flex justify-end', z)} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <aside role="dialog" aria-label={typeof title === 'string' ? title : 'Details'} className={clsx('w-full h-full bg-slate-50 shadow-modal flex flex-col animate-fade-in', width)}>
+        <header className="flex items-start gap-3 px-5 py-4 bg-white border-b border-surface-border flex-shrink-0">
+          <div className="flex-1 min-w-0">{title}{sub && <div className="mt-0.5">{sub}</div>}</div>
+          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"><X size={16} /></button>
+        </header>
+        <div className="flex-1 overflow-y-auto">{children}</div>
+      </aside>
+    </div>, document.body)
 }
