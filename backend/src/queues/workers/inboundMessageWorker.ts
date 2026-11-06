@@ -23,7 +23,8 @@ import type { InboundMessageJob } from '../jobTypes.js'
  *   4. Open or extend the 24h service window, tagging it with the
  *      resolved campaign if this is the message that opened it.
  *   5. Persist the inbound message row.
- *   6. Bump `campaigns.replied_count` if attributed.
+ *   6. Bump `campaigns.replied_count` the first time this person replies to the campaign (button taps arrive
+ *      here too, as type `button`, and are stored with their campaign for the engagement report).
  *   7. Hand off to `conversationRouter` (bot flow / agent desk) — kept as
  *      a narrow interface here deliberately; this worker owns ingestion,
  *      not conversational logic.
@@ -45,10 +46,13 @@ export function startInboundMessageWorker(): Worker<InboundMessageJob> {
         }
       }
 
-      const { campaignId, originMessageId } = await attributionService.resolveCampaignId({
+      const { campaignId, originMessageId, via } = await attributionService.resolveCampaignId({
         contextMessageId,
-        bizOpaqueCallbackData: undefined, // inbound webhook payloads don't carry the outbound callback token directly; context.id is the primary signal
+        contactId: contact.id,
+        bizOpaqueCallbackData: undefined, // inbound webhook payloads don't carry the outbound callback token directly; context.id (or recency) decides
       })
+      // Replies are counted once per person per campaign: read this before the reply is stored.
+      const firstReply = campaignId ? !(await messageRepository.hasInboundForCampaign(contact.id, campaignId)) : false
 
       const conversation = await sessionService.openFromInboundMessage({
         contactId: contact.id,
@@ -65,6 +69,7 @@ export function startInboundMessageWorker(): Worker<InboundMessageJob> {
         messageType: type,
         payload: job.data.raw,
         contextMessageId,
+        campaignId: campaignId ?? undefined,
       })
 
       if (!message) {
@@ -73,7 +78,7 @@ export function startInboundMessageWorker(): Worker<InboundMessageJob> {
         return { duplicate: true }
       }
 
-      if (campaignId) {
+      if (campaignId && firstReply) {
         await campaignRepository.incrementCounter(campaignId, 'replied_count')
       }
 
@@ -90,7 +95,7 @@ export function startInboundMessageWorker(): Worker<InboundMessageJob> {
       })
 
       await webhookEventRepository.markProcessed(waMessageId)
-      log.info({ campaignId, conversationId: conversation.id }, 'Inbound message processed')
+      log.info({ campaignId, via, type, conversationId: conversation.id }, 'Inbound message processed')
       return { processed: true }
     },
     { connection: redis, concurrency: 20 },

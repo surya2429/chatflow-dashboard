@@ -2,7 +2,8 @@ import type { Request, Response } from 'express'
 import { env } from '../config/env.js'
 import { logger } from '../config/logger.js'
 import { verifyWebhookSignature } from './signature.js'
-import { WebhookPayloadSchema, type WebhookMessage, type WebhookStatus } from './webhookTypes.js'
+import { WebhookPayloadSchema, type WebhookMessage, type WebhookStatus, type WebhookUserAction } from './webhookTypes.js'
+import { clickRepository } from '../db/repositories/clickRepository.js'
 import { claimEventOnce } from '../services/dedupeService.js'
 import { statusUpdateQueue, inboundMessageQueue } from '../queues/queues.js'
 import { webhookEventRepository } from '../db/repositories/webhookEventRepository.js'
@@ -83,6 +84,10 @@ async function processPayload(body: unknown): Promise<void> {
       for (const message of value.messages ?? []) {
         await enqueueInboundMessage(message, phoneNumberId, profileByWaId.get(message.from))
       }
+
+      for (const action of value.user_actions ?? []) {
+        await recordLinkClick(action, phoneNumberId)
+      }
     }
   }
 }
@@ -105,6 +110,7 @@ async function enqueueStatusUpdate(status: WebhookStatus, phoneNumberId: string)
     recipientId: status.recipient_id,
     bizOpaqueCallbackData: status.biz_opaque_callback_data,
     errors: status.errors,
+    pricingCategory: status.pricing?.category,
     phoneNumberId,
   }
   await statusUpdateQueue.add('status-update', job, { jobId: `status:${status.id}:${status.status}` })
@@ -147,4 +153,32 @@ async function enqueueInboundMessage(
     raw: message as unknown as Record<string, unknown>,
   }
   await inboundMessageQueue.add('inbound-message', job, { jobId: `message:${message.id}` })
+}
+
+/**
+ * Meta's `marketing_messages_link_click` event (Marketing Messages API; limited availability, only for messages sent in
+ * the last 7 days). It names no recipient and no message, so it is tied to a campaign only when one campaign is the
+ * unambiguous candidate for that phone number; our own tracked link (GET /r/:token) is what gives exact per-contact clicks.
+ * The same click_id is appended to the URL the person opens, which is how the two reports of one click are merged.
+ */
+async function recordLinkClick(action: WebhookUserAction, phoneNumberId: string): Promise<void> {
+  if (action.action_type !== 'marketing_messages_link_click') return
+  const d = action.marketing_messages_link_click_data ?? {}
+  const clickId = d.click_id ?? null
+  const seconds = Number(action.timestamp)
+  const occurredAt = Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000) : new Date()
+  const key = `click:${clickId ?? `${phoneNumberId}:${seconds}:${d.tracking_token ?? ''}:${d.product_id ?? ''}`}`
+  if (!(await claimEventOnce(key))) return
+
+  void webhookEventRepository.log('other', clickId ?? key, action).catch((err: unknown) => {
+    logger.error({ err }, 'Failed to write webhook_events audit row (non-fatal)')
+  })
+  try {
+    await clickRepository.record({
+      campaignId: await clickRepository.campaignForWebhookClick(phoneNumberId), messageId: null, contactId: null,
+      phoneNumberId, source: 'webhook', clickId, clickComponent: d.click_component, productId: d.product_id, trackingToken: d.tracking_token, occurredAt,
+    })
+  } catch (err) {
+    logger.error({ err }, 'Failed to store link click (non-fatal)')
+  }
 }

@@ -98,8 +98,12 @@ descriptions. The ones that come from Meta specifically:
    eligible country, an approved **marketing** template and a subscription to
    the `messages` webhook. Existing phone numbers and templates keep working;
    billing is unchanged. Marketing sends go to `POST /{phone_number_id}/marketing_messages`
-   (`marketingMessagesClient`); until the account is onboarded the endpoint
-   returns a `WhatsAppApiError`.
+   (`marketingMessagesClient`). The API is **send-only** and templates-only. By default
+   (`product_policy: CLOUD_API_FALLBACK`) a send from an account that is not onboarded yet is
+   delivered through Cloud API instead of failing; the delivery status then reports
+   `pricing.category = marketing` (not `marketing_lite`) and the message's `channel` is corrected to
+   `cloud_api`, so you can see which accounts still need onboarding (`sentViaCloudApi` in the
+   engagement report). Set `MM_PRODUCT_POLICY=STRICT` to fail instead.
 
    Once fully onboarded and verified, you can ask Meta's API to reject marketing
    templates on Cloud API (`disable_marketing_messages_on_cloud_api`), after which a
@@ -201,3 +205,31 @@ creation in the platform behind one counter row.
   `MarketingMessagesClient` already accept a `phoneNumberId`/`accessToken` override in
   their constructor — thread the tenant's number through campaign/job data
   instead of relying on the single `env.WA_PHONE_NUMBER_ID` default.
+
+## Replies, button taps and link clicks (Marketing Messages API)
+
+The Marketing Messages API only **sends**. Everything the customer does afterwards comes back on the normal webhook
+for the same phone number, or through a link we control:
+
+| What happened | How we see it | Where it is counted |
+|---|---|---|
+| Delivered / read | status webhook (`pricing.category = marketing_lite`) | `campaigns.delivered_count`, `read_count` |
+| Replied by tapping a quick-reply button, or by replying to the message | `messages` webhook, `context.id` = the campaign message | `replied_count` (once per person), inbound row keeps its `campaign_id`; button taps = `message_type = 'button'` |
+| Replied by just typing | `messages` webhook with no context: attributed to the contact's latest marketing message in the last 72 h (`REPLY_ATTRIBUTION_HOURS`) | same |
+| Tapped a link button | **our tracked link** (exact, see below) and/or Meta's `marketing_messages_link_click` event | `campaign_link_clicks` |
+
+**Tracked link (exact per-contact clicks).** Meta's click event carries no recipient or message id, and is in limited
+availability. For exact clicks, make the template's URL button dynamic: `https://<api-host>/r/{{1}}`, and set the
+campaign's `metadata` to `{"trackedLink": {"buttonIndex": 0, "destination": "https://shop.example.com/offer"}}`.
+The marketing worker fills `{{1}}` with a signed token for that message; `GET /r/:token` records the click against the
+message, campaign and contact, then redirects to `destination` keeping every query parameter Meta added (its `click_id`
+must reach the destination). The destination comes only from the campaign settings, never from the request.
+
+**Meta's click event.** Subscribe the app to the `messages` field (already done for statuses). A click event is stored
+and tied to a campaign only when exactly one campaign was sent from that number in the last 7 days. When the same
+`click_id` also reaches `/r/:token`, the two reports are merged into one row, never counted twice.
+
+**Reading the results:** `GET /api/whatsapp/campaigns/:id/engagement` returns sent / delivered / read / failed, people who replied,
+reply messages, button taps, link clicks, unique clickers, rates, and how many messages went through the Marketing
+Messages API versus Cloud API. Aggregate figures also exist in Meta's Insights API (`marketing_messages_link_btn_click`
+etc., needs `ads_read`); they are not pulled in here.

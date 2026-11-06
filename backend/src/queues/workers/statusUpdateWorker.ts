@@ -27,7 +27,7 @@ export function startStatusUpdateWorker(): Worker<StatusUpdateJob> {
   const worker = new Worker<StatusUpdateJob>(
     'status-update',
     async (job: Job<StatusUpdateJob>) => {
-      const { waMessageId, status, errors } = job.data
+      const { waMessageId, status, errors, pricingCategory } = job.data
       const log = logger.child({ queue: 'status-update', jobId: job.id, waMessageId, status })
 
       // Replies sent from the agent inbox are sent by agent-api, so they're
@@ -43,11 +43,23 @@ export function startStatusUpdateWorker(): Worker<StatusUpdateJob> {
       )
 
       if (!message) {
-        // Status arrived before our own send-confirmation write landed (rare race under load),
-        // or for a message id we never sent (e.g. another integration on the same number).
+        // Status arrived before our own send-confirmation write landed (a real race now that the Marketing Messages API
+        // answers fast): retry a few times with backoff instead of losing the receipt. After that it is a message id
+        // we never sent (e.g. another integration on the same number).
+        if (job.attemptsMade < 3) throw new Error(`Status for ${waMessageId} arrived before the message was stored — retrying`)
         log.warn('Received status update for unknown wa_message_id — nothing to update')
         await webhookEventRepository.markProcessed(waMessageId, 'unknown_message_id')
         return { skipped: true }
+      }
+
+      // Which API really carried a marketing message: Meta prices Marketing Messages API sends as `marketing_lite`.
+      // With the default product_policy (CLOUD_API_FALLBACK) an account that is not onboarded is sent through Cloud API instead.
+      if (message.category === 'marketing' && pricingCategory) {
+        const channel = pricingCategory === 'marketing_lite' ? 'mm_api' : 'cloud_api'
+        if (channel !== message.channel) {
+          await messageRepository.updateChannel(waMessageId, channel)
+          if (channel === 'cloud_api') log.warn('Marketing message went through Cloud API (fallback): the account may not be onboarded to the Marketing Messages API')
+        }
       }
 
       if (message.campaign_id) {

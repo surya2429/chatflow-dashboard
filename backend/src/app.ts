@@ -12,6 +12,7 @@ import { leadsRouter } from './routes/leads.routes.js'
 import { aiRouter } from './routes/ai.routes.js'
 import { ctwaRouter } from './routes/ctwa.routes.js'
 import { catalogRouter } from './routes/catalog.routes.js'
+import { marketingTrackingRouter } from './routes/marketingTracking.routes.js'
 
 export function createApp(): Express {
   const app = express()
@@ -63,6 +64,7 @@ export function createApp(): Express {
   app.use('/api', aiRouter)
   app.use('/api', ctwaRouter)
   app.use('/api', catalogRouter)
+  app.use(marketingTrackingRouter)
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path })

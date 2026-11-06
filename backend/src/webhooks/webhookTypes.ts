@@ -25,6 +25,7 @@ const StatusSchema = z.object({
   recipient_id: z.string(),
   biz_opaque_callback_data: z.string().optional(),
   errors: z.array(StatusErrorSchema).optional(),
+  pricing: z.object({ category: z.string().optional() }).optional(),
 })
 
 const MessageContextSchema = z.object({
@@ -44,12 +45,27 @@ const MessageSchema = z.object({
   referral: z.record(z.string(), z.unknown()).optional(),
 })
 
+// Marketing Messages API: someone opened a link in a marketing message. No recipient and no message id are given.
+const UserActionSchema = z.object({
+  action_type: z.string(),
+  timestamp: z.union([z.string(), z.number()]),
+  marketing_messages_link_click_data: z
+    .object({
+      click_component: z.string().optional(),
+      product_id: z.string().optional(),
+      click_id: z.string().optional(),
+      tracking_token: z.string().optional(),
+    })
+    .optional(),
+})
+
 const ValueSchema = z.object({
   messaging_product: z.literal('whatsapp'),
   metadata: z.object({ phone_number_id: z.string() }),
   contacts: z.array(ContactSchema).optional(),
   messages: z.array(MessageSchema).optional(),
   statuses: z.array(StatusSchema).optional(),
+  user_actions: z.array(UserActionSchema).optional(),
 })
 
 const ChangeSchema = z.object({
@@ -70,3 +86,4 @@ export const WebhookPayloadSchema = z.object({
 export type WebhookPayload = z.infer<typeof WebhookPayloadSchema>
 export type WebhookMessage = z.infer<typeof MessageSchema>
 export type WebhookStatus = z.infer<typeof StatusSchema>
+export type WebhookUserAction = z.infer<typeof UserActionSchema>

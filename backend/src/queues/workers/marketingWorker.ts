@@ -9,6 +9,18 @@ import { campaignRepository } from '../../db/repositories/campaignRepository.js'
 import { contactRepository } from '../../db/repositories/contactRepository.js'
 import type { MarketingSendJob } from '../jobTypes.js'
 import { randomUUID } from 'node:crypto'
+import { readTrackedLink, signLinkToken, withTrackedLink, type TrackedLinkConfig } from '../../marketing/trackedLink.js'
+
+// A campaign's link settings are read once a minute, not once per message.
+const linkCache = new Map<string, { cfg: TrackedLinkConfig | null; at: number }>()
+async function trackedLinkOf(campaignId: string): Promise<TrackedLinkConfig | null> {
+  const hit = linkCache.get(campaignId)
+  if (hit && Date.now() - hit.at < 60_000) return hit.cfg
+  const cfg = readTrackedLink((await campaignRepository.findById(campaignId))?.metadata)
+  if (linkCache.size > 500) linkCache.clear()
+  linkCache.set(campaignId, { cfg, at: Date.now() })
+  return cfg
+}
 
 /**
  * Consumes `marketing-send` jobs and dispatches through the Marketing Messages API for WhatsApp.
@@ -41,9 +53,16 @@ export function startMarketingWorker(): Worker<MarketingSendJob> {
       const callback: CallbackToken = { messageId: internalMessageId, campaignId }
 
       try {
-        const result = await marketingMessagesClient.sendMarketingTemplate({ to: waId, template, callback })
+        // A campaign with a tracked link puts this message's signed token into the template's dynamic URL button,
+        // so a tap on it tells us exactly who clicked (GET /r/:token).
+        const link = await trackedLinkOf(campaignId)
+        const sendable = link
+          ? { ...template, components: withTrackedLink(template.components, link, signLinkToken(internalMessageId, env.WA_APP_SECRET)) }
+          : template
+        const result = await marketingMessagesClient.sendMarketingTemplate({ to: waId, template: sendable, callback })
 
         await messageRepository.createOutbound({
+          id: internalMessageId,
           waMessageId: result.waMessageId,
           channel: 'mm_api',
           category: 'marketing',

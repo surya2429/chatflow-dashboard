@@ -1,5 +1,6 @@
 import { BaseWhatsAppClient } from './baseClient.js'
-import { encodeCallbackToken, type SendResult, type SendTemplateRequest } from './types.js'
+import { env } from '../config/env.js'
+import type { SendResult, SendTemplateRequest } from './types.js'
 
 /**
  * Marketing Messages API for WhatsApp — `POST /{phone_number_id}/marketing_messages`.
@@ -13,6 +14,11 @@ import { encodeCallbackToken, type SendResult, type SendTemplateRequest } from '
  * (see `MARKETING_QUEUE_RATE_PER_SECOND`) to stay under Meta's limits and fail gracefully
  * rather than relying solely on their backpressure.
  *
+ * Replies and button taps are NOT sent back on this API: it is send-only. They arrive on the normal Cloud API webhook
+ * for the same phone number (see attributionService); link clicks come from our tracked link or Meta's click webhook.
+ * `product_policy` defaults to CLOUD_API_FALLBACK on Meta's side: an account that is not onboarded is sent through
+ * Cloud API instead of failing, and the status webhook (pricing.category) shows which happened.
+ *
  * Only pre-approved marketing templates are accepted — no freeform text/interactive sends.
  * That restriction is in the type (templates only), so misuse is a compile error, not a 400.
  */
@@ -24,7 +30,10 @@ export class MarketingMessagesClient extends BaseWhatsAppClient {
       to: req.to,
       type: 'template',
       template: req.template,
-      biz_opaque_callback_data: encodeCallbackToken(req.callback),
+      // biz_opaque_callback_data is not a documented field of this endpoint, so it is not sent: status webhooks are
+      // matched to our rows by the message id in the send response, and replies by context.id.
+      ...(env.MM_PRODUCT_POLICY ? { product_policy: env.MM_PRODUCT_POLICY } : {}),
+      ...(env.MM_ACTIVITY_SHARING !== undefined ? { message_activity_sharing: env.MM_ACTIVITY_SHARING } : {}),
     })
   }
 }

@@ -25,6 +25,10 @@ const EnvSchema = z.object({
 
   MARKETING_QUEUE_CONCURRENCY: z.coerce.number().int().positive().default(5),
   MARKETING_QUEUE_RATE_PER_SECOND: z.coerce.number().int().positive().default(20),
+  // Marketing Messages API: STRICT = never fall back to Cloud API when the account is not onboarded (Meta's default is CLOUD_API_FALLBACK).
+  MM_PRODUCT_POLICY: z.enum(['CLOUD_API_FALLBACK', 'STRICT']).optional(),
+  // Per-message override of whether Meta may use message activity (reads, replies, clicks) for optimisation and measurement; unset = the account's setting.
+  MM_ACTIVITY_SHARING: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
   PRIORITY_QUEUE_CONCURRENCY: z.coerce.number().int().positive().default(20),
 
   SERVICE_WINDOW_HOURS: z.coerce.number().int().positive().default(24),

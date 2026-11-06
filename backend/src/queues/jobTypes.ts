@@ -29,6 +29,8 @@ export interface StatusUpdateJob {
   recipientId: string
   bizOpaqueCallbackData?: string | undefined
   errors?: Array<{ code: number; title: string; message?: string }> | undefined
+  /** Meta's pricing category for this message: `marketing_lite` = sent through the Marketing Messages API, `marketing` = Cloud API. */
+  pricingCategory?: string | undefined
   phoneNumberId: string
 }
 

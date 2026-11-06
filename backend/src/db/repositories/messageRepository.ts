@@ -26,6 +26,8 @@ export interface Message {
 }
 
 export interface CreateOutboundMessageInput {
+  /** Pre-generated so a tracked link can carry it before Meta has answered; the database makes one when omitted. */
+  id?: string | undefined
   waMessageId: string
   channel: MessageChannel
   category: MessageCategory
@@ -47,6 +49,8 @@ export interface CreateInboundMessageInput {
   messageType: string
   payload: Record<string, unknown>
   contextMessageId?: string | undefined
+  /** The marketing campaign this reply belongs to, when attribution found one. */
+  campaignId?: string | undefined
 }
 
 export const messageRepository = {
@@ -54,13 +58,13 @@ export const messageRepository = {
     const rows = await query<Message>(
       `INSERT INTO messages
          (wa_message_id, direction, channel, category, contact_id, campaign_id, conversation_id,
-          phone_number_id, status, message_type, template_name, payload, biz_opaque_callback_data)
-       VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, 'sent', $8, $9, $10, $11)
+          phone_number_id, status, message_type, template_name, payload, biz_opaque_callback_data, id)
+       VALUES ($1, 'outbound', $2, $3, $4, $5, $6, $7, 'sent', $8, $9, $10, $11, COALESCE($12::uuid, uuid_generate_v4()))
        RETURNING *`,
       [
         input.waMessageId, input.channel, input.category, input.contactId, input.campaignId ?? null,
         input.conversationId ?? null, input.phoneNumberId, input.messageType, input.templateName ?? null,
-        JSON.stringify(input.payload), input.bizOpaqueCallbackData,
+        JSON.stringify(input.payload), input.bizOpaqueCallbackData, input.id ?? null,
       ],
     )
     const message = rows[0]
@@ -74,13 +78,13 @@ export const messageRepository = {
     const rows = await query<Message>(
       `INSERT INTO messages
          (wa_message_id, direction, channel, category, contact_id, conversation_id,
-          phone_number_id, status, message_type, payload, context_message_id)
-       VALUES ($1, 'inbound', 'cloud_api', 'service', $2, $3, $4, 'delivered', $5, $6, $7)
+          phone_number_id, status, message_type, payload, context_message_id, campaign_id)
+       VALUES ($1, 'inbound', 'cloud_api', 'service', $2, $3, $4, 'delivered', $5, $6, $7, $8)
        ON CONFLICT (wa_message_id) DO NOTHING
        RETURNING *`,
       [
         input.waMessageId, input.contactId, input.conversationId, input.phoneNumberId,
-        input.messageType, JSON.stringify(input.payload), input.contextMessageId ?? null,
+        input.messageType, JSON.stringify(input.payload), input.contextMessageId ?? null, input.campaignId ?? null,
       ],
     )
     // ON CONFLICT DO NOTHING returns no row on a duplicate — caller (InboundMessageWorker)
@@ -91,6 +95,37 @@ export const messageRepository = {
   async findByWaMessageId(waMessageId: string): Promise<Message | null> {
     const rows = await query<Message>('SELECT * FROM messages WHERE wa_message_id = $1', [waMessageId])
     return rows[0] ?? null
+  },
+
+  async findById(id: string): Promise<Message | null> {
+    const rows = await query<Message>('SELECT * FROM messages WHERE id = $1', [id])
+    return rows[0] ?? null
+  },
+
+  /** The latest marketing message sent to this contact in the last `hours` — used to attribute a reply that quotes nothing. */
+  async findLatestMarketingToContact(contactId: string, hours: number): Promise<Message | null> {
+    const rows = await query<Message>(
+      `SELECT * FROM messages
+       WHERE contact_id = $1 AND direction = 'outbound' AND category = 'marketing' AND campaign_id IS NOT NULL
+         AND created_at > now() - make_interval(hours => $2)
+       ORDER BY created_at DESC LIMIT 1`,
+      [contactId, hours],
+    )
+    return rows[0] ?? null
+  },
+
+  /** Has this contact already replied to the campaign? (replies are counted once per person) */
+  async hasInboundForCampaign(contactId: string, campaignId: string): Promise<boolean> {
+    const rows = await query<{ one: number }>(
+      `SELECT 1 AS one FROM messages WHERE contact_id = $1 AND campaign_id = $2 AND direction = 'inbound' LIMIT 1`,
+      [contactId, campaignId],
+    )
+    return rows.length > 0
+  },
+
+  /** Which API actually carried a marketing message (Meta's status webhook tells: pricing category marketing_lite = MM API). */
+  async updateChannel(waMessageId: string, channel: MessageChannel): Promise<void> {
+    await query('UPDATE messages SET channel = $2 WHERE wa_message_id = $1 AND channel <> $2', [waMessageId, channel])
   },
 
   async updateStatus(
