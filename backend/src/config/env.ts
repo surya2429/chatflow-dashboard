@@ -96,6 +96,8 @@ const EnvSchema = z.object({
   META_CAPI_DATASET_ID: z.string().regex(/^\d+$/).optional(),
   // The partner name Meta assigned you for Conversions API events, if any.
   CTWA_PARTNER_AGENT: z.string().min(1).optional(),
+  // Facebook catalog (Meta Commerce): fix one catalog in the server settings instead of connecting Facebook. Uses WA_ACCESS_TOKEN.
+  META_CATALOG_ID: z.string().regex(/^\d+$/).optional(),
 })
 
 export type Env = z.infer<typeof EnvSchema>

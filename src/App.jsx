@@ -32,6 +32,7 @@ import Clientele from './pages/Clientele'
 import WebChat from './pages/WebChat'
 import WebChatAppearance from './pages/WebChatAppearance'
 import Shopify from './pages/Shopify'
+import FacebookCatalog from './pages/FacebookCatalog'
 import InstagramAutomations from './pages/InstagramAutomations'
 import InstagramAnalytics from './pages/InstagramAnalytics'
 import InstagramInbox from './pages/InstagramInbox'
@@ -133,6 +134,7 @@ function AppRoutes() {
                       <Route path="webchat/contacts" element={<WebChatContacts />} />
                       <Route path="webchat/analytics" element={<WebChatAnalytics />} />
                       <Route path="shopify" element={<Shopify />} />
+                      <Route path="facebook-catalog" element={<FacebookCatalog />} />
                       <Route path="instagram" element={<InstagramAnalytics />} />
                       <Route path="instagram/inbox" element={<InstagramInbox />} />
                       <Route path="instagram/contacts" element={<InstagramContacts />} />

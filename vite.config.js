@@ -14,6 +14,7 @@ import { messageLinkResponse } from './backend/src/whatsapp/messageLinks.ts'
 import { createRateLimiter, handleLeadRequest } from './backend/src/leads/poweredByLead.ts'
 import { handleAiRequest } from './backend/src/ai/aiAssistant.ts'
 import { createRuntime } from './backend/src/ctwa/runtime.ts'
+import { createCatalogRuntime } from './backend/src/catalog/runtime.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -447,9 +448,47 @@ function devCtwaApi(env) {
   }
 }
 
+/**
+ * Dev stand-in for backend/src/routes/catalog.routes.ts: the Facebook / WhatsApp catalog. It reuses the Facebook connection
+ * made in the Click-to-WhatsApp section (.dev-ctwa-connection.json), else an editable sample catalog.
+ */
+function devCatalogApi(env) {
+  const file = join(__dirname, '.dev-ctwa-connection.json')
+  const read = () => (existsSync(file) ? JSON.parse(readFileSync(file, 'utf8') || '{}') : {})
+  const connections = { load: async (ws) => read()[ws] ?? null, save: async () => {}, remove: async () => {} }
+  const version = env.WA_GRAPH_API_VERSION || 'v20.0'
+  const runtime = createCatalogRuntime({
+    env: { version, token: env.WA_ACCESS_TOKEN, wabaId: env.WA_BUSINESS_ACCOUNT_ID, catalogId: env.META_CATALOG_ID },
+    app: env.META_APP_ID && env.META_APP_SECRET && env.META_LOGIN_CONFIG_ID ? { appId: env.META_APP_ID, appSecret: env.META_APP_SECRET, configId: env.META_LOGIN_CONFIG_ID, version } : null,
+    secret: env.CONNECTIONS_SECRET || env.AI_SETTINGS_SECRET || 'chatflow-dev-only-connection-secret',
+    connections,
+  })
+  return {
+    name: 'dev-catalog-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = req.url?.match(/^\/api\/whatsapp\/catalog(\/[^?]*)?(?:\?(.*))?$/)
+        if (!m) return next()
+        const chunks = []
+        req.on('data', (c) => chunks.push(c))
+        req.on('end', async () => {
+          let body = {}
+          try { body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {} } catch { /* validation reports it */ }
+          res.setHeader('Content-Type', 'application/json')
+          try {
+            const r = await runtime.handle({ method: req.method || 'GET', path: m[1] || '/', query: Object.fromEntries(new URLSearchParams(m[2] || '')), body, workspace: req.headers['x-workspace-id'] || 'default' })
+            res.statusCode = r.status; res.end(JSON.stringify(r.body))
+          } catch (err) { console.error('[catalog]', err); res.statusCode = 500; res.end(JSON.stringify({ error: 'internal_server_error' })) }
+        })
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   root: __dirname,
-  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, '')), devLeadsApi(), devAiApi(loadEnv(mode, __dirname, '')), devCtwaApi(loadEnv(mode, __dirname, ''))],
+  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, '')), devLeadsApi(), devAiApi(loadEnv(mode, __dirname, '')), devCtwaApi(loadEnv(mode, __dirname, '')), devCatalogApi(loadEnv(mode, __dirname, ''))],
   // Vite's default bind on this machine only listens on [::1], so anything that
   // resolves `localhost` to 127.0.0.1 — most browsers, curl, the in-app preview
   // pane — cannot connect and the page just never loads. `host: true` binds

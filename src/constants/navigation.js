@@ -40,6 +40,7 @@ export const COMMON_NAV_ITEMS = [
   { id: 'integrations', label: 'Integrations',  icon: 'Puzzle',       path: '/integrations', badge: '45+', badgeColor: 'green' },
   { id: 'voice',        label: 'Voice Bot',     icon: 'PhoneCall',    path: '/voice', badge: 'NEW', badgeColor: 'purple' },
   { id: 'shopify',      label: 'Shopify',       icon: 'ShoppingCart', path: '/shopify', badge: 'NEW', badgeColor: 'green' },
+  { id: 'fb-catalog',   label: 'Facebook Catalog', icon: 'Store',     path: '/facebook-catalog', badge: 'NEW', badgeColor: 'green' },
   { id: 'installation', label: 'Installation',  icon: 'Puzzle',       path: '/installation', dividerBefore: true },
   { id: 'settings',     label: 'Settings',      icon: 'Settings',     path: '/settings' },
 ]

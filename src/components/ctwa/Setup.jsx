@@ -90,7 +90,7 @@ export default function Setup({ meta }) {
         <div ref={adminRef}><Details open={adminOpen} onToggle={setAdminOpen} title="For the platform admin: enable “Connect with Facebook”">
           <ol className="list-decimal pl-4 space-y-1.5">
             <li>In developers.facebook.com, use your Meta app (type Business) and add <b>Facebook Login for Business</b>.</li>
-            <li>Create a configuration with the WhatsApp Embedded Signup variation. Request <b>ads_management, ads_read, business_management, pages_show_list, whatsapp_business_management, whatsapp_business_manage_events</b>. Choose the token type “Business Integration System User”.</li>
+            <li>Create a configuration with the WhatsApp Embedded Signup variation. Request <b>ads_management, ads_read, business_management, pages_show_list, whatsapp_business_management, whatsapp_business_manage_events</b>, plus <b>catalog_management</b> and <b>whatsapp_business_messaging</b> for the Facebook Catalog section. Choose the token type “Business Integration System User”.</li>
             <li>Add your site’s domain to the app’s allowed domains, and complete App Review / Business Verification so customers outside your team can connect.</li>
             <li>Set the variables below on the API server, restart, and run <b>npm run migrate</b> once.</li>
           </ol>

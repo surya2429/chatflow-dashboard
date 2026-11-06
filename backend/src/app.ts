@@ -11,6 +11,7 @@ import { messageLinksRouter } from './routes/messageLinks.routes.js'
 import { leadsRouter } from './routes/leads.routes.js'
 import { aiRouter } from './routes/ai.routes.js'
 import { ctwaRouter } from './routes/ctwa.routes.js'
+import { catalogRouter } from './routes/catalog.routes.js'
 
 export function createApp(): Express {
   const app = express()
@@ -25,6 +26,8 @@ export function createApp(): Express {
   app.use('/api/ai/run', express.json({ limit: '400kb' }))
   // Creating a Click-to-WhatsApp ad can carry the uploaded image (up to 4 MB, as base64).
   app.use('/api/whatsapp/ctwa/ads', express.json({ limit: '8mb' }))
+  // Importing a catalog file sends up to 1000 products at once.
+  app.use('/api/whatsapp/catalog/products/import', express.json({ limit: '2mb' }))
 
   // Capture the exact raw bytes of the request body *before* JSON parsing —
   // signature verification (HMAC over raw bytes) would silently break if we
@@ -59,6 +62,7 @@ export function createApp(): Express {
   app.use('/api', leadsRouter)
   app.use('/api', aiRouter)
   app.use('/api', ctwaRouter)
+  app.use('/api', catalogRouter)
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path })

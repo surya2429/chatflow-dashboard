@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronDown, Zap, Plus, Check, Layers,
   Bell, HelpCircle, CreditCard, CheckCheck, X, LogOut,
   User, Building2, Key, UserPlus, ChevronRight, ArrowLeft,
-  Send, Camera, Bot, MessageCircle, Palette, Megaphone,
+  Send, Camera, Bot, MessageCircle, Palette, Megaphone, Store,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
@@ -19,7 +19,7 @@ import clsx from 'clsx'
 const ICON_MAP = {
   LayoutDashboard, MessageSquare, Users, Radio, Workflow,
   FileText, ShoppingBag, BarChart2, Puzzle, PhoneCall, Settings, Layers, Globe, ShoppingCart, TicketCheck, Instagram,
-  Send, Camera, Bot, MessageCircle, Palette, Megaphone,
+  Send, Camera, Bot, MessageCircle, Palette, Megaphone, Store,
 }
 
 const BADGE_COLORS = {
