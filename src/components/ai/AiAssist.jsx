@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Sparkles, Settings2, Loader2, AlertTriangle, Lightbulb, X, MessageSquareText, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
@@ -6,6 +6,8 @@ import { ai, inboxPayload, toAiConversation, useAiSettings } from '../../lib/aiA
 import { useConversations } from '../../context/ConversationContext'
 import AiSetupDialog from './AiSetupDialog'
 import AiChat, { useThread } from './AiChat'
+import { ExportMenu } from './AiData'
+import { buildTable } from './aiTable'
 
 const SENTIMENT = { positive: 'bg-emerald-50 text-emerald-700', neutral: 'bg-slate-100 text-slate-600', negative: 'bg-red-50 text-red-600' }
 const URGENCY = { low: 'bg-slate-100 text-slate-600', medium: 'bg-amber-50 text-amber-700', high: 'bg-red-50 text-red-600' }
@@ -135,6 +137,7 @@ export function AiInboxButton({ conversations, onOpen }) {
   const ctx = useConversations()
   const all = conversations ?? ctx.allConversations        // Instagram keeps its own list, so its inbox passes it in
   const thread = useThread()
+  const allTable = useMemo(() => buildTable(all), [all])
   const [pos, setPos] = useState(null)                     // null = closed
   const [setup, setSetup] = useState(false)
   const btn = useRef(null)
@@ -142,7 +145,8 @@ export function AiInboxButton({ conversations, onOpen }) {
 
   useEffect(() => {
     if (!pos) return
-    const away = (e) => { if (!pop.current?.contains(e.target) && !btn.current?.contains(e.target)) setPos(null) }
+    // menus and the expanded table render in their own layer (data-ai-layer): clicking in them must not close this panel
+    const away = (e) => { if (!pop.current?.contains(e.target) && !btn.current?.contains(e.target) && !e.target.closest?.('[data-ai-layer]')) setPos(null) }
     const esc = (e) => { if (e.key === 'Escape') setPos(null) }
     document.addEventListener('mousedown', away); document.addEventListener('keydown', esc)
     return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc) }
@@ -168,6 +172,7 @@ export function AiInboxButton({ conversations, onOpen }) {
           <div className="flex items-center gap-2 px-4 py-3 border-b border-surface-border flex-shrink-0">
             <span className="w-6 h-6 rounded-lg bg-primary-50 text-primary flex items-center justify-center"><Sparkles size={13} /></span>
             <p className="text-[13px] font-bold text-slate-800 flex-1">Ask AI <span className="font-normal text-slate-400 text-xs">· {all.length} chats</span></p>
+            {settings?.configured && <ExportMenu table={allTable} name="all-chats" label="Export all" />}
             {thread.items.length > 0 && <button onClick={thread.clear} className="text-[11px] font-semibold text-slate-500 hover:text-primary px-2 py-1 rounded-lg hover:bg-slate-100">New chat</button>}
             {settings?.configured && <button onClick={() => { setPos(null); setSetup(true) }} aria-label="AI settings" title="AI settings" className="p-1.5 rounded-lg text-slate-300 hover:text-slate-500 hover:bg-slate-100"><Settings2 size={13} /></button>}
             <button onClick={() => setPos(null)} aria-label="Close" className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"><X size={13} /></button>

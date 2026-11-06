@@ -42,6 +42,10 @@ assert.ok(chat.user.includes('turn11') && chat.user.includes('turn4') && !chat.u
 assert.ok(chat.system.includes('Lead with the direct answer'))
 const f = shapeResult('ask', '{"answer":"A","followUps":["one","two","three","four"]}', chat) as any
 assert.deepEqual(f.followUps, ['one', 'two', 'three'])
+// how to show the data: only the three known views; the prompt tells the model it cannot make files itself
+assert.equal((shapeResult('ask', '{"answer":"A","view":"table"}', chat) as any).view, 'table')
+assert.equal((shapeResult('ask', '{"answer":"A","view":"pdf"}', chat) as any).view, 'text')
+assert.ok(chat.system.includes('never say you cannot export'))
 
 // the handler: save verifies the key first, never returns it, run uses the stored one
 const mem = new Map<string, StoredAi>()

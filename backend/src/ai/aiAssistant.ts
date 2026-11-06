@@ -179,7 +179,7 @@ export function buildPrompt(task: Task, body: Record<string, unknown>): Prompt |
   }
   return {
     json: true, maxTokens: 1500, ids: list.map((c) => c.id), total,
-    system: `${CHAT_STYLE}\nYou can see the recent conversations of the whole inbox.\nReply with ONLY a JSON object: {"answer": "your answer (light markdown)", "isCount": true|false, "matches": [{"id": "conversation id exactly as given", "why": "a few words of evidence"}], "followUps": ["2-3 short, specific questions the user may ask next, each under 60 characters"]}\n- isCount is true when the question asks how many / which conversations do something (are interested, booked an appointment, complained, asked for a refund...). Then "matches" lists EVERY conversation whose messages clearly show it, and nothing that is only a guess; if you state a number in "answer" it must equal the number of matches.\n- Otherwise isCount is false and matches is [].`,
+    system: `${CHAT_STYLE}\nYou can see the recent conversations of the whole inbox.\nReply with ONLY a JSON object: {"answer": "your answer (light markdown)", "isCount": true|false, "matches": [{"id": "conversation id exactly as given", "why": "a few words of evidence"}], "view": "text|table|chart", "followUps": ["2-3 short, specific questions the user may ask next, each under 60 characters"]}\n- isCount is true when the question asks how many / which conversations do something (are interested, booked an appointment, complained, asked for a refund...). Then "matches" lists EVERY conversation whose messages clearly show it, and nothing that is only a guess; if you state a number in "answer" it must equal the number of matches.\n- Otherwise isCount is false. For any answer about specific customers (who is waiting, who is unhappy, a list, an export) still put those conversations in "matches": under your answer the app turns them into a table the user can sort, chart and download (CSV, JSON, copy to a spreadsheet). If the answer is not about specific conversations, matches is [].\n- You cannot create files yourself, so for export, download, table or spreadsheet requests list the right conversations in "matches", tell the user they can use the buttons under your answer, and never say you cannot export.\n- "view" is how to show the data first: "table" when the user asks to list, show, export, download or see a table; "chart" for a breakdown, split, distribution or chart; otherwise "text".`,
     user: `${list.length} conversations:\n\n${data}${earlier}\n\nNew question: ${q}`,
   }
 }
@@ -199,14 +199,14 @@ export function shapeResult(task: Task, text: string, p?: { ids: string[]; total
   if (task === 'reply') return { reply: text.replace(/^["“]|["”]$/g, '').slice(0, 1500) }
   if (task === 'ask') {
     const j = extractJson(text)
-    if (!j) return { answer: text.slice(0, 3000), isCount: false, matches: [], analysed: 0, total: 0, followUps: [] }   // a model that ignored the JSON format still answers
+    if (!j) return { answer: text.slice(0, 3000), isCount: false, matches: [], analysed: 0, total: 0, followUps: [], view: 'text' }   // a model that ignored the JSON format still answers
     const known = new Set(p?.ids ?? [])
     const seen = new Set<string>()
     // a match only counts if it is a conversation we actually sent, and each counts once
     const matches = (Array.isArray(j.matches) ? j.matches : [])
       .map((m: any) => ({ id: str(m?.id, 60), why: str(m?.why, 120) }))
       .filter((m: { id: string }) => known.has(m.id) && !seen.has(m.id) && !!seen.add(m.id))
-    return { answer: typeof j.answer === 'string' ? j.answer.trim().slice(0, 3000) : '', isCount: j.isCount === true && known.size > 0, matches, analysed: known.size, total: p?.total ?? 0, followUps: strs(j.followUps, 3, 80) }
+    return { answer: typeof j.answer === 'string' ? j.answer.trim().slice(0, 3000) : '', isCount: j.isCount === true && known.size > 0, matches, analysed: known.size, total: p?.total ?? 0, followUps: strs(j.followUps, 3, 80), view: pick(j.view, ['text', 'table', 'chart'] as const, 'text') }
   }
   const j = extractJson(text)
   if (!j) throw new AiError(502, 'The model did not return a usable answer. Try again, or pick a more capable model.')

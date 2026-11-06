@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Sparkles, ArrowUp, Copy, Check, RotateCcw, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 import { ai, inboxPayload, toAiConversation } from '../../lib/aiApi'
+import { buildTable } from './aiTable'
+import { DataPanel, ExportMenu } from './AiData'
 
 /* A ChatGPT-style thread: your questions on the right, the AI's answers on the left, follow-ups remembered.
    The parent owns the thread (useThread) so closing a panel does not lose the conversation. */
@@ -40,7 +42,7 @@ function Markdown({ text }) {
   )
 }
 
-const STARTERS_ALL = ['How many customers are interested in buying?', 'How many booked an appointment?', 'Which customers sound unhappy?', 'Who is still waiting for a reply?']
+const STARTERS_ALL = ['How many customers are interested in buying?', 'Show unhappy customers as a table', 'Break down my chats by status in a chart', 'Export the chats waiting for an agent']
 const STARTERS_ONE = ['Is this customer interested?', 'Did they book an appointment?', 'What do they still need from us?', 'Summarise this chat in two lines']
 
 function Avatar() {
@@ -60,7 +62,8 @@ export default function AiChat({ thread, conversation, conversations, onOpen }) 
   useEffect(() => { setScope(conversation ? 'chat' : 'all') }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }) }, [items.length, busy])
 
-  const names = Object.fromEntries((conversations || []).map((c) => [String(c.id), c.name]))
+  const byId = useMemo(() => new Map((conversations || []).map((c) => [String(c.id), c])), [conversations])
+  const allTable = useMemo(() => buildTable(conversations || []), [conversations])
 
   async function send(text, base = items) {
     const q = text.trim()
@@ -141,19 +144,19 @@ export default function AiChat({ thread, conversation, conversations, onOpen }) 
                 ) : (
                   <>
                     <Markdown text={m.text} />
-                    {m.matches?.length > 0 && (
-                      <div className="mt-3">
-                        <p className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
-                          {m.isCount ? `${m.matches.length} of ${m.analysed} conversations` : 'Conversations'}
-                          {m.total > m.analysed && <span className="normal-case font-normal text-amber-600"> · latest {m.analysed} of {m.total} checked</span>}
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {m.matches.map((x) => onOpen
-                            ? <button key={x.id} onClick={() => onOpen(x.id)} title={x.why ? `${x.why} · open chat` : 'Open chat'} className="px-2.5 py-1 rounded-full bg-slate-100 text-[11px] font-medium text-slate-600 hover:bg-primary-50 hover:text-primary transition-colors">{names[x.id] || x.id}</button>
-                            : <span key={x.id} title={x.why} className="px-2.5 py-1 rounded-full bg-slate-100 text-[11px] font-medium text-slate-600">{names[x.id] || x.id}</span>)}
-                        </div>
-                      </div>
-                    )}
+                    {m.matches?.length > 0 && (() => {
+                      // the rows are the real conversation records; the AI only said which ones, and why
+                      const found = m.matches.filter((x) => byId.has(x.id))
+                      if (!found.length) return null
+                      const table = buildTable(found.map((x) => byId.get(x.id)), Object.fromEntries(found.map((x) => [x.id, x.why])))
+                      return (
+                        <DataPanel table={table} name={items[i - 1]?.text} onOpen={onOpen} defaultView={m.view === 'chart' ? 'chart' : 'table'}
+                          footer={<>
+                            <span>{m.isCount ? `${found.length} of ${m.analysed} chats match.` : `${found.length} ${found.length === 1 ? 'chat' : 'chats'}.`}</span>
+                            {m.total > m.analysed && <><span className="text-amber-600">Only the latest {m.analysed} of {m.total} chats were checked.</span><ExportMenu table={allTable} name="all-chats" label={`Export all ${m.total}`} /></>}
+                          </>} />
+                      )
+                    })()}
                     <div className="flex items-center gap-1 mt-2 -ml-1">
                       <button onClick={() => copy(m.text, i)} aria-label="Copy answer" title="Copy" className="p-1 rounded text-slate-300 hover:text-slate-600 hover:bg-slate-100">{copied === i ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}</button>
                       {i === lastAi && !busy && <button onClick={regenerate} aria-label="Regenerate answer" title="Regenerate" className="p-1 rounded text-slate-300 hover:text-slate-600 hover:bg-slate-100"><RotateCcw size={12} /></button>}
