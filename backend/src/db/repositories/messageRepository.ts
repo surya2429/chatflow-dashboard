@@ -3,7 +3,7 @@ import { logger } from '../../config/logger.js'
 import { countWhatsAppMessage } from '../../billing/usageSql.js'
 
 export type MessageDirection = 'inbound' | 'outbound'
-export type MessageChannel = 'mm_lite' | 'cloud_api'
+export type MessageChannel = 'mm_api' | 'cloud_api'
 export type MessageStatus = 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'deleted'
 export type MessageCategory = 'marketing' | 'utility' | 'authentication' | 'service'
 

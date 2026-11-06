@@ -5,7 +5,7 @@ export type CampaignStatus = 'draft' | 'scheduled' | 'sending' | 'completed' | '
 export interface Campaign {
   id: string
   name: string
-  channel: 'mm_lite' | 'cloud_api'
+  channel: 'mm_api' | 'cloud_api'
   template_name: string
   template_language: string
   status: CampaignStatus

@@ -1,7 +1,7 @@
 {
   "name": "chatflow-whatsapp-backend",
   "version": "1.0.0",
-  "description": "Unified WhatsApp Cloud API + MM Lite backend — webhook engine, dual-queue dispatch, session & attribution",
+  "description": "Unified WhatsApp Cloud API + Marketing Messages API backend — webhook engine, dual-queue dispatch, session & attribution",
   "private": true,
   "type": "module",
   "engines": {

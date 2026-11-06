@@ -17,7 +17,7 @@ const COUNTER_BY_STATUS = {
 /**
  * Consumes `status-update` jobs — the `sent` / `delivered` / `read` /
  * `failed` lifecycle events Meta pushes for every outbound message,
- * regardless of whether it went out via MM Lite or the Cloud API.
+ * regardless of whether it went out via the Marketing Messages API or the Cloud API.
  *
  * Updates the message row and, when the message belongs to a campaign,
  * bumps the matching aggregate counter — the same counters the Overview/

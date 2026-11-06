@@ -24,7 +24,7 @@ export interface InboundRoutingContext {
  *
  * The one thing implemented here for real: a same-turn acknowledgment
  * reply for messages that just opened a *new* window from a marketing
- * campaign, since leaving a fresh MM Lite responder in silence until a
+ * campaign, since leaving a fresh marketing responder in silence until a
  * bot engine catches up is a common cause of drop-off in production.
  */
 export const conversationRouter = {

@@ -1,7 +1,7 @@
-# ChatFlow WhatsApp Backend — Cloud API + MM Lite
+# ChatFlow WhatsApp Backend — Cloud API + Marketing Messages API
 
 Unified backend for dispatching WhatsApp messages through two Meta APIs —
-**MM Lite** for marketing broadcasts, **Cloud API** for transactional /
+**Marketing Messages API for WhatsApp** for marketing broadcasts, **Cloud API** for transactional /
 authentication / bot-and-agent replies — with a single webhook ingestion
 pipeline, 24-hour service-window tracking, and campaign attribution.
 
@@ -9,8 +9,8 @@ pipeline, 24-hour service-window tracking, and campaign attribution.
 
 ```
                          ┌──────────────────────┐
-  Marketing Campaign ───▶│   marketingQueue      │───▶ MM Lite API
-  (bulk, paced)          │   (BullMQ, rate-limited)     POST /mm_lite
+  Marketing Campaign ───▶│   marketingQueue      │───▶ Marketing Messages API
+  (bulk, paced)          │   (BullMQ, rate-limited)     POST /marketing_messages
                          └──────────────────────┘
 
   OTP / Transactional  ┌──────────────────────┐
@@ -86,14 +86,26 @@ descriptions. The ones that come from Meta specifically:
    For production sending you'll need the number verified and the Business
    going through Meta's display-name/business verification.
 
-3. **Request MM Lite access** — Marketing Messages Lite is currently
-   provisioned per WhatsApp Business Account via your Meta account team /
-   Partner Solutions rep, or through the in-app WhatsApp Manager prompt
-   under **Marketing Messages** if your account is eligible. It does not
-   share a permission toggle with the standard Cloud API — confirm access
-   before relying on `mm_lite` in production; the code falls back
-   gracefully (a `WhatsAppApiError`) if the endpoint isn't enabled for your
-   number yet.
+3. **Onboard to the Marketing Messages API for WhatsApp** — Cloud API is
+   [sunsetting marketing messages](https://developers.facebook.com/documentation/business-messaging/whatsapp/marketing-messages/overview):
+   - **13 Oct 2026** — global announcement.
+   - **13 Apr 2027** — accounts created on or after this date can no longer send marketing messages on Cloud API (only on the Marketing Messages API).
+   - **13 Oct 2027** — marketing sends on Cloud API fail for everyone.
+
+   To onboard: App Dashboard → WhatsApp → **Quickstart** → the module
+   *Improve ROI with marketing messages with optimizations* → **Get started**
+   → accept the Terms of Service. You need an active Messaging account in an
+   eligible country, an approved **marketing** template and a subscription to
+   the `messages` webhook. Existing phone numbers and templates keep working;
+   billing is unchanged. Marketing sends go to `POST /{phone_number_id}/marketing_messages`
+   (`marketingMessagesClient`); until the account is onboarded the endpoint
+   returns a `WhatsAppApiError`.
+
+   Once fully onboarded and verified, you can ask Meta's API to reject marketing
+   templates on Cloud API (`disable_marketing_messages_on_cloud_api`), after which a
+   marketing template sent to `/messages` fails with error **131063**. The priority
+   worker already resends such a template through `/marketing_messages`.
+   Status webhooks for these sends report `pricing.category = marketing_lite`.
 
 4. **Create a System User + permanent token** (App Dashboard is a personal
    token by default and expires — do not use it in production):
@@ -118,13 +130,15 @@ descriptions. The ones that come from Meta specifically:
      separately subscribe to a "message_status" field — it doesn't exist
      as a distinct one in the current API version).
 
-6. **Approve your templates** — both Cloud API and MM Lite sends require a
-   pre-approved message template (WhatsApp Manager → Message Templates).
-   MM Lite specifically requires the template's category to be
-   **Marketing** — Utility/Authentication templates are not eligible for
-   MM Lite dispatch and must go through the standard Cloud API
-   (`priorityQueue` / `cloudApiClient`), which this system enforces at the
-   application layer via `MessageCategory`.
+6. **Approve your templates** — both Cloud API and Marketing Messages API
+   sends require a pre-approved message template (WhatsApp Manager → Message Templates).
+   Marketing templates (category **Marketing**) go through `marketingQueue` /
+   `marketingMessagesClient`; Utility, Authentication and service messages go through
+   the standard Cloud API (`priorityQueue` / `cloudApiClient`). This system enforces the
+   split at the application layer via `MessageCategory`. A Utility template can be
+   reclassified as Marketing later (Meta's `template_category_update` webhook): marketing
+   templates enqueued on the priority queue are sent via `/marketing_messages` regardless,
+   and a 131063 error on `/messages` triggers one resend through it.
 
 7. **App Review** (production only) — `whatsapp_business_messaging` and
    `whatsapp_business_management` need Meta's App Review for anything
@@ -184,6 +198,6 @@ creation in the platform behind one counter row.
   `src/whatsapp/types.ts` and route accordingly in whichever service
   enqueues to `priorityQueue`.
 - **Multi-tenant / multiple phone numbers**: `CloudApiClient` /
-  `MmLiteClient` already accept a `phoneNumberId`/`accessToken` override in
+  `MarketingMessagesClient` already accept a `phoneNumberId`/`accessToken` override in
   their constructor — thread the tenant's number through campaign/job data
   instead of relying on the single `env.WA_PHONE_NUMBER_ID` default.

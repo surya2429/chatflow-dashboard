@@ -5,7 +5,7 @@ import { WhatsAppApiError, type SendResult } from './types.js'
 const GRAPH_BASE = `https://graph.facebook.com/${env.WA_GRAPH_API_VERSION}`
 
 /**
- * Shared HTTP plumbing for both the Cloud API and MM Lite clients — auth
+ * Shared HTTP plumbing for both the Cloud API and Marketing Messages API clients — auth
  * header, JSON handling, and translating Meta's error envelope into a
  * typed `WhatsAppApiError` so callers (queue workers) can branch on
  * `isRateLimited` / `isOutsideServiceWindow` without parsing raw bodies.

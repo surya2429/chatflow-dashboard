@@ -1,4 +1,4 @@
-/** Shared request/response contracts for both the Cloud API and MM Lite clients. */
+/** Shared request/response contracts for both the Cloud API and Marketing Messages API clients. */
 
 export type MessageCategory = 'marketing' | 'utility' | 'authentication' | 'service'
 
@@ -63,6 +63,11 @@ export class WhatsAppApiError extends Error {
   /** Meta error 131056 / 131048 etc. — pacing/throughput limit hit; caller should back off and retry. */
   get isRateLimited(): boolean {
     return this.statusCode === 429 || this.metaErrorCode === 131_056 || this.metaErrorCode === 80_007
+  }
+
+  /** A marketing template was sent to Cloud API `/messages` after marketing was turned off there: resend through `/marketing_messages`. */
+  get isMarketingTemplateOnCloudApi(): boolean {
+    return this.metaErrorCode === 131_063
   }
 
   /** Recipient has no active session / is outside the 24h window for freeform sends. */

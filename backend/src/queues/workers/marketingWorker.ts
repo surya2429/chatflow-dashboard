@@ -2,7 +2,7 @@ import { Worker, type Job } from 'bullmq'
 import { redis } from '../../redis/client.js'
 import { env } from '../../config/env.js'
 import { logger } from '../../config/logger.js'
-import { mmLiteClient } from '../../whatsapp/mmLiteClient.js'
+import { marketingMessagesClient } from '../../whatsapp/marketingMessagesClient.js'
 import { WhatsAppApiError, type CallbackToken } from '../../whatsapp/types.js'
 import { messageRepository } from '../../db/repositories/messageRepository.js'
 import { campaignRepository } from '../../db/repositories/campaignRepository.js'
@@ -11,10 +11,10 @@ import type { MarketingSendJob } from '../jobTypes.js'
 import { randomUUID } from 'node:crypto'
 
 /**
- * Consumes `marketing-send` jobs and dispatches through MM Lite.
+ * Consumes `marketing-send` jobs and dispatches through the Marketing Messages API for WhatsApp.
  *
  * Two layers of pacing are deliberately stacked: BullMQ's `limiter` caps
- * how fast THIS process pulls jobs off Redis, while MM Lite itself paces
+ * how fast THIS process pulls jobs off Redis, while Meta itself paces
  * delivery on Meta's side. If Meta responds 429 / rate-limit error anyway,
  * we throw and let BullMQ's exponential backoff retry — no manual sleep
  * loops, no busy-waiting.
@@ -41,11 +41,11 @@ export function startMarketingWorker(): Worker<MarketingSendJob> {
       const callback: CallbackToken = { messageId: internalMessageId, campaignId }
 
       try {
-        const result = await mmLiteClient.sendMarketingTemplate({ to: waId, template, callback })
+        const result = await marketingMessagesClient.sendMarketingTemplate({ to: waId, template, callback })
 
         await messageRepository.createOutbound({
           waMessageId: result.waMessageId,
-          channel: 'mm_lite',
+          channel: 'mm_api',
           category: 'marketing',
           contactId,
           campaignId,
@@ -57,11 +57,11 @@ export function startMarketingWorker(): Worker<MarketingSendJob> {
         })
 
         await campaignRepository.incrementCounter(campaignId, 'sent_count')
-        log.info({ waMessageId: result.waMessageId }, 'Marketing template sent via MM Lite')
+        log.info({ waMessageId: result.waMessageId }, 'Marketing template sent via Marketing Messages API')
         return { waMessageId: result.waMessageId }
       } catch (err) {
         if (err instanceof WhatsAppApiError) {
-          log.error({ err, isRateLimited: err.isRateLimited }, 'MM Lite send failed')
+          log.error({ err, isRateLimited: err.isRateLimited }, 'Marketing Messages API send failed')
           if (err.isRateLimited) throw err // let BullMQ retry with backoff
           await campaignRepository.incrementCounter(campaignId, 'failed_count')
           return { skipped: true, reason: 'permanent_error', message: err.message }

@@ -5,7 +5,7 @@ import { conversationRepository, type Conversation } from '../db/repositories/co
  * Owns the 24h customer-service-window rule that governs when we're
  * allowed to freeform-message a user via the Cloud API (vs. being
  * restricted to sending an approved template to re-engage them).
- * Every inbound message, and every user-initiated reply to an MM Lite
+ * Every inbound message, and every user-initiated reply to a marketing
  * marketing send, opens or extends this window — that's the single
  * source of truth callers should go through instead of touching
  * `conversationRepository` directly.

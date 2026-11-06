@@ -2,7 +2,7 @@ import { messageRepository } from '../db/repositories/messageRepository.js'
 import { decodeCallbackToken } from '../whatsapp/types.js'
 
 /**
- * Resolves "which MM Lite campaign does this inbound reply belong to."
+ * Resolves "which marketing campaign does this inbound reply belong to."
  *
  * Two paths, tried in order:
  *  1. `context.id` on the inbound webhook payload — set by WhatsApp when the

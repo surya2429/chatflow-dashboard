@@ -4,6 +4,7 @@ import { redis } from '../../redis/client.js'
 import { env } from '../../config/env.js'
 import { logger } from '../../config/logger.js'
 import { cloudApiClient } from '../../whatsapp/cloudApiClient.js'
+import { marketingMessagesClient } from '../../whatsapp/marketingMessagesClient.js'
 import { WhatsAppApiError, type CallbackToken } from '../../whatsapp/types.js'
 import { messageRepository } from '../../db/repositories/messageRepository.js'
 import { sessionService } from '../../services/sessionService.js'
@@ -40,10 +41,25 @@ export function startPriorityWorker(): Worker<PrioritySendJob> {
       const internalMessageId = randomUUID()
       const callback: CallbackToken = { messageId: internalMessageId, campaignId }
 
+      // Marketing templates belong on the Marketing Messages API: Cloud API stops accepting them on 13 Oct 2027
+      // (and earlier for newly created accounts). Everything else stays on Cloud API.
+      let channel: 'cloud_api' | 'mm_api' = payload.kind === 'template' && category === 'marketing' ? 'mm_api' : 'cloud_api'
+      const sendTemplate = (template: Extract<typeof payload, { kind: 'template' }>['template']) =>
+        channel === 'mm_api'
+          ? marketingMessagesClient.sendMarketingTemplate({ to: waId, template, callback })
+          : cloudApiClient.sendTemplate({ to: waId, template, category, callback })
+
       try {
         const result =
           payload.kind === 'template'
-            ? await cloudApiClient.sendTemplate({ to: waId, template: payload.template, category, callback })
+            ? await sendTemplate(payload.template).catch((err: unknown) => {
+                // A template reclassified as marketing is rejected on /messages (131063): resend it through /marketing_messages
+                if (err instanceof WhatsAppApiError && err.isMarketingTemplateOnCloudApi && channel === 'cloud_api') {
+                  channel = 'mm_api'
+                  return sendTemplate(payload.template)
+                }
+                throw err
+              })
             : await cloudApiClient.sendText({
                 to: waId,
                 body: payload.body,
@@ -54,7 +70,7 @@ export function startPriorityWorker(): Worker<PrioritySendJob> {
 
         await messageRepository.createOutbound({
           waMessageId: result.waMessageId,
-          channel: 'cloud_api',
+          channel,
           category,
           contactId,
           campaignId,
@@ -70,7 +86,7 @@ export function startPriorityWorker(): Worker<PrioritySendJob> {
           await sessionService.recordOutboundActivity({ contactId, waId })
         }
 
-        log.info({ waMessageId: result.waMessageId }, 'Cloud API message sent')
+        log.info({ waMessageId: result.waMessageId, channel }, 'Message sent')
         return { waMessageId: result.waMessageId }
       } catch (err) {
         if (err instanceof WhatsAppApiError) {

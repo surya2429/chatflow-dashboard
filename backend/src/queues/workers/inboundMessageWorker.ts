@@ -13,7 +13,7 @@ import type { InboundMessageJob } from '../jobTypes.js'
 
 /**
  * Consumes `inbound-message` jobs — every inbound text/button/interactive
- * message from a user. This is the seam where MM Lite campaign replies,
+ * message from a user. This is the seam where marketing campaign replies,
  * cold inbounds, and bot-flow input all converge into one pipeline:
  *
  *   1. Upsert the contact (profile name may have changed since last seen).
