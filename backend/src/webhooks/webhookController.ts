@@ -6,6 +6,8 @@ import { WebhookPayloadSchema, type WebhookMessage, type WebhookStatus } from '.
 import { claimEventOnce } from '../services/dedupeService.js'
 import { statusUpdateQueue, inboundMessageQueue } from '../queues/queues.js'
 import { webhookEventRepository } from '../db/repositories/webhookEventRepository.js'
+import { ctwaRepository } from '../db/repositories/ctwaRepository.js'
+import { extractReferral } from '../ctwa/referral.js'
 import type { StatusUpdateJob, InboundMessageJob } from '../queues/jobTypes.js'
 
 /**
@@ -122,6 +124,14 @@ async function enqueueInboundMessage(
   void webhookEventRepository.log('inbound_message', message.id, message).catch((err: unknown) => {
     logger.error({ err }, 'Failed to write webhook_events audit row (non-fatal)')
   })
+
+  // A chat that started from a Click-to-WhatsApp ad: remember which ad, so the dashboard can attribute the lead.
+  const referral = extractReferral(message, profileName, phoneNumberId)
+  if (referral) {
+    void ctwaRepository.saveReferral(referral).catch((err: unknown) => {
+      logger.error({ err }, 'Failed to store CTWA referral (non-fatal)')
+    })
+  }
 
   const job: InboundMessageJob = {
     waMessageId: message.id,

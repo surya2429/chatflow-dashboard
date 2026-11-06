@@ -13,6 +13,9 @@ import { metaReportResponse } from './backend/src/whatsapp/metaReports.ts'
 import { messageLinkResponse } from './backend/src/whatsapp/messageLinks.ts'
 import { createRateLimiter, handleLeadRequest } from './backend/src/leads/poweredByLead.ts'
 import { handleAiRequest } from './backend/src/ai/aiAssistant.ts'
+import { createCtwa } from './backend/src/ctwa/factory.ts'
+import { createSampleStore } from './backend/src/ctwa/sample.ts'
+import { handleCtwaRequest } from './backend/src/ctwa/service.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -403,9 +406,44 @@ function devAiApi(env) {
   }
 }
 
+/**
+ * Dev stand-in for backend/src/routes/ctwa.routes.ts: Click-to-WhatsApp ads. With META_AD_ACCOUNT_ID, META_PAGE_ID and a
+ * token in .env.local it talks to the real Meta Marketing API (leads stay in memory — the webhook only runs on the API
+ * server); without them it serves the same editable sample data as production.
+ */
+function devCtwaApi(env) {
+  const live = !!(env.META_AD_ACCOUNT_ID && env.META_PAGE_ID && (env.META_ADS_ACCESS_TOKEN || env.WA_ACCESS_TOKEN))
+  const deps = createCtwa({
+    adAccountId: env.META_AD_ACCOUNT_ID, pageId: env.META_PAGE_ID, adsToken: env.META_ADS_ACCESS_TOKEN, waToken: env.WA_ACCESS_TOKEN,
+    version: env.WA_GRAPH_API_VERSION || 'v20.0', whatsappNumber: env.CTWA_WHATSAPP_NUMBER, wabaId: env.WA_BUSINESS_ACCOUNT_ID,
+    datasetId: env.META_CAPI_DATASET_ID, partnerAgent: env.CTWA_PARTNER_AGENT,
+  }, live ? createSampleStore(Date.now, false) : null)
+  return {
+    name: 'dev-ctwa-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = req.url?.match(/^\/api\/whatsapp\/ctwa(\/[^?]*)?(?:\?(.*))?$/)
+        if (!m) return next()
+        const chunks = []
+        req.on('data', (c) => chunks.push(c))
+        req.on('end', async () => {
+          let body = {}
+          try { body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {} } catch { /* validation reports it */ }
+          res.setHeader('Content-Type', 'application/json')
+          try {
+            const r = await handleCtwaRequest({ method: req.method || 'GET', path: m[1] || '/', query: Object.fromEntries(new URLSearchParams(m[2] || '')), body }, deps)
+            res.statusCode = r.status; res.end(JSON.stringify(r.body))
+          } catch (err) { console.error('[ctwa]', err); res.statusCode = 500; res.end(JSON.stringify({ error: 'internal_server_error' })) }
+        })
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   root: __dirname,
-  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, '')), devLeadsApi(), devAiApi(loadEnv(mode, __dirname, ''))],
+  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, '')), devLeadsApi(), devAiApi(loadEnv(mode, __dirname, '')), devCtwaApi(loadEnv(mode, __dirname, ''))],
   // Vite's default bind on this machine only listens on [::1], so anything that
   // resolves `localhost` to 127.0.0.1 — most browsers, curl, the in-app preview
   // pane — cannot connect and the page just never loads. `host: true` binds

@@ -74,6 +74,20 @@ const EnvSchema = z.object({
   // ── Inbox AI (src/ai) ────────────────────────────────────────────────────
   // Encrypts the API key each workspace pastes into the dashboard. Unset = the AI setup popup cannot save a key.
   AI_SETTINGS_SECRET: z.string().min(16).optional(),
+
+  // ── Click-to-WhatsApp ads (src/ctwa) ─────────────────────────────────────
+  // With the ad account, Page and a token the CTWA section runs on live Meta data (create / manage ads, insights,
+  // Conversions API). Without them it shows editable sample data. The token needs ads_management + ads_read
+  // (and whatsapp_business_manage_events for conversion events; WA_ACCESS_TOKEN is used for those).
+  META_AD_ACCOUNT_ID: z.string().regex(/^(act_)?\d+$/, 'digits, optionally prefixed act_').optional(),
+  META_PAGE_ID: z.string().regex(/^\d+$/).optional(),
+  META_ADS_ACCESS_TOKEN: z.string().min(20).optional(),
+  // Pin the WhatsApp number new ads open (E.164). Optional: Meta uses the number linked to the Page when unset.
+  CTWA_WHATSAPP_NUMBER: z.string().min(6).optional(),
+  // Conversions API dataset id. Optional: looked up (and created) from WA_BUSINESS_ACCOUNT_ID on first use.
+  META_CAPI_DATASET_ID: z.string().regex(/^\d+$/).optional(),
+  // The partner name Meta assigned you for Conversions API events, if any.
+  CTWA_PARTNER_AGENT: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof EnvSchema>

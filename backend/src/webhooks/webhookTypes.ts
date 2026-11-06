@@ -40,6 +40,8 @@ const MessageSchema = z.object({
   text: z.object({ body: z.string() }).optional(),
   button: z.object({ text: z.string(), payload: z.string() }).optional(),
   interactive: z.record(z.string(), z.unknown()).optional(),
+  // present on the first message of a chat that started from a Click-to-WhatsApp ad
+  referral: z.record(z.string(), z.unknown()).optional(),
 })
 
 const ValueSchema = z.object({
