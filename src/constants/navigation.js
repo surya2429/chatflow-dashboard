@@ -13,6 +13,7 @@ export const PRODUCT_NAV_ITEMS = {
     { id: 'broadcasting',  label: 'Broadcasts',   icon: 'Radio',         path: '/broadcasting' },
     { id: 'flows',         label: 'Automation',   icon: 'Workflow',      path: '/flows' },
     { id: 'catalog',       label: 'Catalog',      icon: 'ShoppingBag',   path: '/catalog' },
+    { id: 'ctwa',          label: 'Click to WA Ads', icon: 'Megaphone',  path: '/ctwa', badge: 'NEW', badgeColor: 'green' },
     { id: 'analytics',     label: 'Analytics',    icon: 'BarChart2',     path: '/analytics' },
   ],
   instagram: [

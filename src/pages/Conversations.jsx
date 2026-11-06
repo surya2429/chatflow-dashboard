@@ -25,6 +25,7 @@ import {
 } from '../components/inbox/SharedInboxParts'
 import clsx from 'clsx'
 import { AiInboxInsights, AiChatAssist, AiInboxButton } from '../components/ai/AiAssist'
+import CtwaAttribution from '../components/ctwa/CtwaAttribution'
 
 /* ─── Constants (WhatsApp-only — CTWA ad-source attribution) ──── */
 const CTWA_SOURCES = [
@@ -2158,6 +2159,7 @@ function ContactPanel({ conversation, adminOnline, onClose }) {
 
             {/* ── Ad Source / CTWA ── */}
             {(hasCTWA || src) && (
+              <CtwaAttribution phone={hasCTWA || conversation.source === 'ctwa' ? conversation.phone : ''} fallback={
               <div className="mt-4 mx-4">
                 {hasCTWA && ctwaEvent && (
                   <div className="rounded-xl p-3 bg-blue-50 border border-blue-100">
@@ -2173,7 +2175,7 @@ function ContactPanel({ conversation, adminOnline, onClose }) {
                     <p className="text-[11px] text-slate-600 mt-1.5 leading-relaxed">{src.desc}</p>
                   </div>
                 )}
-              </div>
+              </div>} />
             )}
 
             {/* ── Labels ── */}

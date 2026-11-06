@@ -8,7 +8,7 @@ const AuthContext = createContext(null)
 const ROLE_NAV = {
   admin:      null, // null = all items
   supervisor: [
-    'home', 'conversations', 'contacts', 'broadcasting', 'analytics', 'settings',
+    'home', 'conversations', 'contacts', 'broadcasting', 'ctwa', 'analytics', 'settings',
     'ig-inbox', 'ig-contacts', 'ig-broadcasts', 'ig-automations', 'ig-analytics',
     'wc-inbox', 'wc-contacts', 'wc-automation', 'wc-analytics',
     'integrations',

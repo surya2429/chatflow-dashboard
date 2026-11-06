@@ -14,6 +14,7 @@ import MainLayout from './layouts/MainLayout'
 import SignIn from './pages/SignIn'
 import Home from './pages/Home'
 import Conversations from './pages/Conversations'
+import CtwaAds from './pages/CtwaAds'
 import Contacts from './pages/Contacts'
 import Templates from './pages/Templates'
 import FlowSetup from './pages/FlowSetup'
@@ -122,6 +123,7 @@ function AppRoutes() {
                       <Route path="flows" element={<FlowSetup />} />
                       <Route path="catalog" element={<Catalog />} />
                       <Route path="broadcasting" element={<Broadcasting />} />
+                      <Route path="ctwa" element={<CtwaAds />} />
                       <Route path="analytics" element={<Analytics />} />
                       <Route path="integrations" element={<Integrations />} />
                       <Route path="voice" element={<Voice />} />
