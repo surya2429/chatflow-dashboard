@@ -169,7 +169,7 @@ export default function ProductsTab({ catalogId, products, truncated, total, rel
         <Stat label="Actions needed" value={counts.issues} icon={AlertTriangle} tone="text-amber-600 bg-amber-50" sub="Rejected or in review" onClick={counts.issues ? () => { setTab('issues'); reset() } : undefined} />
       </div>
 
-      <Card bodyClass="">
+      <Card className="!overflow-visible" bodyClass="">
         <div className="px-4 pt-3"><Segmented value={tab} onChange={(k) => { setTab(k); reset() }} options={FILTERS.map(([key, label]) => ({ key, label, count: counts[key] }))} /></div>
         <div className="flex flex-wrap items-center gap-2 px-4 py-3">
           <div className="relative flex-1 min-w-[220px]">

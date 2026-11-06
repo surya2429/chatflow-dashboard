@@ -200,12 +200,27 @@ function parseOptions(children) {
 export function NativeSelect({ value, onChange = () => {}, children, className = '', sm = false, disabled = false }) {
   const [open, setOpen]   = useState(false)
   const [query, setQuery] = useState('')
-  const [pos, setPos]     = useState({ top: 0, left: 0, width: 0 })
+  const [pos, setPos]     = useState({ top: 0, left: 0, width: 0, maxHeight: 300 })
   const btnRef    = useRef(null)
   const dropRef   = useRef(null)
   const searchRef = useRef(null)
 
   const options = parseOptions(children)
+
+  // Sits under the button, or above it when there is no room below, and never leaves the viewport.
+  function place() {
+    const r = btnRef.current?.getBoundingClientRect()
+    if (!r) return
+    const width = Math.max(r.width, 180)
+    const wanted = Math.min(300, 64 + options.length * 30)          // search box + rows
+    const below = window.innerHeight - r.bottom - 12
+    const above = r.top - 12
+    const up = below < Math.min(wanted, 220) && above > below
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8))
+    setPos(up
+      ? { bottom: window.innerHeight - r.top + 4, left, width: r.width, maxHeight: Math.max(120, Math.min(300, above)) }
+      : { top: r.bottom + 4, left, width: r.width, maxHeight: Math.max(120, Math.min(300, below)) })
+  }
 
   const selected = options.find(o => String(o.value) === String(value))
   const filtered = query.trim()
@@ -214,8 +229,7 @@ export function NativeSelect({ value, onChange = () => {}, children, className =
 
   function openDrop() {
     if (disabled) return
-    const r = btnRef.current.getBoundingClientRect()
-    setPos({ top: r.bottom + 4, left: r.left, width: r.width })
+    place()
     setQuery('')
     setOpen(true)
     setTimeout(() => searchRef.current?.focus(), 30)
@@ -233,8 +247,11 @@ export function NativeSelect({ value, onChange = () => {}, children, className =
       if (!btnRef.current?.contains(e.target) && !dropRef.current?.contains(e.target)) setOpen(false)
     }
     document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [open])
+    // the button moves when the page or a panel scrolls, or the window resizes: the list follows it
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => { document.removeEventListener('mousedown', handle); window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true) }
+  }, [open])      // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <>
@@ -268,11 +285,11 @@ export function NativeSelect({ value, onChange = () => {}, children, className =
           className="bg-white rounded-xl border border-surface-border shadow-modal overflow-hidden flex flex-col"
           style={{
             position: 'fixed',
-            top: pos.top,
+            ...(pos.bottom !== undefined ? { bottom: pos.bottom } : { top: pos.top }),
             left: pos.left,
             width: Math.max(pos.width, 180),
             zIndex: 99999,
-            maxHeight: 300,
+            maxHeight: pos.maxHeight,
           }}
         >
           {/* Search */}
