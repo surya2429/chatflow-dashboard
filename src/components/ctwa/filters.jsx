@@ -3,20 +3,25 @@ import { Search, X } from 'lucide-react'
 import clsx from 'clsx'
 import DatePicker from '../DatePicker'
 import { NativeSelect } from '../Select'
+import { ymd } from './dateRange'
 import { Segmented, inputCls } from './ui'
 
 /* Filters for lists of leads: a date range (presets or custom from/to), pipeline stage, ad and free text.
    Used by the Leads tab and by each ad's own page, so both filter the same way. */
 
 const DAY = 86400000
-const PRESETS = [['all', 'All time'], ['today', 'Today'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 90 days'], ['custom', 'Custom range']]
+const PRESETS = [['all', 'All time'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 90 days'], ['month', 'This month'], ['lastmonth', 'Last month'], ['custom', 'Custom range']]
 const INITIAL = { q: '', stage: 'all', ad: 'all', preset: 'all', from: '', to: '' }
 
 const localDay = (ymd) => new Date(`${ymd}T00:00:00`).getTime()
 /** [fromMs, toMs) — null means open-ended */
 function bounds({ preset, from, to }) {
   if (preset === 'all') return [null, null]
-  if (preset === 'today') { const d = new Date(); d.setHours(0, 0, 0, 0); return [d.getTime(), null] }
+  const midnight = (offsetDays = 0, monthOffset = 0) => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + monthOffset, offsetDays === 'first' ? 1 : d.getDate() + offsetDays).getTime() }
+  if (preset === 'today') return [midnight(), null]
+  if (preset === 'yesterday') return [midnight(-1), midnight()]
+  if (preset === 'month') return [midnight('first'), null]
+  if (preset === 'lastmonth') return [midnight('first', -1), midnight('first')]
   if (preset === 'custom') return [from ? localDay(from) : null, to ? localDay(to) + DAY : null]       // "to" is inclusive
   return [Date.now() - Number(preset) * DAY, null]
 }
@@ -44,7 +49,7 @@ export function useLeadFilters(leads) {
 }
 
 export function RangeFilter({ f, set }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = ymd(new Date())          // the person's own today, not UTC's
   return (
     <>
       <NativeSelect sm value={f.preset} onChange={(e) => set({ preset: e.target.value })} className="!w-36">
@@ -52,7 +57,7 @@ export function RangeFilter({ f, set }) {
       </NativeSelect>
       {f.preset === 'custom' && (
         <div className="flex items-center gap-1.5">
-          <DatePicker value={f.from} onChange={(v) => set({ from: v, to: f.to && f.to < v ? v : f.to })} min="2015-01-01" max={f.to || today} className="w-36" />
+          <DatePicker value={f.from} onChange={(v) => set({ from: v, to: f.to && f.to < v ? v : f.to })} min="2015-01-01" max={today} className="w-36" />
           <span className="text-[11px] text-slate-400">to</span>
           <DatePicker value={f.to} onChange={(v) => set({ to: v })} min={f.from || '2015-01-01'} max={today} className="w-36" />
         </div>

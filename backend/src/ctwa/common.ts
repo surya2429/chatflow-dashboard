@@ -77,12 +77,34 @@ export function validateCreateAd(raw: unknown): CreateAdInput {
 /** unix seconds → YYYY-MM-DD (UTC), the form Meta's insights time_range wants */
 export const day = (unix: number) => new Date(unix * 1000).toISOString().slice(0, 10)
 
-/** Default last 30 days; at most 90; start before end. */
-export function parseRange(q: Record<string, unknown>, now = Date.now()): { start: number; end: number } {
+const DATE = /^\d{4}-\d{2}-\d{2}$/
+const dayNumber = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86400_000
+
+/**
+ * Default last 30 days; at most 90 days; start before end.
+ * `since` / `until` (YYYY-MM-DD) are the calendar days the person picked in their own time zone ("today", "yesterday",
+ * a custom range). They decide which days Meta's report and the sample data cover; start / end (unix seconds) still
+ * decide which leads fall inside, so both stay correct whatever the time zone.
+ */
+export function parseRange(q: Record<string, unknown>, now = Date.now()): { start: number; end: number; since?: string; until?: string } {
   const end = Math.floor(Number(q.end) || now / 1000)
   const start = Math.floor(Number(q.start) || end - 30 * 86400)
-  if (!(start < end) || end - start > 90 * 86400) throw new CtwaError('Choose a date range of up to 90 days.', 400, 'invalid_range')
-  return { start, end }
+  const since = typeof q.since === 'string' && DATE.test(q.since) && !isNaN(dayNumber(q.since)) ? q.since : undefined
+  const until = typeof q.until === 'string' && DATE.test(q.until) && !isNaN(dayNumber(q.until)) ? q.until : undefined
+  if (since && until && (dayNumber(until) < dayNumber(since) || dayNumber(until) - dayNumber(since) >= 90)) throw new CtwaError('Choose a date range of up to 90 days.', 400, 'invalid_range')
+  if (!(start < end) || end - start > 90 * 86400 + 7200) throw new CtwaError('Choose a date range of up to 90 days.', 400, 'invalid_range')
+  return { start, end, ...(since && until ? { since, until } : {}) }
+}
+
+/** Every calendar day (YYYY-MM-DD) a range covers; at most 91. */
+export function daysOf(range: { start: number; end: number; since?: string | undefined; until?: string | undefined }): string[] {
+  const out: string[] = []
+  if (range.since && range.until) {
+    for (let n = dayNumber(range.since); n <= dayNumber(range.until) && out.length < 91; n++) out.push(new Date(n * 86400_000).toISOString().slice(0, 10))
+    return out
+  }
+  for (let t = range.start; t <= range.end && out.length < 91; t += 86400) out.push(day(t))
+  return out
 }
 
 export const emptyMetrics = (): AdMetrics => ({ spend: 0, impressions: 0, reach: 0, clicks: 0, conversations: 0, ctr: null, cpc: null, costPerConversation: null })

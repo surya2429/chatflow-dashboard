@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { RefreshCw, Plus, X, LayoutDashboard, Megaphone, Users, Settings2, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
-import { ctwa, lastDays } from '../lib/ctwaApi'
+import { ctwa } from '../lib/ctwaApi'
+import DatePicker from '../components/DatePicker'
+import { MAX_DAYS, PRESETS, resolveRange, ymd } from '../components/ctwa/dateRange'
 import Overview from '../components/ctwa/Overview'
 import AdsTable from '../components/ctwa/AdsTable'
 import AdDetail from '../components/ctwa/AdDetail'
@@ -15,7 +17,6 @@ import { NativeSelect } from '../components/Select'
 import { Banner, Spinner } from '../components/ctwa/ui'
 
 const TABS = [['overview', 'Overview', LayoutDashboard], ['ads', 'Ads', Megaphone], ['create', 'Create ad', Sparkles], ['leads', 'Leads', Users], ['setup', 'Setup', Settings2]]
-const RANGES = [[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days']]
 
 /** Click-to-WhatsApp ads: performance, creating and managing ads, the leads they bring in, and the Meta connection. */
 export default function CtwaAds() {
@@ -23,7 +24,11 @@ export default function CtwaAds() {
   const tab = TABS.some(([k]) => k === params.get('tab')) ? params.get('tab') : 'overview'
   const setTab = (k) => setParams(k === 'overview' ? {} : { tab: k }, { replace: true })
 
-  const [days, setDays] = useState(30)
+  const [range, setRange] = useState({ preset: '30', from: '', to: '' })
+  const resolved = useMemo(() => resolveRange(range), [range])         // null while a custom range is incomplete or longer than 90 days
+  const key = resolved ? `${resolved.since}|${resolved.until}` : ''
+  const resolvedRef = useRef(resolved)
+  resolvedRef.current = resolved
   const [dash, setDash] = useState(null)
   const [prev, setPrev] = useState(null)       // the period just before, for "vs previous period"
   const [leads, setLeads] = useState(null)       // { leads, capiLive, mode }
@@ -43,13 +48,14 @@ export default function CtwaAds() {
   const load = useCallback(async () => {
     setError('')
     try {
-      const [start, end] = lastDays(days)
-      const [d, l] = await Promise.all([ctwa.dashboard(start, end), ctwa.leads()])
+      const r = resolvedRef.current
+      if (!r) { setLoading(false); return }
+      const [d, l] = await Promise.all([ctwa.dashboard(r), ctwa.leads()])
       setDash(d); setLeads(l); setSyncedAt(new Date())
-      ctwa.dashboard(start - days * 86400, start).then(setPrev).catch(() => setPrev(null))      // a comparison is nice to have, never a reason to fail
+      ctwa.dashboard(r.prev).then(setPrev).catch(() => setPrev(null))      // a comparison is nice to have, never a reason to fail
       return { d, l }
     } catch (e) { setError(e.message) } finally { setLoading(false) }
-  }, [days])
+  }, [key])      // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ads are read from Meta on every load, so syncing is a fresh pull of the ads, their results and the leads
   const sync = async () => {
@@ -83,9 +89,19 @@ export default function CtwaAds() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {showRange && (
-            <NativeSelect value={days} onChange={(e) => setDays(Number(e.target.value))} sm className="!w-36">
-              {RANGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </NativeSelect>
+            <>
+              <NativeSelect value={range.preset} onChange={(e) => setRange({ ...range, preset: e.target.value })} sm className="!w-36">
+                {PRESETS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </NativeSelect>
+              {range.preset === 'custom' && (
+                <div className="flex items-center gap-1.5">
+                  <DatePicker value={range.from} onChange={(v) => setRange({ ...range, from: v, to: range.to && range.to < v ? v : range.to })} min="2015-01-01" max={ymd(new Date())} className="w-36" />
+                  <span className="text-[11px] text-slate-400">to</span>
+                  <DatePicker value={range.to} onChange={(v) => setRange({ ...range, to: v })} min={range.from || '2015-01-01'} max={ymd(new Date())} className="w-36" />
+                </div>
+              )}
+              {range.preset === 'custom' && !resolved && <span className="text-[10.5px] text-amber-600 whitespace-nowrap">{range.from && range.to ? `Up to ${MAX_DAYS} days` : 'Pick both dates'}</span>}
+            </>
           )}
           {syncedAt && <span className="hidden md:inline text-[10.5px] text-slate-400 whitespace-nowrap">Synced {syncedAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}</span>}
           <button onClick={sync} disabled={syncing} title="Pull the latest ads, results and leads from Meta"
@@ -123,13 +139,13 @@ export default function CtwaAds() {
       {tab === 'setup' ? <Setup meta={meta} />
         : error ? <Banner tone="error" action={<button onClick={() => { setLoading(true); load() }} className="font-semibold underline">Try again</button>}>{error}</Banner>
         : !data ? <Spinner />
-        : tab === 'overview' ? <Overview data={data} prev={prev} leads={leads?.leads} rangeLabel={RANGES.find(([v]) => v === days)?.[1]} onOpenAd={(a) => setOpenAdId(a.id)} onGoLeads={() => setTab('leads')} />
+        : tab === 'overview' ? <Overview data={data} prev={prev} leads={leads?.leads} rangeLabel={resolved?.label} onOpenAd={(a) => setOpenAdId(a.id)} onGoLeads={() => setTab('leads')} />
         : tab === 'ads' ? <AdsTable data={data} reload={load} notify={notify} onCreate={() => setTab('create')} onOpenAd={(a) => setOpenAdId(a.id)} />
         : tab === 'create' ? <CreateAd data={data} notify={notify} onDone={() => { load(); setTab('ads') }} />
         : <Leads leads={leads?.leads ?? []} ads={data.ads} currency={data.currency} mode={leads?.mode} capiLive={leads?.capiLive} reload={load} notify={notify} />}
       {data?.ads.find((a) => a.id === openAdId) && (
         <AdDetail ad={data.ads.find((a) => a.id === openAdId)} stats={data.leadStats?.[openAdId]} currency={data.currency} mode={data.mode} capiLive={leads?.capiLive}
-          rangeLabel={RANGES.find(([v]) => v === days)?.[1]} onClose={() => setOpenAdId(null)} onChanged={load} notify={notify} />
+          rangeLabel={resolved?.label} onClose={() => setOpenAdId(null)} onChanged={load} notify={notify} />
       )}
     </div>
   )

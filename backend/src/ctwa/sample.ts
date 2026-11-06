@@ -5,7 +5,7 @@
 import {
   CtwaError, type AdPatch, type AdsBackend, type CreateAdInput, type CreatedAd, type CtwaAd, type CtwaStore, type DailyPoint, type Lead, type LeadEvent, type LeadStats, type Referral,
 } from './types.js'
-import { day, emptyMetrics, finishMetrics, sumMetrics } from './common.js'
+import { day, daysOf, emptyMetrics, finishMetrics, sumMetrics } from './common.js'
 
 const DAY = 86400_000
 
@@ -55,7 +55,7 @@ export function createSampleAds(now: () => number = Date.now, currency = 'INR'):
     const conversations = Math.round(clicks * a.profile.convRate * k('v', 0.7, 1.3))
     return { spend: (impressions / 1000) * a.profile.cpm * k('s', 0.92, 1.08), impressions, reach: Math.round(impressions * k('r', 0.55, 0.7)), clicks, conversations }
   }
-  const days = (range: { start: number; end: number }) => { const out: string[] = []; for (let t = range.start; t <= range.end; t += 86400) out.push(day(t)); return out.slice(0, 91) }
+  const days = (range: { start: number; end: number; since?: string | undefined; until?: string | undefined }) => daysOf(range)
 
   const view = (a: SampleAd, range: { start: number; end: number }): CtwaAd => {
     const parts = days(range).map((d) => dayMetrics(a, d)).filter((m): m is NonNullable<typeof m> => !!m)

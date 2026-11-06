@@ -20,7 +20,8 @@ async function call(method, path, body) {
 }
 
 export const ctwa = {
-  dashboard: (start, end) => call('GET', `/dashboard?start=${start}&end=${end}`),
+  // r: { start, end, since, until } from components/ctwa/dateRange.js
+  dashboard: (r)          => call('GET', `/dashboard?start=${r.start}&end=${r.end}&since=${r.since}&until=${r.until}`),
   status:    ()           => call('GET', '/status'),
   createAd:  (input)      => call('POST', '/ads', input),
   updateAd:  (id, patch)  => call('PATCH', `/ads/${encodeURIComponent(id)}`, patch),

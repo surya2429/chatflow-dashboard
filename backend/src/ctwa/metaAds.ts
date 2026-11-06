@@ -131,7 +131,7 @@ export function createMetaAds(cfg: MetaAdsConfig): AdsBackend {
 
     async dashboard(range) {
       const cur = await currency()
-      const time_range = JSON.stringify({ since: day(range.start), until: day(range.end) })
+      const time_range = JSON.stringify({ since: range.since ?? day(range.start), until: range.until ?? day(range.end) })
       const fields = 'spend,impressions,reach,clicks,actions'
       const [adRows, insights, dailyRows] = await Promise.all([
         all(`${act}/ads`, {

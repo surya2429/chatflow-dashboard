@@ -49,7 +49,7 @@ export interface DailyPoint { date: string; spend: number; impressions: number; 
 export interface Dashboard {
   mode: 'live' | 'sample'
   currency: string
-  range: { start: number; end: number }
+  range: { start: number; end: number; since?: string; until?: string }
   totals: AdMetrics
   daily: DailyPoint[]
   ads: CtwaAd[]
@@ -97,7 +97,7 @@ export interface SetupInfo {
 export interface AdsBackend {
   mode: 'live' | 'sample'
   currency(): Promise<string>
-  dashboard(range: { start: number; end: number }): Promise<Omit<Dashboard, 'mode' | 'currency' | 'range' | 'leadStats'>>
+  dashboard(range: { start: number; end: number; since?: string | undefined; until?: string | undefined }): Promise<Omit<Dashboard, 'mode' | 'currency' | 'range' | 'leadStats'>>
   createAd(input: CreateAdInput): Promise<CreatedAd>
   updateAd(adId: string, patch: AdPatch): Promise<void>
   setup(): Promise<SetupInfo>
@@ -139,7 +139,7 @@ export interface CtwaStore {
   /** newest first; `sourceId` narrows it to the leads of one ad */
   listLeads(limit: number, sourceId?: string): Promise<Lead[]>
   /** per ad id, for referrals created inside the range (unix seconds) */
-  statsBySource(range: { start: number; end: number }): Promise<Record<string, LeadStats>>
+  statsBySource(range: { start: number; end: number; since?: string | undefined; until?: string | undefined }): Promise<Record<string, LeadStats>>
   /** the newest ad referral for a WhatsApp number, if the chat came from an ad */
   latestForWaId(waId: string): Promise<Lead | null>
   logEvent(waId: string, ctwaClid: string | null, e: LeadEvent): Promise<void>
