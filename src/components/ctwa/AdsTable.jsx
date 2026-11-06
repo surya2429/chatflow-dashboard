@@ -103,7 +103,7 @@ export default function AdsTable({ data, reload, notify, onCreate, onOpenAd }) {
                 const working = busy === a.id
                 const editing = edit?.id === a.id
                 return (
-                  <tr key={a.id} className="border-b border-surface-border/70 hover:bg-slate-50/60">
+                  <tr key={a.id} onClick={(e) => !editing && !e.target.closest('button,input,[role=switch]') && onOpenAd(a)} title="Click to see the leads from this ad" className="border-b border-surface-border/70 hover:bg-slate-50/60 cursor-pointer">
                     <td className="px-3 py-3 sticky left-0 bg-white">
                       <div className="flex items-center gap-3">
                         <span className="w-11 h-11 rounded-lg bg-gradient-to-br from-emerald-100 to-sky-100 flex items-center justify-center overflow-hidden flex-shrink-0">
