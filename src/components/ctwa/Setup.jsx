@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, XCircle, Copy, Check, RefreshCw, ChevronDown } from 'lucide-react'
 import { ctwa } from '../../lib/ctwaApi'
 import ConnectMeta from './ConnectMeta'
@@ -26,9 +26,9 @@ function CopyBlock({ text }) {
   )
 }
 
-function Details({ title, children }) {
+function Details({ title, children, open, onToggle }) {
   return (
-    <details className="group border border-surface-border rounded-xl">
+    <details open={open} onToggle={(e) => onToggle?.(e.currentTarget.open)} className="group border border-surface-border rounded-xl">
       <summary className="flex items-center justify-between cursor-pointer list-none px-4 py-3 text-xs font-bold text-slate-700">{title}<ChevronDown size={14} className="text-slate-400 transition-transform group-open:rotate-180" /></summary>
       <div className="px-4 pb-4 space-y-3 text-[11px] text-slate-500 leading-relaxed">{children}</div>
     </details>
@@ -38,15 +38,18 @@ function Details({ title, children }) {
 export default function Setup({ meta }) {
   const [s, setS] = useState(null)
   const [err, setErr] = useState('')
+  const [adminOpen, setAdminOpen] = useState(false)
+  const adminRef = useRef(null)
+  const showAdmin = () => { setAdminOpen(true); setTimeout(() => adminRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60) }
   const load = useCallback(() => { setS(null); setErr(''); ctwa.status().then(setS).catch((e) => setErr(e.message)) }, [])
   const sel = meta.conn?.selected
   useEffect(load, [load, meta.conn?.connected, sel?.adAccountId, sel?.pageId, sel?.wabaId])
 
   return (
+    <div className="space-y-5">
+    <ConnectMeta meta={meta} onNeedAdmin={showAdmin} />
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
       <div className="space-y-5">
-        <ConnectMeta meta={meta} />
-
         <Card title="Health check" sub={s?.mode === 'live' ? 'Live: using your Meta ad account' : 'Sample mode: no Meta account connected yet'}
           right={<button onClick={load} aria-label="Check again" className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-surface-border text-[11px] font-semibold text-slate-600 hover:border-primary hover:text-primary"><RefreshCw size={12} /> Check again</button>} bodyClass="p-4 space-y-3">
           {err && <Banner tone="error">{err}</Banner>}
@@ -84,7 +87,7 @@ export default function Setup({ meta }) {
           </div>
         </Card>
 
-        <Details title="For the platform admin: enable “Connect with Facebook”">
+        <div ref={adminRef}><Details open={adminOpen} onToggle={setAdminOpen} title="For the platform admin: enable “Connect with Facebook”">
           <ol className="list-decimal pl-4 space-y-1.5">
             <li>In developers.facebook.com, use your Meta app (type Business) and add <b>Facebook Login for Business</b>.</li>
             <li>Create a configuration with the WhatsApp Embedded Signup variation. Request <b>ads_management, ads_read, business_management, pages_show_list, whatsapp_business_management, whatsapp_business_manage_events</b>. Choose the token type “Business Integration System User”.</li>
@@ -92,13 +95,14 @@ export default function Setup({ meta }) {
             <li>Set the variables below on the API server, restart, and run <b>npm run migrate</b> once.</li>
           </ol>
           <CopyBlock text={ADMIN_VARS} />
-        </Details>
+        </Details></div>
 
         <Details title="Advanced: use one fixed account instead">
           <p>If this dashboard only ever manages one ad account, you can skip the popup and set these on the server.</p>
           <CopyBlock text={MANUAL_VARS} />
         </Details>
       </div>
+    </div>
     </div>
   )
 }

@@ -23,10 +23,11 @@ function formatDisplay(v) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-export default function DatePicker({ value, onChange, min, className = '', textSize = 'text-[11px]' }) {
+export default function DatePicker({ value, onChange, min, max, className = '', textSize = 'text-[11px]' }) {
   const today = new Date(); today.setHours(0,0,0,0)
   const sel   = parseYMD(value)
   const minDt = parseYMD(min) || today
+  const maxDt = parseYMD(max)
 
   const [open,      setOpen]      = useState(false)
   const [viewYear,  setViewYear]  = useState((sel || today).getFullYear())
@@ -58,7 +59,7 @@ export default function DatePicker({ value, onChange, min, className = '', textS
   }
 
   function selectDay(d) {
-    if (!d || d < minDt) return
+    if (!d || d < minDt || (maxDt && d > maxDt)) return
     onChange(toYMD(d))
     setOpen(false)
   }
@@ -112,7 +113,7 @@ export default function DatePicker({ value, onChange, min, className = '', textS
               if (!d) return <div key={i}/>
               const isSel      = sel && d.toDateString() === sel.toDateString()
               const isToday    = d.toDateString() === today.toDateString()
-              const isDisabled = d < minDt
+              const isDisabled = d < minDt || (maxDt && d > maxDt)
               return (
                 <button
                   key={i}
@@ -134,7 +135,7 @@ export default function DatePicker({ value, onChange, min, className = '', textS
           </div>
 
           {/* Today shortcut */}
-          {!isNaN(minDt) && minDt <= today && (
+          {!isNaN(minDt) && minDt <= today && (!maxDt || maxDt >= today) && (
             <div className="mt-3 pt-3 border-t border-slate-100 flex justify-center">
               <button type="button" onClick={() => selectDay(today)}
                 className="text-[10px] font-semibold text-primary hover:text-primary-hover transition-colors">

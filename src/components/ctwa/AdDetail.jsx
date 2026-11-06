@@ -8,6 +8,7 @@ import { leadsExportTable } from './exports'
 import { findConversation, revenueOf } from './journey'
 import LeadDetail from './LeadDetail'
 import { EventChips } from './Leads'
+import { LeadFilterBar, useLeadFilters } from './filters'
 import { Banner, Card, CopyChip, Drawer, Spinner, StatusPill } from './ui'
 
 const when = (iso) => new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -19,6 +20,8 @@ export default function AdDetail({ ad, stats, currency, mode, capiLive, rangeLab
   const [leads, setLeads] = useState(null)
   const [error, setError] = useState('')
   const [openId, setOpenId] = useState(null)
+  const filters = useLeadFilters(leads ?? [])
+  const shown = filters.shown
   const m = ad.metrics
   const s = stats ?? { leads: 0, qualified: 0, purchases: 0, revenue: 0 }
 
@@ -26,7 +29,7 @@ export default function AdDetail({ ad, stats, currency, mode, capiLive, rangeLab
   useEffect(() => { setLeads(null); load() }, [load])
   const changed = () => { load(); onChanged?.() }
 
-  const exportTable = useMemo(() => leadsExportTable({ leads: (leads ?? []).map((l) => ({ ...l, adName: l.adName || ad.name })), ads: [ad], findChat: (l) => findConversation(l, conversations), currency }), [leads, ad, conversations, currency])
+  const exportTable = useMemo(() => leadsExportTable({ leads: shown.map((l) => ({ ...l, adName: l.adName || ad.name })), ads: [ad], findChat: (l) => findConversation(l, conversations), currency }), [shown, ad, conversations, currency])
 
   const funnel = [['Conversations started', m.conversations, 'On Meta'], ['Leads captured', s.leads, 'In your dashboard'], ['Qualified', s.qualified], ['Purchased', s.purchases]]
   const open = leads?.find((l) => l.id === openId)
@@ -85,16 +88,20 @@ export default function AdDetail({ ad, stats, currency, mode, capiLive, rangeLab
             </Card>
           </div>
 
-          <Card title="Leads from this ad" sub="Everyone who started a chat from it, newest first" right={leads?.length ? <ExportMenu table={exportTable} name={`leads-${ad.name}`} /> : null} bodyClass="">
+          <div className="space-y-3">
+            <div><h3 className="text-xs font-bold text-slate-800">Leads from this ad</h3><p className="text-[10.5px] text-slate-400 mt-0.5">Everyone who started a chat from it, newest first. Filter by date, stage or name.</p></div>
+            {leads?.length > 0 && <LeadFilterBar filters={filters} total={leads.length} right={<ExportMenu table={exportTable} name={`leads-${ad.name}`} />} />}
+          <Card bodyClass="">
             {error && <div className="p-4"><Banner tone="error">{error}</Banner></div>}
             {!leads && !error && <Spinner label="Loading leads…" />}
             {leads && !leads.length && <p className="px-4 py-10 text-center text-xs text-slate-400">No leads from this ad yet. They appear here as soon as someone messages you from it.</p>}
-            {leads?.length > 0 && (
+            {leads?.length > 0 && !shown.length && <p className="px-4 py-10 text-center text-xs text-slate-400">No leads match these filters.</p>}
+            {shown.length > 0 && (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead><tr className="bg-slate-50 text-left text-[10.5px] font-semibold text-slate-500">{['Lead', 'Started chat', 'Chat', 'Sent to Meta', 'Sales'].map((h) => <th key={h} className={clsx('px-4 py-2.5 border-b border-surface-border whitespace-nowrap', h === 'Sales' && 'text-right')}>{h}</th>)}</tr></thead>
                   <tbody>
-                    {leads.map((l) => {
+                    {shown.map((l) => {
                       const conv = findConversation(l, conversations)
                       const chat = conv && (CHAT[conv.status] || [conv.status, 'bg-slate-100 text-slate-600'])
                       const rev = revenueOf(l)
@@ -114,6 +121,7 @@ export default function AdDetail({ ad, stats, currency, mode, capiLive, rangeLab
               </div>
             )}
           </Card>
+          </div>
         </div>
       </Drawer>
       {open && <LeadDetail lead={{ ...open, adName: open.adName || ad.name }} currency={currency} mode={mode} capiLive={capiLive} z="z-[65]" onClose={() => setOpenId(null)} onChanged={changed} notify={notify} />}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Search, Send, Check, AlertCircle, FlaskConical, UserCheck, ShoppingBag, Users } from 'lucide-react'
+import { Send, Check, AlertCircle, FlaskConical, UserCheck, ShoppingBag, Users } from 'lucide-react'
 import clsx from 'clsx'
 import { money, num } from '../../lib/ctwaApi'
 import { ExportMenu } from '../ai/AiData'
@@ -8,7 +8,8 @@ import LeadDetail from './LeadDetail'
 import { leadsExportTable } from './exports'
 import { findConversation } from './journey'
 import { useConversations } from '../../context/ConversationContext'
-import { Card, Segmented, Stat, inputCls } from './ui'
+import { LeadFilterBar, useLeadFilters } from './filters'
+import { Card, Stat } from './ui'
 
 const when = (iso) => new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 
@@ -29,27 +30,17 @@ export function EventChips({ events }) {
 
 export default function Leads({ leads, ads, currency, mode, capiLive, reload, notify }) {
   const { conversations } = useConversations()
-  const [q, setQ] = useState('')
-  const [adFilter, setAdFilter] = useState('all')
-  const [stage, setStage] = useState('all')       // the pipeline: all → new → qualified → purchased
   const [dialog, setDialog] = useState(null)       // { lead, initial }
   const [openId, setOpenId] = useState(null)         // the lead whose full story is open
 
   const has = (l, name) => l.events.some((e) => e.eventName === name && e.status !== 'failed')
   const adName = useMemo(() => Object.fromEntries(ads.map((a) => [a.id, a.name])), [ads])
   const rows = useMemo(() => leads.map((l) => ({ ...l, adName: l.adName || adName[l.sourceId] || null })), [leads, adName])
-  const shown = rows.filter((l) => {
-    if (adFilter !== 'all' && l.sourceId !== adFilter) return false
-    if (stage === 'new' && l.events.length) return false
-    if (stage === 'qualified' && !has(l, 'QualifiedLead')) return false
-    if (stage === 'purchased' && !has(l, 'Purchase')) return false
-    const s = q.trim().toLowerCase()
-    return !s || (l.contactName || '').toLowerCase().includes(s) || l.waId.includes(s.replace(/\D/g, '') || '§') || (l.adName || '').toLowerCase().includes(s) || (l.headline || '').toLowerCase().includes(s) || (l.sourceId || '').includes(s)
-  })
-  const counts = { all: rows.length, new: rows.filter((l) => !l.events.length).length, qualified: rows.filter((l) => has(l, 'QualifiedLead')).length, purchased: rows.filter((l) => has(l, 'Purchase')).length }
+  const filters = useLeadFilters(rows)
+  const shown = filters.shown
   const adOptions = [...new Map(rows.filter((l) => l.sourceId).map((l) => [l.sourceId, l.adName || l.headline || l.sourceId])).entries()]
 
-  const purchases = rows.flatMap((l) => l.events.filter((e) => e.eventName === 'Purchase' && e.status !== 'failed'))
+  const purchases = shown.flatMap((l) => l.events.filter((e) => e.eventName === 'Purchase' && e.status !== 'failed'))
   const exportTable = useMemo(() => leadsExportTable({ leads: shown, ads, findChat: (l) => findConversation(l, conversations), currency }), [shown, ads, conversations, currency])
 
   const sent = (name, status) => { notify(status === 'simulated' ? `“${eventLabel(name)}” recorded as a test (sample mode, nothing was sent to Meta).` : `“${eventLabel(name)}” was sent to Meta.`, 'ok'); reload() }
@@ -57,26 +48,15 @@ export default function Leads({ leads, ads, currency, mode, capiLive, reload, no
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat label="Leads from ads" value={num(rows.length)} icon={Users} />
-        <Stat label="Qualified" value={num(rows.filter((l) => has(l, 'QualifiedLead')).length)} icon={UserCheck} tone="text-sky-600 bg-sky-50" />
+        <Stat label="Leads from ads" value={num(shown.length)} icon={Users} />
+        <Stat label="Qualified" value={num(shown.filter((l) => has(l, 'QualifiedLead')).length)} icon={UserCheck} tone="text-sky-600 bg-sky-50" />
         <Stat label="Purchases" value={num(purchases.length)} icon={ShoppingBag} tone="text-emerald-600 bg-emerald-50" />
         <Stat label="Revenue reported" value={money(purchases.reduce((n, e) => n + (e.value || 0), 0), purchases[0]?.currency || currency)} icon={ShoppingBag} tone="text-amber-600 bg-amber-50" />
       </div>
 
-      <Card bodyClass="">
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-surface-border">
-          <Segmented value={stage} onChange={setStage} options={[{ key: 'all', label: 'All', count: counts.all }, { key: 'new', label: 'New', count: counts.new }, { key: 'qualified', label: 'Qualified', count: counts.qualified }, { key: 'purchased', label: 'Purchased', count: counts.purchased }]} />
-          <div className="relative">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, number, ad or ID" aria-label="Search leads" className={clsx(inputCls, 'pl-8 w-60')} />
-          </div>
-          <select value={adFilter} onChange={(e) => setAdFilter(e.target.value)} aria-label="Filter by ad" className={clsx(inputCls, 'w-52')}>
-            <option value="all">All ads</option>
-            {adOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-          </select>
-          <div className="ml-auto"><ExportMenu table={exportTable} name="ctwa-leads" /></div>
-        </div>
+      <LeadFilterBar filters={filters} ads={adOptions} total={rows.length} right={<ExportMenu table={exportTable} name="ctwa-leads" />} />
 
+      <Card bodyClass="">
         {mode === 'sample' && <p className="px-4 py-2 text-[11px] bg-amber-50 text-amber-800 border-b border-amber-100">Sample leads. Events you send here are recorded as tests and never reach Meta.</p>}
         {mode === 'live' && !capiLive && <p className="px-4 py-2 text-[11px] bg-amber-50 text-amber-800 border-b border-amber-100">Set WA_BUSINESS_ACCOUNT_ID on the server to send conversion events to Meta.</p>}
 
