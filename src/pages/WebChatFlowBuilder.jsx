@@ -22,6 +22,7 @@ import PopupShell, { PopupSection, PopupFooter } from '../components/webchat/Pop
 import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
 import CompanyEmailSetting from '../components/webchat/CompanyEmailSetting'
 import PropertyCardsEditor from '../components/webchat/PropertyCardsEditor'
+import { dedupeNodeIds, nextNodeId } from '../lib/flowNodeIds'
 import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES, CHOICE_DIRECTIONS, CHOICE_DEFAULT_DIRECTION } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
 
@@ -134,8 +135,6 @@ const NODE_H = 66
 const PORT_R = 7
 const MAX_NODES = 60
 
-let _uid = 100
-const uid = () => `n${++_uid}`
 const bezier = (x1, y1, x2, y2) => { const dx = Math.abs(x2 - x1) * 0.5; return `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}` }
 
 /* ─── Courier/logistics bot — the real Main Flow content ─────────────────
@@ -2104,7 +2103,9 @@ function PreviewSimulator({ flow, allFlows, onClose }) {
 
 /* ─── canvas builder view ──────────────────────────────────────────────── */
 function BuilderView({ flow, onBack, onSave, allFlows }) {
-  const [nodes, setNodes] = useState(flow.graph.nodes)
+  // a flow saved with two nodes sharing an id (see lib/flowNodeIds.js) is repaired as it opens
+  const startNodes = useMemo(() => dedupeNodeIds(flow.graph.nodes), [])      // eslint-disable-line react-hooks/exhaustive-deps
+  const [nodes, setNodes] = useState(startNodes)
   const [edges, setEdges] = useState(flow.graph.edges)
   const [selectedId, setSelectedId] = useState(null)
   const [selectedEdgeId, setSelectedEdgeId] = useState(null)
@@ -2116,7 +2117,7 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
   const [flowName, setFlowName] = useState(flow.name)
   const [editName, setEditName] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [history, setHistory] = useState([{ nodes: flow.graph.nodes, edges: flow.graph.edges }])
+  const [history, setHistory] = useState([{ nodes: startNodes, edges: flow.graph.edges }])
   const [histIdx, setHistIdx] = useState(0)
   const [connecting, setConnecting] = useState(null)
   const [hoverPortNode, setHoverPortNode] = useState(null)
@@ -2227,7 +2228,7 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
 
   const addNode = useCallback(type => {
     if (nodes.length >= MAX_NODES) return
-    const n = { id: uid(), type, x: (-pan.x + 400) / zoom, y: (-pan.y + 250) / zoom, data: makeDefaults(type) }
+    const n = { id: nextNodeId(nodes), type, x: (-pan.x + 400) / zoom, y: (-pan.y + 250) / zoom, data: makeDefaults(type) }
     const nn = [...nodes, n]
     applyHistory(nn, edges); setSelectedId(n.id)
   }, [nodes, edges, pan, zoom, applyHistory])
