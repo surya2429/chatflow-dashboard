@@ -13,6 +13,8 @@ import { aiRouter } from './routes/ai.routes.js'
 import { ctwaRouter } from './routes/ctwa.routes.js'
 import { catalogRouter } from './routes/catalog.routes.js'
 import { marketingTrackingRouter } from './routes/marketingTracking.routes.js'
+import { mediaRouter } from './routes/media.routes.js'
+import { MAX_UPLOAD_BYTES } from './media/media.js'
 
 export function createApp(): Express {
   const app = express()
@@ -27,6 +29,8 @@ export function createApp(): Express {
   app.use('/api/ai/run', express.json({ limit: '400kb' }))
   // Creating a Click-to-WhatsApp ad can carry the uploaded image (up to 4 MB, as base64).
   app.use('/api/whatsapp/ctwa/ads', express.json({ limit: '8mb' }))
+  // Photos and videos for the website chat arrive as the raw file bytes (up to 40 MB), not JSON.
+  app.use('/api/webchat-media', express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES }))
   // Importing a catalog file sends up to 1000 products at once.
   app.use('/api/whatsapp/catalog/products/import', express.json({ limit: '2mb' }))
 
@@ -65,6 +69,7 @@ export function createApp(): Express {
   app.use('/api', ctwaRouter)
   app.use('/api', catalogRouter)
   app.use(marketingTrackingRouter)
+  app.use(mediaRouter)
 
   app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found', path: req.path })

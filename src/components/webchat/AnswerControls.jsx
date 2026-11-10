@@ -1595,14 +1595,16 @@ export function PropertyCard({ card, accent, dark, data = {}, onSubmit }) {
   const locUrl = safeUrl(card.locationUrl)
   const tags = highlightsOf(card)
   const buttons = [
-    data.interestedEnabled !== false && { id: 'interested', label: data.interestedLabel || 'Interested', url: safeUrl(card.interestedUrl), solid: true },
-    data.siteVisitEnabled !== false && { id: 'visit', label: data.siteVisitLabel || 'Site visit', url: safeUrl(card.siteVisitUrl), solid: false },
+    data.interestedEnabled !== false && { id: 'interested', label: data.interestedLabel || 'Interested', url: safeUrl(card.interestedUrl), jump: card.interestedJump, solid: true },
+    data.siteVisitEnabled !== false && { id: 'visit', label: data.siteVisitLabel || 'Site visit', url: safeUrl(card.siteVisitUrl), jump: card.siteVisitJump, solid: false },
   ].filter(Boolean)
-  // an external link opens in a new tab AND the answer is recorded, so the flow carries on either way
+  // an external link opens in a new tab AND the answer is recorded, so the flow carries on either way; a button that
+  // stays in the chat can also name the question to jump to
   const act = b => {
     if (!onSubmit) return
     if (b.url) window.open(b.url, '_blank', 'noopener,noreferrer')
-    onSubmit(`${b.label}: ${card.name}`)
+    const j = !b.url && b.jump?.flowId && b.jump?.nodeId ? { flowId: b.jump.flowId, nodeId: b.jump.nodeId } : null
+    onSubmit(`${b.label}: ${card.name}`, j ? { jump: j } : undefined)
   }
   return (
     <div className="flex-shrink-0 rounded-2xl overflow-hidden flex flex-col"

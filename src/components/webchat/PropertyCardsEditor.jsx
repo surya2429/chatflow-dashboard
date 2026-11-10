@@ -2,9 +2,12 @@
 // Three panes inside the question's edit popup: the list of projects, the form for the selected project, and a live
 // preview of exactly the card a visitor will see. The buttons shared by every card (labels, on/off) sit on top.
 // It edits the popup's draft; the popup's own Save changes / Cancel decide whether it sticks.
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import clsx from 'clsx'
-import { AlertCircle, Building2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, ExternalLink, Play, Plus, Trash2, X } from 'lucide-react'
+import { AlertCircle, Building2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, ExternalLink, Loader2, Play, Plus, Trash2, Upload, X } from 'lucide-react'
+import { NativeSelect } from '../Select'
+import { useBotId } from '../../constants/webchat'
+import { MAX_IMAGE_MB, MAX_VIDEO_MB, MEDIA_ACCEPT, uploadMedia } from '../../lib/mediaApi'
 import { PropertyCard } from './AnswerControls'
 import {
   GST_PRESETS, MAX_HIGHLIGHTS, MAX_MEDIA, STATUS_OPTIONS, cardProblems, highlightsOf, linkError, mediaOf, newPropertyCard, safeUrl, DEFAULT_PROPERTIES,
@@ -46,7 +49,9 @@ function MediaTile({ url, first, last, onMove, onRemove }) {
     <div className="relative w-[92px] flex-shrink-0">
       <div className="h-[64px] rounded-lg overflow-hidden bg-slate-200 flex items-center justify-center border border-slate-200" title={url}>
         {src && !bad ? <img src={src} alt="" className="w-full h-full object-cover" onError={() => setBad(true)}/>
+          : m?.kind === 'video' ? <video src={`${m.src}#t=0.1`} muted preload="metadata" playsInline className="w-full h-full object-cover bg-slate-800" onError={() => setBad(true)}/>
           : m ? <Play size={16} className="text-slate-500"/> : <AlertCircle size={16} className="text-red-400"/>}
+        {m && m.kind !== 'image' && <Play size={14} className="absolute text-white drop-shadow pointer-events-none"/>}
       </div>
       <span className="absolute left-1 top-1 px-1 rounded text-[8.5px] font-bold text-white bg-black/50">{first ? 'Cover' : (m?.label || 'Link?')}</span>
       <button type="button" onClick={onRemove} aria-label="Remove" className="absolute -right-1.5 -top-1.5 w-[18px] h-[18px] rounded-full bg-white border border-slate-200 text-slate-500 hover:text-red-500 flex items-center justify-center shadow-sm"><X size={10}/></button>
@@ -58,34 +63,87 @@ function MediaTile({ url, first, last, onMove, onRemove }) {
   )
 }
 
+/* A photo or video being sent: shows how far it has got. */
+function UploadingTile({ name, pct }) {
+  return (
+    <div className="w-[92px] flex-shrink-0" aria-live="polite">
+      <div className="h-[64px] rounded-lg border border-dashed border-primary/40 bg-white flex flex-col items-center justify-center gap-1.5 px-2">
+        <Loader2 size={15} className="animate-spin text-primary"/>
+        <div className="w-full h-1 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }}/></div>
+      </div>
+      <p className="text-[9px] text-slate-400 truncate mt-1 text-center" title={name}>{pct}% · {name}</p>
+    </div>
+  )
+}
+
 function MediaEditor({ media, onChange }) {
+  const botId = useBotId()
   const list = (media || []).filter(m => String(m || '').trim())
   const [draft, setDraft] = useState('')
   const [err, setErr] = useState('')
-  const add = () => {
+  const [busy, setBusy] = useState([])            // [{ key, name, pct }] uploads in flight
+  const [over, setOver] = useState(false)
+  const fileRef = useRef(null)
+  const latest = useRef(list); latest.current = list
+  const room = MAX_MEDIA - list.length - busy.length
+
+  const addLink = () => {
     const v = draft.trim()
     if (!v) return
     if (!safeUrl(v)) return setErr('Paste a full link starting with https://')
-    if (list.length >= MAX_MEDIA) return setErr(`Up to ${MAX_MEDIA} photos or videos per project.`)
+    if (room <= 0) return setErr(`Up to ${MAX_MEDIA} photos or videos per project.`)
     setErr(''); setDraft(''); onChange([...list, v])
   }
+
+  async function upload(files) {
+    const picked = [...files]
+    if (!picked.length) return
+    setErr('')
+    const take = picked.slice(0, Math.max(0, room))
+    const problems = picked.length > take.length ? [`Up to ${MAX_MEDIA} photos or videos per project. ${picked.length - take.length} not added.`] : []
+    let acc = [...latest.current]
+    for (const file of take) {                    // one after another: each result is added on top of the last
+      const key = `${file.name}-${Date.now()}-${Math.random()}`
+      setBusy(b => [...b, { key, name: file.name, pct: 0 }])
+      try {
+        const url = await uploadMedia(botId, file, pct => setBusy(b => b.map(x => (x.key === key ? { ...x, pct } : x))))
+        acc = [...acc, url]; onChange(acc)
+      } catch (e) { problems.push(e.message) }
+      finally { setBusy(b => b.filter(x => x.key !== key)) }
+    }
+    if (problems.length) setErr(problems.join(' '))
+  }
   const move = (i, d) => { const j = i + d; const n = [...list]; [n[i], n[j]] = [n[j], n[i]]; onChange(n) }
+
   return (
-    <div className={box}>
+    <div className={clsx(box, over && 'ring-2 ring-primary/40')}
+      onDragOver={e => { e.preventDefault(); setOver(true) }} onDragLeave={() => setOver(false)}
+      onDrop={e => { e.preventDefault(); setOver(false); upload(e.dataTransfer.files) }}>
       <p className={heading}>Photos &amp; videos</p>
-      {list.length > 0 && (
+      {(list.length > 0 || busy.length > 0) && (
         <div className="flex flex-wrap gap-2.5">
           {list.map((u, i) => <MediaTile key={`${u}-${i}`} url={u} first={i === 0} last={i === list.length - 1} onMove={d => move(i, d)} onRemove={() => onChange(list.filter((_, k) => k !== i))}/>)}
+          {busy.map(b => <UploadingTile key={b.key} name={b.name} pct={b.pct}/>)}
         </div>
       )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input ref={fileRef} type="file" multiple accept={MEDIA_ACCEPT} className="sr-only" aria-label="Choose photos or videos to upload"
+          onChange={e => { upload(e.target.files); e.target.value = '' }}/>
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={room <= 0}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-semibold text-white bg-primary hover:bg-primary/90 disabled:opacity-40"><Upload size={13}/> Upload photos or videos</button>
+        <span className="text-[10.5px] text-slate-400">or drop files here · JPG, PNG, WebP, GIF up to {MAX_IMAGE_MB} MB · MP4, WebM up to {MAX_VIDEO_MB} MB</span>
+      </div>
+
       <div className="space-y-1">
+        <label className="label">Or use a link</label>
         <div className="flex gap-1.5">
-          <input className={clsx(field, err && '!border-red-300')} value={draft} onChange={e => { setDraft(e.target.value); setErr('') }} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add())}
-            placeholder="Paste a photo or video link (.jpg, .png, .mp4, YouTube, Vimeo) and press Add" disabled={list.length >= MAX_MEDIA}/>
-          <button type="button" onClick={add} disabled={!draft.trim() || list.length >= MAX_MEDIA} className="px-3 rounded-lg text-[11px] font-semibold text-white bg-primary disabled:opacity-40 flex-shrink-0">Add</button>
+          <input className={clsx(field, err && '!border-red-300')} value={draft} onChange={e => { setDraft(e.target.value); setErr('') }} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addLink())}
+            placeholder="Paste a photo or video link (.jpg, .png, .mp4, YouTube, Vimeo) and press Add" disabled={room <= 0}/>
+          <button type="button" onClick={addLink} disabled={!draft.trim() || room <= 0} className="px-3 rounded-lg text-[11px] font-semibold text-slate-700 bg-white border border-slate-200 hover:border-primary/50 disabled:opacity-40 flex-shrink-0">Add</button>
         </div>
         {err && <p role="alert" className="text-[10px] text-red-500">{err}</p>}
-        <p className="text-[10px] text-slate-400 leading-snug">{list.length}/{MAX_MEDIA}. The first one is the cover. Visitors swipe through the rest. Use links to files you host (or YouTube / Vimeo) rather than uploading, so the flow stays light.</p>
+        <p className="text-[10px] text-slate-400 leading-snug">{list.length}/{MAX_MEDIA}. The first one is the cover; visitors swipe through the rest.</p>
       </div>
     </div>
   )
@@ -116,27 +174,68 @@ function HighlightsEditor({ value, onChange }) {
   )
 }
 
-/* One of the two buttons: continue inside the chat, or open this project's own link. */
-function ButtonAction({ label, url, onChange }) {
-  const mode = url === null || url === undefined || url === '' ? 'chat' : 'link'
-  const [linkMode, setLinkMode] = useState(mode === 'link')
+/* Where a "continue in chat" button sends the visitor: on to the next question (the default), or straight to a chosen
+   question of any flow. A target that was later deleted is called out, and the chat just carries on normally. */
+function JumpPicker({ jump, onChange, flows, nodeId }) {
+  const specific = !!jump
+  const flow = (flows || []).find(f => f.id === jump?.flowId)
+  const node = flow?.nodes.find(n => n.id === jump?.nodeId)
+  const current = (flows || []).find(f => f.current)
+  const missing = specific && jump.nodeId && (!flow || !node)
+  const nodes = (flow?.nodes || []).filter(n => !(flow.current && n.id === nodeId))     // jumping back onto this very question would loop
+  return (
+    <div className="space-y-1.5">
+      <div className="inline-flex rounded-lg bg-slate-200/70 p-0.5">
+        {[[false, 'Next question'], [true, 'A specific question']].map(([v, l]) => (
+          <button key={l} type="button" onClick={() => onChange(v ? (jump || { flowId: current?.id || '', nodeId: '' }) : null)}
+            className={clsx('px-2.5 py-1 rounded-md text-[10.5px] font-semibold', specific === v ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500')}>{l}</button>
+        ))}
+      </div>
+      {specific ? (
+        <div className="grid sm:grid-cols-2 gap-2">
+          <div className="space-y-1"><label className="label">Flow</label>
+            <NativeSelect sm value={jump.flowId || ''} onChange={e => onChange({ flowId: e.target.value, nodeId: '' })}>
+              <option value="">Choose a flow…</option>
+              {(flows || []).map(f => <option key={f.id} value={f.id}>{f.name}{f.current ? ' (this flow)' : f.kind === 'subflow' ? ' · subflow' : ''}</option>)}
+            </NativeSelect></div>
+          <div className="space-y-1"><label className="label">Question or step</label>
+            <NativeSelect sm value={jump.nodeId || ''} disabled={!flow} onChange={e => onChange({ ...jump, nodeId: e.target.value })}>
+              <option value="">{flow ? 'Choose where to go…' : 'Choose a flow first'}</option>
+              {nodes.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}
+            </NativeSelect></div>
+        </div>
+      ) : <p className="text-[10px] text-slate-400">The tap is recorded and the chat moves on to whatever comes next in this flow.</p>}
+      {specific && !jump.nodeId && !missing && <p className="text-[10px] text-amber-600">Choose where to go, or the chat will just carry on with the next question.</p>}
+      {missing && <p role="alert" className="text-[10px] text-red-500">That {flow ? 'question' : 'flow'} no longer exists. The chat carries on with the next question until you pick another.</p>}
+    </div>
+  )
+}
+
+/* One of the two buttons: continue inside the chat (optionally jumping somewhere), or open this project's own link. */
+function ButtonAction({ label, url, jump, onUrl, onJump, flows, nodeId, onApplyAll }) {
+  const [linkMode, setLinkMode] = useState(!!String(url || '').trim())
   return (
     <div className="space-y-1.5">
       <p className="text-[11.5px] font-semibold text-slate-700">“{label}” button</p>
       <div className="inline-flex rounded-lg bg-slate-200/70 p-0.5">
         {[[false, 'Continue in chat'], [true, 'Open a link']].map(([v, l]) => (
-          <button key={l} type="button" onClick={() => { setLinkMode(v); if (!v) onChange('') }}
+          <button key={l} type="button" onClick={() => { setLinkMode(v); if (!v) onUrl('') }}
             className={clsx('px-2.5 py-1 rounded-md text-[10.5px] font-semibold', linkMode === v ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500')}>{l}</button>
         ))}
       </div>
       {linkMode
-        ? <LinkField value={url} onChange={onChange} placeholder="https://… (opens in a new tab; the answer is still recorded)"/>
-        : <p className="text-[10px] text-slate-400">The visitor's tap is recorded and the chat moves on to the next question.</p>}
+        ? <LinkField value={url} onChange={onUrl} placeholder="https://… (opens in a new tab; the answer is still recorded)"/>
+        : (
+          <>
+            <JumpPicker jump={jump} onChange={onJump} flows={flows} nodeId={nodeId}/>
+            <button type="button" onClick={() => onApplyAll(jump || null)} className="text-[10.5px] font-semibold text-primary hover:underline">Use this for every project</button>
+          </>
+        )}
     </div>
   )
 }
 
-export default function PropertyCardsEditor({ cards, onChange, d, set, accent = '#0066ff' }) {
+export default function PropertyCardsEditor({ cards, onChange, d, set, accent = '#0066ff', flows = [], nodeId }) {
   const [selId, setSelId] = useState(cards[0]?.id || null)
   const [confirmId, setConfirmId] = useState(null)
   const sel = cards.find(c => c.id === selId) || cards[0] || null
@@ -145,6 +244,7 @@ export default function PropertyCardsEditor({ cards, onChange, d, set, accent = 
   const duplicate = ({ id, ...rest }) => add(newPropertyCard({ ...rest, name: `${rest.name} (copy)`, media: [...(rest.media || [])] }))   // a copy gets its own id
   const remove = id => { const next = cards.filter(c => c.id !== id); onChange(next); setConfirmId(null); if (selId === id) setSelId(next[0]?.id || null) }
   const move = (i, dir) => { const j = i + dir; if (j < 0 || j >= cards.length) return; const n = [...cards]; [n[i], n[j]] = [n[j], n[i]]; onChange(n) }
+  const applyAll = (kind, jump) => onChange(cards.map(c => ({ ...c, [`${kind}Url`]: '', [`${kind}Jump`]: jump })))
   const gstOn = !!sel?.gstEnabled
   const problems = sel ? cardProblems(sel, d) : []
 
@@ -267,8 +367,10 @@ export default function PropertyCardsEditor({ cards, onChange, d, set, accent = 
               {(d.interestedEnabled !== false || d.siteVisitEnabled !== false) && (
                 <div className={box}>
                   <p className={heading}>Where the buttons lead (this project)</p>
-                  {d.interestedEnabled !== false && <ButtonAction key={`i-${sel.id}`} label={d.interestedLabel || 'Interested'} url={sel.interestedUrl} onChange={v => update(sel.id, { interestedUrl: v })}/>}
-                  {d.siteVisitEnabled !== false && <ButtonAction key={`s-${sel.id}`} label={d.siteVisitLabel || 'Site visit'} url={sel.siteVisitUrl} onChange={v => update(sel.id, { siteVisitUrl: v })}/>}
+                  {d.interestedEnabled !== false && <ButtonAction key={`i-${sel.id}`} label={d.interestedLabel || 'Interested'} url={sel.interestedUrl} jump={sel.interestedJump} flows={flows} nodeId={nodeId}
+                    onUrl={v => update(sel.id, { interestedUrl: v })} onJump={j => update(sel.id, { interestedJump: j })} onApplyAll={j => applyAll('interested', j)}/>}
+                  {d.siteVisitEnabled !== false && <ButtonAction key={`s-${sel.id}`} label={d.siteVisitLabel || 'Site visit'} url={sel.siteVisitUrl} jump={sel.siteVisitJump} flows={flows} nodeId={nodeId}
+                    onUrl={v => update(sel.id, { siteVisitUrl: v })} onJump={j => update(sel.id, { siteVisitJump: j })} onApplyAll={j => applyAll('siteVisit', j)}/>}
                 </div>
               )}
             </div>

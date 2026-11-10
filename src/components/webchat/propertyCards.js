@@ -46,7 +46,7 @@ let cardSeq = 0 // with the clock, so two cards made in the same millisecond sti
 export const newPropertyCard = (over = {}) => ({
   id: `prop_${Date.now().toString(36)}_${(cardSeq++).toString(36)}`,
   name: '', media: [''], location: '', locationUrl: '', config: '', status: '', price: '', gstEnabled: false, gst: '', highlights: '', rera: '',
-  interestedUrl: '', siteVisitUrl: '', ...over,
+  interestedUrl: '', siteVisitUrl: '', interestedJump: null, siteVisitJump: null, ...over,
 })
 
 export const DEFAULT_PROPERTIES = [

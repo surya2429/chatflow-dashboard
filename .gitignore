@@ -5,6 +5,9 @@ node_modules/
 dist/
 build/
 
+# Uploaded media in dev (backend/src/media; the API stores uploads in Postgres)
+.dev-media/
+
 # Vite cache
 node_modules/.vite/
 

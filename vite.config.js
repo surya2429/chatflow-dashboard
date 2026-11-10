@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 // The SAME billing code the production API runs (backend/src/billing), backed by a
@@ -15,6 +15,7 @@ import { createRateLimiter, handleLeadRequest } from './backend/src/leads/powere
 import { handleAiRequest } from './backend/src/ai/aiAssistant.ts'
 import { createRuntime } from './backend/src/ctwa/runtime.ts'
 import { createCatalogRuntime } from './backend/src/catalog/runtime.ts'
+import { handleGet as handleMediaGet, handleUpload as handleMediaUpload, MAX_UPLOAD_BYTES } from './backend/src/media/media.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -486,9 +487,43 @@ function devCatalogApi(env) {
   }
 }
 
+/**
+ * Dev stand-in for backend/src/routes/media.routes.ts: photos and videos uploaded in the website-chat builders. Same code as
+ * the API (type checks from the file's own bytes, size limits, Range for video); files live in .dev-media/ (gitignored).
+ */
+function devMediaApi() {
+  const dir = join(__dirname, '.dev-media')
+  const store = {
+    put: async ({ id, mime, bytes }) => { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, id), bytes); writeFileSync(join(dir, `${id}.mime`), mime) },
+    get: async (id) => (existsSync(join(dir, id)) ? { mime: readFileSync(join(dir, `${id}.mime`), 'utf8'), bytes: readFileSync(join(dir, id)) } : null),
+  }
+  return {
+    name: 'dev-media-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const m = req.url?.match(/^\/api\/webchat-media(?:\/([^?]+))?(?:\?(.*))?$/)
+        if (!m) return next()
+        const json = (status, body) => { res.statusCode = status; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body)) }
+        if (req.method === 'GET' && m[1]) {
+          return handleMediaGet(m[1], req.headers.range, store).then((r) => { res.statusCode = r.status; for (const [k, v] of Object.entries(r.headers)) res.setHeader(k, v); res.end(r.body) }, () => { res.statusCode = 500; res.end() })
+        }
+        if (req.method !== 'POST') return json(405, { error: 'method_not_allowed' })
+        const chunks = []; let size = 0, tooBig = false
+        req.on('data', (c) => { size += c.length; if (size > MAX_UPLOAD_BYTES) { tooBig = true; return } chunks.push(c) })
+        req.on('end', async () => {
+          if (tooBig) return json(413, { error: 'too_large', message: 'That file is too large. Photos can be up to 8 MB and videos up to 40 MB.' })
+          try { const r = await handleMediaUpload(new URLSearchParams(m[2] || '').get('bot'), Buffer.concat(chunks), store); json(r.status, r.body) }
+          catch (err) { console.error('[media]', err); json(500, { error: 'internal_server_error' }) }
+        })
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   root: __dirname,
-  plugins: [react(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, '')), devLeadsApi(), devAiApi(loadEnv(mode, __dirname, '')), devCtwaApi(loadEnv(mode, __dirname, '')), devCatalogApi(loadEnv(mode, __dirname, ''))],
+  plugins: [react(), devMediaApi(), devBotsApi(), devBillingApi(loadEnv(mode, __dirname, '')), devMetaReportsApi(loadEnv(mode, __dirname, '')), devMessageLinksApi(loadEnv(mode, __dirname, '')), devLeadsApi(), devAiApi(loadEnv(mode, __dirname, '')), devCtwaApi(loadEnv(mode, __dirname, '')), devCatalogApi(loadEnv(mode, __dirname, ''))],
   // Vite's default bind on this machine only listens on [::1], so anything that
   // resolves `localhost` to 127.0.0.1 — most browsers, curl, the in-app preview
   // pane — cannot connect and the page just never loads. `host: true` binds

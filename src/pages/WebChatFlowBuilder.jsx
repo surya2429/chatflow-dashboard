@@ -807,7 +807,7 @@ function FormFieldsEditor({ fields, onChange }) {
   )
 }
 
-function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOptions }) {
+function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOptions, flowTargets }) {
   const def = DEFS[node.type] || { label: node.type, icon: Zap, color: '#0066ff', cat: 'system' }
   const Icon = def.icon
   const catColor = CAT_COLOR[def.cat] || '#0066ff'
@@ -1040,7 +1040,7 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
               )}
 
               {def.questionType === 'property_cards' && (
-                <PropertyCardsEditor cards={d.propertyCards || []} onChange={v => set('propertyCards', v)} d={d} set={set} accent={widgetCfg.color}/>
+                <PropertyCardsEditor cards={d.propertyCards || []} onChange={v => set('propertyCards', v)} d={d} set={set} accent={widgetCfg.color} flows={flowTargets} nodeId={node.id}/>
               )}
 
               {def.questionType === 'faq' && (
@@ -1878,7 +1878,17 @@ export function useFlowSimulation(flow, allFlows) {
     timerRef.current = setTimeout(() => finishOrAdvance(node.id, 0), 300)
   }, [currentId, graph, ended, awaiting, allFlows, push, logActivity, finishOrAdvance])
 
-  const submitAsk = (value) => {
+  // Where an answer can send the chat instead of the next node: any node of any flow (Property Cards' "continue in
+  // chat" buttons pick one). A target that no longer exists falls back to the normal next step.
+  const jumpTo = ({ flowId, nodeId }) => {
+    const f = flowId === safeFlow.id ? safeFlow : (allFlows || []).find(x => x.id === flowId)
+    const n = f?.graph?.nodes?.find(x => x.id === nodeId)
+    if (!n) { logActivity('The button\'s jump target no longer exists, so the chat continued with the next step'); return false }
+    setGraph(f.graph); setGraphLabel(f.name); setCurrentId(n.id)
+    return true
+  }
+
+  const submitAsk = (value, extra) => {
     if (!awaiting || awaiting.type !== 'ask') return
     const node = awaiting.node
     const text = (typeof value === 'string' ? value : value != null ? JSON.stringify(value) : '').trim() || '(skipped)'
@@ -1898,6 +1908,7 @@ export function useFlowSimulation(flow, allFlows) {
     const label = node.data?.name || ASK_DEFS[`ask_${questionType}`]?.label || 'Answer'
     push('user', text, questionType ? { capturedAnswer: { questionType, label } } : undefined)
     setAwaiting(null)
+    if (extra?.jump && jumpTo(extra.jump)) return
     finishOrAdvance(node.id, 0)
   }
   const pickQuickReply = (idx, label) => {
@@ -2114,6 +2125,12 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
 
   const selectedNode = nodes.find(n => n.id === selectedId)
   const subflowOptions = (allFlows || []).filter(f => f.kind === 'subflow' && f.id !== flow.id).map(f => ({ id: f.id, name: f.name }))
+  // Every flow with its nodes (this one live, with unsaved edits), so a button can pick "jump to this question".
+  const flowTargets = useMemo(() => {
+    const label = n => { const t = n.data?.name; const q = n.data?.question || n.data?.message || n.data?.endMessage || ''; return `${DEFS[n.type]?.label || n.type}${t ? ` · ${t}` : ''}${q ? ` — “${String(q).slice(0, 36)}”` : ''}` }
+    const make = (id, name, kind, ns, current) => ({ id, name, kind, current, nodes: ns.filter(n => n.type !== 'start').map(n => ({ id: n.id, type: n.type, label: label(n) })) })
+    return [make(flow.id, flowName, flow.kind, nodes, true), ...(allFlows || []).filter(f => f.id !== flow.id).map(f => make(f.id, f.name, f.kind, f.graph.nodes, false))]
+  }, [allFlows, flow.id, flow.kind, flowName, nodes])
 
   const pushHistory = useCallback((nn, ne) => {
     setHistory(h => [...h.slice(0, histIdx + 1), { nodes: nn, edges: ne }].slice(-30))
@@ -2364,7 +2381,7 @@ function BuilderView({ flow, onBack, onSave, allFlows }) {
         </div>
 
         {selectedNode && (
-          <NodeEditModal node={selectedNode} onChange={updateNode} onDelete={() => deleteNode(selectedId)} onClose={() => setSelectedId(null)} allNodes={nodes} subflowOptions={subflowOptions}/>
+          <NodeEditModal node={selectedNode} onChange={updateNode} onDelete={() => deleteNode(selectedId)} onClose={() => setSelectedId(null)} allNodes={nodes} subflowOptions={subflowOptions} flowTargets={flowTargets}/>
         )}
       </div>
 
