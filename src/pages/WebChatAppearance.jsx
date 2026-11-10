@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
   MessageSquare, Settings, Smartphone, Monitor, Tablet,
@@ -631,14 +631,20 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
      renders) goes stale and the last message ends up clipped under the
      composer instead of scrolling into view. A ResizeObserver reacts to the
      size change itself regardless of which component caused it. */
+  // Pin to the newest content — except when the pending question's options are taller than the panel: then keep the
+  // QUESTION in view (its options scroll below it) instead of showing only the tail of a long option list.
+  const pinThread = useCallback((el) => {
+    const q = simInlineControl && simInlineMsgId ? el.querySelector(`[data-mid="${simInlineMsgId}"]`) : null
+    el.scrollTop = q && el.scrollHeight - q.offsetTop > el.clientHeight ? Math.max(0, q.offsetTop - 12) : el.scrollHeight
+  }, [simInlineControl, simInlineMsgId])
   useEffect(() => {
     if (QUESTION_TYPE_THREAD) return
     const el = msgListRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => { el.scrollTop = el.scrollHeight })
+    const ro = new ResizeObserver(() => pinThread(el))
     ro.observe(el)
     return () => ro.disconnect()
-  }, [QUESTION_TYPE_THREAD])
+  }, [QUESTION_TYPE_THREAD, pinThread])
 
   const BotAvatar = ({ visible }) => (
     <div className="flex-shrink-0" style={{ width: 28, height: 28 }}>
@@ -802,7 +808,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
            latest reply (and the typing indicator) sit below the fold. The one
            exception is the question-types feed, which opens at the top since
            there's no "latest" message to jump to — just a full catalog to scroll. */
-        ref={el => { msgListRef.current = el; if (el) el.scrollTop = QUESTION_TYPE_THREAD ? 0 : el.scrollHeight }}
+        ref={el => { msgListRef.current = el; if (el) { if (QUESTION_TYPE_THREAD) el.scrollTop = 0; else pinThread(el) } }}
         style={{ background: chatBackground, padding: DENSITY.pad, paddingTop: 12 }}>
 
         {/* Date chip */}
@@ -830,7 +836,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
           const first = !prev || prev.from !== m.from || prev.sys
           const last  = !next || next.from !== m.from || next.sys
           return (
-            <div key={m.id} id={m.questionType ? m.id : undefined}
+            <div key={m.id} id={m.questionType ? m.id : undefined} data-mid={m.id}
               style={{ marginTop: i === 0 ? 0 : (first ? DENSITY.groupGap : DENSITY.gap) }}>
               <div className={clsx('flex items-end gap-2', isUser && 'flex-row-reverse')}>
                 {!isUser && <BotAvatar visible={last}/>}
@@ -921,15 +927,6 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
                     </div>
                   )}
 
-                  {/* The live sim's control for THIS question, attached under
-                      its own bubble instead of the fixed composer — only for
-                      choice styles designed to read as a menu of buttons
-                      (see isInlineAskAwaiting). Every other question type
-                      still answers from the composer below, unchanged. */}
-                  {simInlineControl && simInlineMsgId === m.id && (
-                    <div className="mt-2">{simInlineControl}</div>
-                  )}
-
                   {/* Rich plan cards — an example of a structured bot reply */}
                   {m.plans && (
                     <div className="flex gap-2 mt-2 overflow-x-auto wc-scroll pb-1" style={{ scrollSnapType:'x mandatory' }}>
@@ -985,6 +982,10 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
             </div>
           </div>
         )}
+
+        {/* The pending question's options (see isInlineAskAwaiting) sit at the end of the conversation, inside this
+            same scroll area, so the whole widget scrolls as one — no panel or scrollbar of their own. */}
+        {simInlineControl && <div className="mt-3 pb-1">{simInlineControl}</div>}
       </div>
 
       {/* ── Composer — or, for a resolved conversation reopened from Messages, a
@@ -1035,7 +1036,7 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
         <div className="flex-shrink-0 overflow-y-auto wc-scroll px-3 pt-1 pb-3 max-h-[62%]" style={{ background: chatBackground }}>
           {simComposerControl}
         </div>
-      ) : simThread ? (
+      ) : simInlineControl ? null : simThread ? (
         /* A live simulation (PreviewSimulator) is active but not currently
            awaiting an answer — this is the brief gap between one question's
            answer being submitted and the next question actually landing

@@ -321,11 +321,9 @@ function PhoneAnswer({ accent, dark, onSubmit, data = {} }) {
    default (CHOICE_DEFAULT_DIRECTION) rather than one global default, so choosing
    no direction still renders each style the way its name implies.
 
-   `inline: true` (buttons, outline) marks a style that answers attached
-   under its OWN question bubble instead of the fixed composer slot — see
-   isInlineAskAwaiting in WebChatFlowBuilder.jsx, which is what actually
-   reads this flag. Kept on the style's own catalog entry rather than a
-   separate list so the two can never drift out of sync with each other. ── */
+   Choice questions (single, multiple, yes/no, rating, NPS) answer inside the
+   chat's own scroll area in every style — see isInlineAskAwaiting in
+   WebChatFlowBuilder.jsx. ── */
 // 20 options, not 3 — the realistic case a real option list looks like.
 // Deliberately mixed lengths (2 chars to a full sentence) rather than
 // uniform "Option A" text — a merchant's real option list is never uniform,
@@ -349,8 +347,8 @@ export const CHOICE_STYLES = [
   { id: 'cards',   label: 'Cards',   icon: Layers,     desc: 'Separate tappable cards' },
   { id: 'pills',   label: 'Pills',   icon: Tags,       desc: 'Compact wrapping chips' },
   { id: 'grid',    label: 'Grid',    icon: LayoutGrid, desc: '2-column tiles' },
-  { id: 'buttons', label: 'Buttons', icon: AlignJustify, desc: 'Stacked buttons under the message', inline: true },
-  { id: 'outline', label: 'Outline', icon: Grid2x2,    desc: 'Outlined pills under the message', inline: true },
+  { id: 'buttons', label: 'Buttons', icon: AlignJustify, desc: 'Stacked buttons under the message' },
+  { id: 'outline', label: 'Outline', icon: Grid2x2,    desc: 'Outlined pills under the message' },
 ]
 export const CHOICE_DIRECTIONS = [
   { id: 'vertical',   label: 'Vertical',   icon: AlignJustify, desc: 'One option per row' },
