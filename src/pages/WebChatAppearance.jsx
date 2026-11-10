@@ -400,10 +400,18 @@ export function WidgetPreview({ cfg, screen, device, previewQuestionTypes, scrol
   /* Clicking a type in the Question Types list scrolls the already-open feed to
      that message instead of re-filtering it, so the surrounding types stay
      visible for comparison. */
+  // scrollToQType is { id, n }: a new object per click, so clicking the same type again scrolls again. The feed may
+  // not be on screen yet (the click also switches the widget to its chat screen), so wait for it instead of giving up.
   useEffect(() => {
     if (!scrollToQType) return
-    const el = document.getElementById(`qt-${scrollToQType}`)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    let tries = 0, timer
+    const go = () => {
+      const el = document.getElementById(`qt-${scrollToQType.id}`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      else if (tries++ < 30) timer = setTimeout(go, 50)
+    }
+    go()
+    return () => clearTimeout(timer)
   }, [scrollToQType])
   /* Which past conversation (if any) is open — null means "fresh chat" (the seeded
      THREAD below); 'ended' opens the resolved one from the Messages list instead. */
@@ -2836,7 +2844,7 @@ function BuilderSectionBody({ section, cfg, set, setScreen, setScrollToQType, qC
             <div className="space-y-1.5">
               {filteredQ.map(q=>(
                 <button key={q.id}
-                  onClick={()=>{ setScreen('chat'); setScrollToQType(q.id) }}
+                  onClick={()=>{ setScreen('chat'); setScrollToQType({ id: q.id, n: Date.now() }) }}
                   className="w-full flex items-center gap-2.5 p-2.5 rounded-xl border border-surface-border bg-white text-left transition-all hover:border-slate-300 hover:shadow-sm">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
                     style={{background: q.color+'18'}}>
