@@ -3353,7 +3353,7 @@ const SAMPLE_QUESTIONS = {
   location: 'Where should we deliver?', payment: 'Complete your payment',
   otp: 'Enter the code we just sent you', prechat: 'Before we start, may we have your details?', form: 'Fill in your details',
   carousel: 'Check out our top picks', carousel_buttons: 'Choose an option below',
-  catalog: 'Browse our products',
+  catalog: 'Browse our products', property_cards: 'A few projects you may like',
 }
 
 

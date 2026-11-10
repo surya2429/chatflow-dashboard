@@ -5,7 +5,7 @@ import {
   Type, AlignJustify, Hash, Mail, Phone, Link2, Circle, CheckSquare, ChevronDown,
   ToggleLeft, Star, BarChart2, Calendar, Clock, Upload, Image, Pencil, MapPin,
   CreditCard, Lock, FileText, Images, Layers, ShoppingBag, UserRound,
-  Megaphone, HelpCircle, Sparkles, ShieldCheck, BadgeCheck, Truck, Calculator,
+  Megaphone, HelpCircle, Sparkles, ShieldCheck, BadgeCheck, Truck, Calculator, Building2,
 } from 'lucide-react'
 
 /* 'Content' covers the types where the bot is telling rather than asking — a
@@ -55,5 +55,6 @@ export const QUESTION_TYPES = [
   { id:'form',            cat:'Interactive', icon:FileText,    name:'Multi-field Form',       desc:'Collect several fields in one inline form',      color:'#0EA5E9' },
   { id:'carousel',        cat:'Interactive', icon:Images,      name:'Image Carousel',         desc:'Swipeable cards with image, title & description', color:'#0EA5E9' },
   { id:'carousel_buttons',cat:'Interactive', icon:Layers,      name:'Carousel with Buttons',  desc:'Swipeable cards, each with its own action button', color:'#0EA5E9' },
+  { id:'property_cards',   cat:'Interactive', icon:Building2,   name:'Property Cards',         desc:'Real-estate project cards: photos or video, location, price + GST, Interested / Site visit buttons', color:'#0EA5E9' },
   { id:'catalog',         cat:'Interactive', icon:ShoppingBag, name:'Product Catalog',        desc:'Scrollable grid of products with price & Add to cart', color:'#0EA5E9' },
 ]

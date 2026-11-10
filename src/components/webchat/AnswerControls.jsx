@@ -17,8 +17,9 @@ import {
   Check, X, Upload, Image as ImageIcon, Pencil, MapPin, CreditCard, Lock,
   Clock, Search, LocateFixed, Plus, FileText, Paperclip,
   HelpCircle, Sparkles, BadgeCheck, ExternalLink, List, Layers, Tags, LayoutGrid,
-  AlignJustify, Grid2x2,
+  AlignJustify, Grid2x2, Building2,
 } from 'lucide-react'
+import { cardsOf, highlightsOf, mediaOf, safeUrl } from './propertyCards'
 
 /* ── shared style injection (custom keyframes Tailwind can't express) ───── */
 let stylesInjected = false
@@ -1561,6 +1562,100 @@ function CatalogAnswer({ accent, dark, onSubmit }) {
   )}/>
 }
 
+/* ── property cards (real estate): project photos / video, location, price + GST, Interested / Site visit ── */
+function PropertyMedia({ urls, accent, dark, status }) {
+  const items = urls.map(mediaOf).filter(Boolean)
+  const [i, setI] = useState(0)
+  const [broken, setBroken] = useState(false)
+  const m = items[Math.min(i, items.length - 1)]
+  const go = d => { setBroken(false); setI(n => (n + d + items.length) % items.length) }
+  const arrow = 'absolute top-1/2 -translate-y-1/2 w-6 h-6 rounded-full flex items-center justify-center text-white bg-black/40 hover:bg-black/60'
+  return (
+    <div className="relative h-[132px] overflow-hidden" style={{ background: `linear-gradient(135deg, ${accent}33, ${dark ? '#1e293b' : '#e2e8f0'})` }}>
+      {m && !(m.kind === 'image' && broken) ? (
+        m.kind === 'image' ? <img key={m.src} src={m.src} alt="" loading="lazy" className="w-full h-full object-cover" onError={() => setBroken(true)}/>
+        : m.kind === 'video' ? <video key={m.src} src={m.src} controls playsInline preload="metadata" className="w-full h-full object-cover bg-black"/>
+        : <iframe key={m.src} src={m.src} title="Project video" loading="lazy" allowFullScreen className="w-full h-full border-0 bg-black"
+            allow="accelerometer; encrypted-media; gyroscope; picture-in-picture"/>
+      ) : (
+        <div className="w-full h-full flex items-center justify-center"><Building2 size={30} style={{ color: accent, opacity: 0.55 }}/></div>
+      )}
+      {status && <span className="absolute left-2 top-2 px-2 py-0.5 rounded-full text-[9px] font-bold text-white pointer-events-none" style={{ background: accent }}>{status}</span>}
+      {items.length > 1 && (
+        <>
+          <button type="button" aria-label="Previous" onClick={() => go(-1)} className={clsx(arrow, 'left-1.5')}><ChevronLeft size={14}/></button>
+          <button type="button" aria-label="Next" onClick={() => go(1)} className={clsx(arrow, 'right-1.5')}><ChevronRight size={14}/></button>
+          <span className="absolute right-2 top-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold text-white bg-black/45 pointer-events-none">{Math.min(i, items.length - 1) + 1}/{items.length}</span>
+        </>
+      )}
+    </div>
+  )
+}
+
+function PropertyCard({ card, accent, dark, data, onSubmit }) {
+  const ink = dark ? '#e2e8f0' : '#1e293b', soft = dark ? '#94a3b8' : '#64748b'
+  const locUrl = safeUrl(card.locationUrl)
+  const tags = highlightsOf(card)
+  const buttons = [
+    data.interestedEnabled !== false && { id: 'interested', label: data.interestedLabel || 'Interested', url: safeUrl(card.interestedUrl), solid: true },
+    data.siteVisitEnabled !== false && { id: 'visit', label: data.siteVisitLabel || 'Site visit', url: safeUrl(card.siteVisitUrl), solid: false },
+  ].filter(Boolean)
+  // an external link opens in a new tab AND the answer is recorded, so the flow carries on either way
+  const act = b => {
+    if (!onSubmit) return
+    if (b.url) window.open(b.url, '_blank', 'noopener,noreferrer')
+    onSubmit(`${b.label}: ${card.name}`)
+  }
+  return (
+    <div className="flex-shrink-0 rounded-2xl overflow-hidden flex flex-col"
+      style={{ width: 236, scrollSnapAlign: 'start', background: dark ? '#111c30' : '#fff', border: `1.5px solid ${dark ? '#22304a' : '#eef1f6'}`, boxShadow: '0 6px 16px -10px rgba(15,23,42,.3)' }}>
+      <PropertyMedia urls={card.media || []} accent={accent} dark={dark} status={card.status}/>
+      <div className="p-2.5 flex-1 flex flex-col gap-1">
+        <p className="text-[12.5px] font-bold leading-snug" style={{ color: ink }}>{card.name}</p>
+        {card.config && <p className="text-[10.5px] leading-snug" style={{ color: soft }}>{card.config}</p>}
+        {card.location && (
+          <p className="flex items-start gap-1 text-[10.5px] leading-snug" style={{ color: soft }}>
+            <MapPin size={11} className="flex-shrink-0 mt-px" style={{ color: accent }}/>
+            {locUrl ? <a href={locUrl} target="_blank" rel="noopener noreferrer" className="underline font-medium" style={{ color: accent }}>{card.location}</a> : <span>{card.location}</span>}
+          </p>
+        )}
+        {card.price && (
+          <p className="flex items-baseline flex-wrap gap-x-1.5 mt-0.5">
+            <span className="text-[13px] font-extrabold" style={{ color: ink }}>{card.price}</span>
+            {card.gstEnabled && <span className="text-[9.5px] font-semibold" style={{ color: soft }}>{card.gst || '+ GST'}</span>}
+          </p>
+        )}
+        {tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-0.5">
+            {tags.map(t => <span key={t} className="px-1.5 py-0.5 rounded-md text-[9px] font-semibold" style={{ background: `${accent}14`, color: accent }}>{t}</span>)}
+          </div>
+        )}
+        {card.rera && <p className="text-[9px]" style={{ color: soft }}>RERA: {card.rera}</p>}
+        {buttons.length > 0 && (
+          <div className="flex gap-1.5 mt-auto pt-1.5">
+            {buttons.map(b => (
+              <button key={b.id} type="button" onClick={() => act(b)}
+                className="flex-1 py-1.5 rounded-lg text-[10.5px] font-bold transition-opacity hover:opacity-90"
+                style={b.solid ? { background: accent, color: '#fff' } : { background: 'transparent', color: accent, border: `1.5px solid ${accent}` }}>
+                {b.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PropertyCardsAnswer({ accent, dark, onSubmit, data = {} }) {
+  const cards = cardsOf(data)
+  return (
+    <div className="flex gap-2 w-full overflow-x-auto pb-1 wc-scroll" style={{ scrollSnapType: 'x mandatory' }}>
+      {cards.map(c => <PropertyCard key={c.id} card={c} accent={accent} dark={dark} data={data} onSubmit={onSubmit}/>)}
+    </div>
+  )
+}
+
 /* ── public entry point ──────────────────────────────────────────────────── */
 /* ── statement: the bot says something and waits for acknowledgement ──────
    Not a question at all, which is exactly why it earns a type: disclaimers,
@@ -1989,6 +2084,8 @@ export function AnswerControl({ questionType, accent = '#0066ff', dark = false, 
       return <CarouselAnswer accent={accent} dark={dark} onSubmit={submit}/>
     case 'carousel_buttons':
       return <CarouselButtonsAnswer accent={accent} dark={dark} onSubmit={submit}/>
+    case 'property_cards':
+      return <PropertyCardsAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'catalog':
       return <CatalogAnswer accent={accent} dark={dark} onSubmit={submit}/>
     default:
