@@ -320,11 +320,9 @@ function PhoneAnswer({ accent, dark, onSubmit, data = {} }) {
    default (CHOICE_DEFAULT_DIRECTION) rather than one global default, so choosing
    no direction still renders each style the way its name implies.
 
-   `inline: true` (buttons, outline) marks a style that answers attached
-   under its OWN question bubble instead of the fixed composer slot — see
-   isInlineAskAwaiting in WebChatFlowBuilder.jsx, which is what actually
-   reads this flag. Kept on the style's own catalog entry rather than a
-   separate list so the two can never drift out of sync with each other. ── */
+   Choice questions (single, multiple, yes/no, rating, NPS) answer inline under
+   their own question bubble in every style — see isInlineAskAwaiting in
+   WebChatFlowBuilder.jsx. ── */
 // 20 options, not 3 — the realistic case a real option list looks like.
 // Deliberately mixed lengths (2 chars to a full sentence) rather than
 // uniform "Option A" text — a merchant's real option list is never uniform,
@@ -348,8 +346,8 @@ export const CHOICE_STYLES = [
   { id: 'cards',   label: 'Cards',   icon: Layers,     desc: 'Separate tappable cards' },
   { id: 'pills',   label: 'Pills',   icon: Tags,       desc: 'Compact wrapping chips' },
   { id: 'grid',    label: 'Grid',    icon: LayoutGrid, desc: '2-column tiles' },
-  { id: 'buttons', label: 'Buttons', icon: AlignJustify, desc: 'Stacked buttons under the message', inline: true },
-  { id: 'outline', label: 'Outline', icon: Grid2x2,    desc: 'Outlined pills under the message', inline: true },
+  { id: 'buttons', label: 'Buttons', icon: AlignJustify, desc: 'Stacked buttons under the message' },
+  { id: 'outline', label: 'Outline', icon: Grid2x2,    desc: 'Outlined pills under the message' },
 ]
 export const CHOICE_DIRECTIONS = [
   { id: 'vertical',   label: 'Vertical',   icon: AlignJustify, desc: 'One option per row' },
@@ -388,17 +386,9 @@ function ChoiceRow({ letter, label, selected, accent, dark, onClick, shape = 'ra
     </button>
   )
 }
-function ChoiceCard({ children, dark }) {
-  return (
-    <div className="w-full rounded-2xl overflow-hidden"
-      style={{
-        background: dark ? '#0b1526' : '#fff',
-        border: `1px solid ${dark ? '#1e293b' : '#eef1f6'}`,
-        boxShadow: dark ? '0 6px 20px -8px rgba(0,0,0,0.4)' : '0 6px 20px -10px rgba(15,23,42,0.15)',
-      }}>
-      {children}
-    </div>
-  )
+/* 'list' style — rows divided by hairlines straight on the chat: no card, background or shadow behind them. */
+function ChoiceCard({ children }) {
+  return <div className="w-full">{children}</div>
 }
 /* 'cards' style — the same row content as ChoiceRow, as its own card.
    `full` (direction === 'vertical', the default) stretches it to the full
@@ -551,7 +541,7 @@ function ChoiceOptions({ options, mode, style, direction, isSelected, onPick, ac
   // 'list' — default, no direction toggle (a grouped card of rows has no
   // horizontal equivalent)
   return (
-    <ChoiceCard dark={dark}>
+    <ChoiceCard>
       {options.map((o, i) => (
         <ChoiceRow key={o} letter={OPTION_LETTERS[i]} label={o} selected={isSelected(o)} accent={accent} dark={dark}
           shape={shape} last={i === options.length - 1} onClick={() => onPick(o)}/>

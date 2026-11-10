@@ -1920,18 +1920,16 @@ export function useFlowSimulation(flow, allFlows) {
   return { messages, awaiting, ended, activity, activityOpen, setActivityOpen, reset, submitAsk, pickQuickReply, pickBranch, injectAgentMessage }
 }
 
-/* A Single/Multiple Choice node whose style reads as a menu of buttons
-   (see CHOICE_STYLES' `inline` flag — Buttons and Outline, matching a Quick
-   Replies / Main Menu look) answers attached under its OWN question bubble
-   instead of the fixed composer, the same way quick_replies chips visually
-   read as part of the message they belong to. Every other question type
-   still answers from the one consistent composer location below. A caller
-   uses this to decide which of `simComposerControl` / `simInlineControl` a
-   pending ask-node's control should be built into. */
+/* Questions that are answered by picking an option (single / multiple choice,
+   yes-no, star rating, NPS) answer right under their OWN question bubble, inside
+   the chat thread, with no separate panel or background behind them — the way
+   quick_replies chips read as part of the message they belong to. Questions
+   that need typing, a date, a file, a dropdown menu, etc. still answer from
+   the composer below. A caller uses this to decide which of `simComposerControl` /
+   `simInlineControl` a pending ask-node's control should be built into. */
+const INLINE_ASK_TYPES = new Set(['single', 'multi', 'yesno', 'rating', 'nps'])
 export function isInlineAskAwaiting(awaiting) {
-  if (awaiting?.type !== 'ask') return false
-  const style = CHOICE_STYLES.find(s => s.id === (awaiting.node.data?.choiceStyle || 'list'))
-  return Boolean(style?.inline)
+  return awaiting?.type === 'ask' && INLINE_ASK_TYPES.has(awaiting.node.data?.questionType)
 }
 
 /* Renders whichever interactive control the simulation is currently awaiting
