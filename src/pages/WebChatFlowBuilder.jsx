@@ -21,7 +21,7 @@ import { useBotId } from '../constants/webchat'
 import PopupShell, { PopupSection, PopupFooter } from '../components/webchat/PopupShell'
 import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
 import CompanyEmailSetting from '../components/webchat/CompanyEmailSetting'
-import { mediaOf, newPropertyCard, STATUS_OPTIONS } from '../components/webchat/propertyCards'
+import PropertyCardsEditor from '../components/webchat/PropertyCardsEditor'
 import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES, CHOICE_DIRECTIONS, CHOICE_DEFAULT_DIRECTION } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
 
@@ -725,103 +725,6 @@ function FaqItemsEditor({ items, onChange, d, set }) {
   )
 }
 
-/* Property Cards (real estate): the project cards a visitor can browse, and the two buttons under each.
-   Each card is collapsed to its name; open it to edit. The GST note has its own on/off switch per card, because
-   projects differ (affordable housing vs. premium). A button with an external link opens it in a new tab; with the
-   link left empty it carries on inside the chat — either way the answer ("Interested: <project>") is recorded. */
-function PropertyCardsEditor({ cards, onChange, d, set }) {
-  const [openId, setOpenId] = useState(cards[0]?.id || null)
-  const update = (id, patch) => onChange(cards.map(c => (c.id === id ? { ...c, ...patch } : c)))
-  const remove = id => onChange(cards.filter(c => c.id !== id))
-  const add = () => { const c = newPropertyCard(); onChange([...cards, c]); setOpenId(c.id) }
-  const duplicate = c => { const n = newPropertyCard({ ...c, name: `${c.name} (copy)` }); onChange([...cards, n]); setOpenId(n.id) }
-  const setMedia = (c, i, v) => update(c.id, { media: (c.media || ['']).map((m, k) => (k === i ? v : m)) })
-  return (
-    <div className="space-y-2.5">
-      <div className="space-y-1.5">
-        <label className="label">Buttons under each card</label>
-        {[['interested', 'Interested'], ['siteVisit', 'Site visit']].map(([k, def]) => (
-          <div key={k} className="flex items-center gap-2">
-            <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={d[`${k}Enabled`] !== false} onChange={e => set(`${k}Enabled`, e.target.checked)} aria-label={`Show the ${def} button`}/>
-            <input className="input-sm flex-1" placeholder={def} value={d[`${k}Label`] || ''} disabled={d[`${k}Enabled`] === false} onChange={e => set(`${k}Label`, e.target.value)}/>
-          </div>
-        ))}
-        <p className="text-[9.5px] text-slate-400 leading-snug">Each project can send a button to its own link, or leave the link empty to continue inside the chat.</p>
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="label">Projects</label>
-        {cards.length === 0 && <p className="text-[10px] text-slate-400">No projects yet. The preview shows two samples until you add one.</p>}
-        {cards.map((c, idx) => {
-          const open = openId === c.id
-          const media = c.media && c.media.length ? c.media : ['']
-          return (
-            <div key={c.id} className="rounded-xl border border-surface-border">
-              <div className="flex items-center gap-1.5 p-2">
-                <button onClick={() => setOpenId(open ? null : c.id)} className="p-1 text-slate-400 flex-shrink-0" aria-label={open ? 'Collapse' : 'Expand'} aria-expanded={open}>
-                  <ChevronDown size={13} className={clsx('transition-transform', open && 'rotate-180')}/>
-                </button>
-                <span className="text-[10px] font-bold text-slate-400 w-4 flex-shrink-0">{idx + 1}</span>
-                <input className="input-sm flex-1" placeholder="Project name" value={c.name || ''} onChange={e => update(c.id, { name: e.target.value })}/>
-                <button onClick={() => duplicate(c)} title="Duplicate" className="p-1 text-slate-400 hover:text-primary flex-shrink-0"><Copy size={12}/></button>
-                <button onClick={() => remove(c.id)} title="Remove" className="p-1 text-slate-400 hover:text-red-500 flex-shrink-0"><X size={13}/></button>
-              </div>
-              {open && (
-                <div className="px-2.5 pb-2.5 space-y-2 border-t border-surface-border pt-2">
-                  <div className="space-y-1">
-                    <label className="label">Photos or videos <span className="text-slate-400 font-normal">(links; up to 5)</span></label>
-                    {media.map((m, i) => (
-                      <div key={i} className="flex items-center gap-1.5">
-                        <input className="input-sm flex-1" placeholder="https://… .jpg / .mp4 / YouTube / Vimeo" value={m} onChange={e => setMedia(c, i, e.target.value)}/>
-                        <span className="text-[9px] font-bold text-slate-400 w-9 flex-shrink-0">{mediaOf(m)?.label || ''}</span>
-                        {media.length > 1 && <button onClick={() => update(c.id, { media: media.filter((_, k) => k !== i) })} className="p-1 text-slate-400 hover:text-red-500"><X size={12}/></button>}
-                      </div>
-                    ))}
-                    {media.length < 5 && <button onClick={() => update(c.id, { media: [...media, ''] })} className="text-[11px] text-primary font-semibold hover:underline flex items-center gap-1"><Plus size={11}/> Add photo or video</button>}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1"><label className="label">Location</label>
-                      <input className="input-sm w-full" placeholder="Baner, Pune" value={c.location || ''} onChange={e => update(c.id, { location: e.target.value })}/></div>
-                    <div className="space-y-1"><label className="label">Location link <span className="text-slate-400 font-normal">(optional)</span></label>
-                      <input className="input-sm w-full" placeholder="https://maps.google.com/…" value={c.locationUrl || ''} onChange={e => update(c.id, { locationUrl: e.target.value })}/></div>
-                  </div>
-                  <div className="space-y-1"><label className="label">Configuration &amp; size</label>
-                    <input className="input-sm w-full" placeholder="2 & 3 BHK · 950–1,450 sq ft" value={c.config || ''} onChange={e => update(c.id, { config: e.target.value })}/></div>
-                  <div className="space-y-1"><label className="label">Status badge</label>
-                    <input className="input-sm w-full" list="prop-status" placeholder="Ready to move" value={c.status || ''} onChange={e => update(c.id, { status: e.target.value })}/>
-                    <datalist id="prop-status">{STATUS_OPTIONS.map(s => <option key={s} value={s}/>)}</datalist></div>
-                  <div className="space-y-1"><label className="label">Price</label>
-                    <input className="input-sm w-full" placeholder="₹85 Lakh onwards" value={c.price || ''} onChange={e => update(c.id, { price: e.target.value })}/></div>
-                  <label className="flex items-center justify-between gap-2 p-2 rounded-lg border border-surface-border">
-                    <span><span className="text-[11.5px] font-semibold text-slate-700 block">Show GST note</span><span className="text-[9.5px] text-slate-400">Turn off for projects where GST does not apply</span></span>
-                    <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={!!c.gstEnabled} onChange={e => update(c.id, { gstEnabled: e.target.checked })}/>
-                  </label>
-                  {c.gstEnabled && (
-                    <div className="space-y-1 pl-1"><label className="label">GST text</label>
-                      <input className="input-sm w-full" placeholder="+ 5% GST" value={c.gst || ''} onChange={e => update(c.id, { gst: e.target.value })}/></div>
-                  )}
-                  <div className="space-y-1"><label className="label">Highlights <span className="text-slate-400 font-normal">(comma separated, up to 4)</span></label>
-                    <input className="input-sm w-full" placeholder="Clubhouse, Swimming pool, Gym" value={c.highlights || ''} onChange={e => update(c.id, { highlights: e.target.value })}/></div>
-                  <div className="space-y-1"><label className="label">RERA number <span className="text-slate-400 font-normal">(optional)</span></label>
-                    <input className="input-sm w-full" value={c.rera || ''} onChange={e => update(c.id, { rera: e.target.value })}/></div>
-                  {(d.interestedEnabled !== false || d.siteVisitEnabled !== false) && (
-                    <div className="space-y-1.5">
-                      <label className="label">Button links <span className="text-slate-400 font-normal">(empty = continue in chat)</span></label>
-                      {d.interestedEnabled !== false && <input className="input-sm w-full" placeholder={`${d.interestedLabel || 'Interested'}: external link`} value={c.interestedUrl || ''} onChange={e => update(c.id, { interestedUrl: e.target.value })}/>}
-                      {d.siteVisitEnabled !== false && <input className="input-sm w-full" placeholder={`${d.siteVisitLabel || 'Site visit'}: external link, e.g. booking page`} value={c.siteVisitUrl || ''} onChange={e => update(c.id, { siteVisitUrl: e.target.value })}/>}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })}
-        <button onClick={add} className="text-[11px] text-primary font-semibold hover:underline flex items-center gap-1"><Plus size={11}/> Add project</button>
-      </div>
-    </div>
-  )
-}
-
 function FormFieldsEditor({ fields, onChange }) {
   const update = (id, patch) => onChange(fields.map(f => f.id === id ? { ...f, ...patch } : f))
   const remove = id => onChange(fields.filter(f => f.id !== id))
@@ -909,13 +812,14 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
   const Icon = def.icon
   const catColor = CAT_COLOR[def.cat] || '#0066ff'
   const [local, setLocal] = useState(node)
+  const widgetCfg = useWidgetCfg()   // brand colour, so a preview inside the editor matches the widget
   useEffect(() => { setLocal(node) }, [node.id])
   const d = local.data || {}
   const set = (k, v) => setLocal(n => ({ ...n, data: { ...n.data, [k]: v } }))
   const save = () => { onChange(local); onClose() }
 
   return (
-    <PopupShell icon={Icon} color={catColor} title={def.label} badge={CAT_LABELS[def.cat]} width={680}
+    <PopupShell icon={Icon} color={catColor} title={def.label} badge={CAT_LABELS[def.cat]} width={def.questionType === 'property_cards' ? 1100 : 680}
       meta={<span className="flex items-center gap-1"><span className="font-mono truncate max-w-[140px]" title={node.id}>{node.id}</span><CopyIdButton id={node.id}/></span>}
       onClose={onClose}
       footer={<PopupFooter onCancel={onClose} onSave={save} onDelete={onDelete}/>}>
@@ -1136,7 +1040,7 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
               )}
 
               {def.questionType === 'property_cards' && (
-                <PropertyCardsEditor cards={d.propertyCards || []} onChange={v => set('propertyCards', v)} d={d} set={set}/>
+                <PropertyCardsEditor cards={d.propertyCards || []} onChange={v => set('propertyCards', v)} d={d} set={set} accent={widgetCfg.color}/>
               )}
 
               {def.questionType === 'faq' && (

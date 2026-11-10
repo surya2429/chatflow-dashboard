@@ -1590,7 +1590,7 @@ function PropertyMedia({ urls, accent, dark, status }) {
   )
 }
 
-function PropertyCard({ card, accent, dark, data, onSubmit }) {
+export function PropertyCard({ card, accent, dark, data = {}, onSubmit }) {
   const ink = dark ? '#e2e8f0' : '#1e293b', soft = dark ? '#94a3b8' : '#64748b'
   const locUrl = safeUrl(card.locationUrl)
   const tags = highlightsOf(card)

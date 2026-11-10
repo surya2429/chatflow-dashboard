@@ -1,6 +1,6 @@
 // Run: node scripts/propertyCards.check.mjs  (from backend/) — the Property Cards question type's data rules.
 import assert from 'node:assert/strict'
-import { cardsOf, DEFAULT_PROPERTIES, highlightsOf, mediaOf, newPropertyCard, safeUrl } from '../../src/components/webchat/propertyCards.js'
+import { cardProblems, cardsOf, DEFAULT_PROPERTIES, highlightsOf, linkError, mediaOf, newPropertyCard, safeUrl } from '../../src/components/webchat/propertyCards.js'
 
 // links shown to visitors: http(s) only
 assert.equal(safeUrl('https://maps.google.com/?q=Pune'), 'https://maps.google.com/?q=Pune')
@@ -25,7 +25,15 @@ assert.equal(cardsOf({ propertyCards: [] }), DEFAULT_PROPERTIES)
 assert.equal(cardsOf({ propertyCards: [newPropertyCard({ name: '  ' })] }), DEFAULT_PROPERTIES, 'a card with no name is not shown')
 const mine = [newPropertyCard({ name: 'Orchid Towers' }), newPropertyCard({ name: 'Lake View' })]
 assert.equal(cardsOf({ propertyCards: mine }).length, 2)
-assert.notEqual(newPropertyCard().id, newPropertyCard().id, 'every card gets its own id')
+assert.equal(new Set(Array.from({ length: 500 }, () => newPropertyCard().id)).size, 500, 'every card gets its own id, even in the same millisecond')
 assert.deepEqual(highlightsOf({ highlights: ' Gym, Pool ,, Garden, Clubhouse, Parking, Lift ' }), ['Gym', 'Pool', 'Garden', 'Clubhouse'], 'at most four')
 assert.deepEqual(highlightsOf({}), [])
+// the editor's checks
+assert.equal(linkError(''), ''); assert.equal(linkError('https://x.test'), ''); assert.match(linkError('x.test'), /https/); assert.match(linkError('javascript:alert(1)'), /https/)
+assert.equal(mediaOf('https://youtu.be/dQw4w9WgXcQ').thumb, 'https://img.youtube.com/vi/dQw4w9WgXcQ/mqdefault.jpg')
+assert.deepEqual(cardProblems(newPropertyCard({ name: 'A', media: ['https://x.test/a.jpg'] })), [])
+assert.equal(cardProblems(newPropertyCard({ name: ' ' })).length, 1, 'a card with no name')
+const bad = cardProblems(newPropertyCard({ name: 'A', locationUrl: 'nope', interestedUrl: 'nope', siteVisitUrl: 'nope', media: ['nope'] }))
+assert.equal(bad.length, 4)
+assert.equal(cardProblems(newPropertyCard({ name: 'A', interestedUrl: 'nope' }), { interestedEnabled: false }).length, 0, 'a link on a hidden button is not a problem')
 console.log('property cards: ok')
