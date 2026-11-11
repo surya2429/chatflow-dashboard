@@ -14,7 +14,9 @@ export const DEFAULT_OTP_TEMPLATES = {
   email:    { subject: 'Your verification code', body: 'Hi,\n\nYour verification code is {{otp}}.\n\nIf you did not ask for this code, you can ignore this email.' },
 }
 
-export const DEFAULT_OTP_CONFIG = { channel: 'sms', sourceNodeId: '', testMode: true, showTimer: true, showResend: true, seconds: 30 }
+export const RESEND_WAITS = [{ seconds: 30, label: '30 seconds' }, { seconds: 60, label: '60 seconds' }, { seconds: 120, label: '2 minutes' }, { seconds: 300, label: '5 minutes' }]
+
+export const DEFAULT_OTP_CONFIG = { channel: 'sms', sourceNodeId: '', testMode: true, allowSkip: false, showTimer: true, showResend: true, seconds: 30 }
 
 /** Saved config over the defaults; each channel keeps its own message. */
 export function otpCfg(config) {

@@ -1170,7 +1170,7 @@ function PaymentAnswer({ accent, dark, onSubmit }) {
    countdown + resend for the cosmetic Appearance-tab preview (no node
    context there). Resending clears the entered digits and restarts the
    countdown, matching real OTP UX. */
-function OtpAnswer({ accent, dark, onSubmit, showTimer = true, showResend = true, seconds = 30, expected, onResend }) {
+function OtpAnswer({ accent, dark, onSubmit, showTimer = true, showResend = true, seconds = 30, expected, onResend, allowSkip = false }) {
   const LEN = OTP_LEN
   const [wrong, setWrong] = useState(false)
   const [digits, setDigits] = useState(Array(LEN).fill(''))
@@ -1228,8 +1228,8 @@ function OtpAnswer({ accent, dark, onSubmit, showTimer = true, showResend = true
             : <button type="button" onClick={resend} className="text-[10.5px] font-bold transition-opacity hover:opacity-70" style={{ color: accent }}>↻ Resend code</button>}
         </div>
       )}
-      {!showResend && showTimer && left > 0 && (
-        <p className="text-center text-[10.5px] font-medium mt-2" style={{ color: mutedColor }}>Code expires in {mm}:{ss}</p>
+      {allowSkip && (
+        <button type="button" onClick={() => onSubmit?.('')} className="block mx-auto mt-2 text-[10.5px] font-semibold transition-opacity hover:opacity-70" style={{ color: mutedColor }}>Skip verification</button>
       )}
     </div>
   )
@@ -2073,7 +2073,7 @@ export function AnswerControl({ questionType, accent = '#0066ff', dark = false, 
     case 'otp':
       return <OtpAnswer accent={accent} dark={dark} onSubmit={submit}
         showTimer={otpConfig?.showTimer ?? true} showResend={otpConfig?.showResend ?? true} seconds={otpConfig?.seconds ?? 30}
-        expected={otp?.code} onResend={otp?.resend}/>
+        expected={otp?.code} onResend={otp?.resend} allowSkip={!!otpConfig?.allowSkip}/>
     case 'statement':
       return <StatementAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'faq':

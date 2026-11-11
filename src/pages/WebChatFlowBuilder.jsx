@@ -22,7 +22,7 @@ import PopupShell, { PopupSection, PopupFooter } from '../components/webchat/Pop
 import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
 import CompanyEmailSetting from '../components/webchat/CompanyEmailSetting'
 import PropertyCardsEditor from '../components/webchat/PropertyCardsEditor'
-import { DEFAULT_OTP_TEMPLATES, OTP_CHANNELS, OTP_LEN, channelOf, hasOtpToken, maskContact, newOtpCode, otpCfg, pickContact, renderOtp } from '../components/webchat/otp'
+import { DEFAULT_OTP_TEMPLATES, OTP_CHANNELS, OTP_LEN, RESEND_WAITS, channelOf, hasOtpToken, maskContact, newOtpCode, otpCfg, pickContact, renderOtp } from '../components/webchat/otp'
 import { dedupeNodeIds, nextNodeId } from '../lib/flowNodeIds'
 import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES, CHOICE_DIRECTIONS, CHOICE_DEFAULT_DIRECTION } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
@@ -646,31 +646,28 @@ function OtpConfigEditor({ config, onChange, allNodes, nodeId }) {
         <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={cfg.testMode} onChange={e => set('testMode', e.target.checked)}/>
       </label>
 
+      <label className="flex items-center justify-between p-2.5 rounded-xl border border-surface-border">
+        <div className="pr-3">
+          <span className="text-[12px] font-semibold text-slate-700 block">Allow skipping verification</span>
+          <span className="text-[9.5px] text-slate-400">Shows a "Skip verification" button. The chat moves on without a verified code, and the answer is recorded as skipped.</span>
+        </div>
+        <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={cfg.allowSkip} onChange={e => set('allowSkip', e.target.checked)}/>
+      </label>
       <div className="space-y-1.5">
-        <label className="label">Resend options</label>
-        <p className="text-[9px] text-slate-400 -mt-0.5">Both are optional and can be turned off independently.</p>
-      <label className="flex items-center justify-between p-2.5 rounded-xl border border-surface-border">
-        <div>
-          <span className="text-[12px] font-semibold text-slate-700 block">Show countdown timer</span>
-          <span className="text-[9.5px] text-slate-400">e.g. "Resend code in 0:30"</span>
-        </div>
-        <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={cfg.showTimer} onChange={e => set('showTimer', e.target.checked)}/>
-      </label>
-      {cfg.showTimer && (
-        <div className="space-y-1 pl-1"><label className="label">Countdown duration (seconds)</label>
-          <input type="number" min={5} max={300} className="input-sm w-28" value={cfg.seconds}
-            onChange={e => set('seconds', Math.max(5, +e.target.value || 5))}/>
-        </div>
-      )}
-      <label className="flex items-center justify-between p-2.5 rounded-xl border border-surface-border">
-        <div>
-          <span className="text-[12px] font-semibold text-slate-700 block">Allow resend</span>
-          <span className="text-[9.5px] text-slate-400">
-            {cfg.showTimer ? 'Resend button appears once the countdown reaches 0' : 'Resend button is available immediately'}
-          </span>
-        </div>
-        <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={cfg.showResend} onChange={e => set('showResend', e.target.checked)}/>
-      </label>
+        <label className="flex items-center justify-between p-2.5 rounded-xl border border-surface-border">
+          <div className="pr-3">
+            <span className="text-[12px] font-semibold text-slate-700 block">Allow resending the code</span>
+            <span className="text-[9.5px] text-slate-400">A "Resend code" button appears once the wait below is over. Each resend creates a new code.</span>
+          </div>
+          <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={cfg.showResend} onChange={e => set('showResend', e.target.checked)}/>
+        </label>
+        {cfg.showResend && (
+          <div className="space-y-1 pl-1"><label className="label">Resend available after</label>
+            <NativeSelect sm value={cfg.seconds} onChange={e => onChange({ ...cfg, seconds: +e.target.value, showTimer: true })}>
+              {(RESEND_WAITS.some(w => w.seconds === cfg.seconds) ? RESEND_WAITS : [...RESEND_WAITS, { seconds: cfg.seconds, label: `${cfg.seconds} seconds` }]).map(w => <option key={w.seconds} value={w.seconds}>{w.label}</option>)}
+            </NativeSelect>
+          </div>
+        )}
       </div>
     </>
   )
