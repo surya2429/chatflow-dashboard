@@ -8,6 +8,7 @@ export const OTP_CHANNELS = [
   { id: 'email',    label: 'Email',    kind: 'email' },
 ]
 
+/* The messages are fixed: the flow author does not edit them. */
 export const DEFAULT_OTP_TEMPLATES = {
   sms:      { body: '{{otp}} is your verification code. Do not share it with anyone.' },
   whatsapp: { body: '*{{otp}}* is your verification code. For your security, do not share this code with anyone.' },
@@ -18,17 +19,15 @@ export const RESEND_WAITS = [{ seconds: 30, label: '30 seconds' }, { seconds: 60
 
 export const DEFAULT_OTP_CONFIG = { channel: 'sms', sourceNodeId: '', testMode: true, allowSkip: false, showTimer: true, showResend: true, seconds: 30 }
 
-/** Saved config over the defaults; each channel keeps its own message. */
+/** Saved config over the defaults. */
 export function otpCfg(config) {
   const c = { ...DEFAULT_OTP_CONFIG, ...config }
   if (!OTP_CHANNELS.some(x => x.id === c.channel)) c.channel = 'sms'
-  c.templates = Object.fromEntries(Object.keys(DEFAULT_OTP_TEMPLATES).map(k => [k, { ...DEFAULT_OTP_TEMPLATES[k], ...config?.templates?.[k] }]))
   return c
 }
 
 export const channelOf = id => OTP_CHANNELS.find(c => c.id === id) || OTP_CHANNELS[0]
 export const renderOtp = (text, code) => String(text || '').replace(/\{\{\s*otp\s*\}\}/gi, code)
-export const hasOtpToken = text => /\{\{\s*otp\s*\}\}/i.test(String(text || ''))
 
 export function newOtpCode() {
   const n = crypto.getRandomValues(new Uint32Array(1))[0] % 10 ** OTP_LEN

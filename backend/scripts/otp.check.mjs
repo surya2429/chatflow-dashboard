@@ -1,17 +1,14 @@
 // Run: node scripts/otp.check.mjs  (from backend/) — OTP Verify: who gets the code, the message, the code itself.
 import assert from 'node:assert/strict'
-import { OTP_LEN, otpCfg, pickContact, renderOtp, hasOtpToken, newOtpCode, maskContact, DEFAULT_OTP_TEMPLATES } from '../../src/components/webchat/otp.js'
+import { OTP_LEN, otpCfg, pickContact, renderOtp, newOtpCode, maskContact, DEFAULT_OTP_TEMPLATES } from '../../src/components/webchat/otp.js'
 
 assert.equal(OTP_LEN, 4)
 for (let i = 0; i < 200; i++) assert.match(newOtpCode(), /^\d{4}$/)
 // each channel ships a default message that carries the code
-for (const k of ['sms', 'whatsapp', 'email']) assert.ok(hasOtpToken(DEFAULT_OTP_TEMPLATES[k].body), k)
+for (const k of ['sms', 'whatsapp', 'email']) assert.match(DEFAULT_OTP_TEMPLATES[k].body, /\{\{otp\}\}/, k)
 assert.ok(DEFAULT_OTP_TEMPLATES.email.subject)
 assert.equal(renderOtp('{{otp}} and {{ OTP }}', '4821'), '4821 and 4821')
-// saved overrides are kept per channel; unknown channel falls back to sms
-const c = otpCfg({ channel: 'email', templates: { email: { subject: 'Hi' } } })
-assert.equal(c.templates.email.subject, 'Hi'); assert.equal(c.templates.email.body, DEFAULT_OTP_TEMPLATES.email.body)
-assert.equal(c.templates.sms.body, DEFAULT_OTP_TEMPLATES.sms.body)
+// an unknown channel falls back to sms
 assert.equal(otpCfg({ channel: 'fax' }).channel, 'sms')
 
 const log = [

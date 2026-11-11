@@ -22,7 +22,8 @@ import PopupShell, { PopupSection, PopupFooter } from '../components/webchat/Pop
 import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
 import CompanyEmailSetting from '../components/webchat/CompanyEmailSetting'
 import PropertyCardsEditor from '../components/webchat/PropertyCardsEditor'
-import { DEFAULT_OTP_TEMPLATES, OTP_CHANNELS, OTP_LEN, RESEND_WAITS, channelOf, hasOtpToken, maskContact, newOtpCode, otpCfg, pickContact, renderOtp } from '../components/webchat/otp'
+import OtpSettings from '../components/webchat/OtpSettings'
+import { DEFAULT_OTP_TEMPLATES, OTP_LEN, channelOf, maskContact, newOtpCode, otpCfg, pickContact, renderOtp } from '../components/webchat/otp'
 import { dedupeNodeIds, nextNodeId } from '../lib/flowNodeIds'
 import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES, CHOICE_DIRECTIONS, CHOICE_DEFAULT_DIRECTION } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
@@ -593,85 +594,6 @@ function Minimap({ nodes, edges, zoom, pan, svgRef }) {
    Widget Tabs list's `always` rows in WebChatAppearance.jsx. Custom fields
    the author adds (text or dropdown) can be freely deleted. ── */
 const DEFAULT_FORM_FIELD_IDS = new Set(DEFAULT_FORM_FIELDS.map(f => f.id))
-/* OTP Verify settings: which channel carries the code, whose phone/email it goes to, and the message itself.
-   The code is sent to the answer of a Phone or Email question earlier in the flow: add that question, connect (or jump)
-   it to this step, and leave "Send to" on automatic, or pick the exact question. */
-function OtpConfigEditor({ config, onChange, allNodes, nodeId }) {
-  const cfg = otpCfg(config)
-  const set = (k, v) => onChange({ ...cfg, [k]: v })
-  const ch = channelOf(cfg.channel)
-  const tpl = cfg.templates[cfg.channel]
-  const setTpl = patch => onChange({ ...cfg, templates: { ...cfg.templates, [cfg.channel]: { ...tpl, ...patch } } })
-  const questions = (allNodes || []).filter(n => n.id !== nodeId && n.data?.questionType === ch.kind)
-  const missingSource = cfg.sourceNodeId && !questions.some(n => n.id === cfg.sourceNodeId)
-  const isDefault = JSON.stringify(tpl) === JSON.stringify(DEFAULT_OTP_TEMPLATES[cfg.channel])
-  const seg = (on) => clsx('flex-1 px-3 py-1.5 rounded-md text-[11.5px] font-semibold', on ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500')
-  return (
-    <>
-      <div className="space-y-1.5">
-        <label className="label">Send the {OTP_LEN}-digit code by</label>
-        <div className="flex rounded-lg bg-slate-200/70 p-0.5">
-          {OTP_CHANNELS.map(c => <button key={c.id} type="button" onClick={() => set('channel', c.id)} className={seg(cfg.channel === c.id)}>{c.label}</button>)}
-        </div>
-      </div>
-
-      <div className="space-y-1">
-        <label className="label">Send to</label>
-        <NativeSelect sm value={cfg.sourceNodeId || ''} onChange={e => set('sourceNodeId', e.target.value)}>
-          <option value="">Automatic: the latest {ch.kind === 'email' ? 'Email' : 'Phone'} answer before this step</option>
-          {questions.map(n => <option key={n.id} value={n.id}>{n.data.name || n.data.question || n.id}</option>)}
-        </NativeSelect>
-        {!questions.length && <p role="alert" className="text-[10px] text-amber-600">There is no {ch.kind === 'email' ? 'Email' : 'Phone'} question in this flow yet. Add one, then connect it (or jump from it) to this step.</p>}
-        {missingSource && <p role="alert" className="text-[10px] text-red-500">The question picked here was removed or is not a {ch.kind === 'email' ? 'Email' : 'Phone'} question. No code can be sent until you choose another.</p>}
-      </div>
-
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <label className="label">{ch.label} message</label>
-          {!isDefault && <button type="button" onClick={() => setTpl({ ...DEFAULT_OTP_TEMPLATES[cfg.channel] })} className="text-[10.5px] font-semibold text-primary hover:underline">Reset to default</button>}
-        </div>
-        {cfg.channel === 'email' && (
-          <input className="input" aria-label="Email subject" placeholder="Subject" value={tpl.subject || ''} onChange={e => setTpl({ subject: e.target.value })}/>
-        )}
-        <textarea className="textarea" rows={cfg.channel === 'email' ? 5 : 3} aria-label={`${ch.label} message`} value={tpl.body || ''} onChange={e => setTpl({ body: e.target.value })}/>
-        <p className="text-[9.5px] text-slate-400">Write <code className="font-mono">{'{{otp}}'}</code> where the code goes. Each channel keeps its own message.</p>
-        {!hasOtpToken(tpl.body) && <p role="alert" className="text-[10px] text-red-500">This message has no <code className="font-mono">{'{{otp}}'}</code>, so the visitor would never see the code.</p>}
-      </div>
-
-      <label className="flex items-center justify-between p-2.5 rounded-xl border border-surface-border">
-        <div className="pr-3">
-          <span className="text-[12px] font-semibold text-slate-700 block">Test mode: show the code in the chat</span>
-          <span className="text-[9.5px] text-slate-400">No SMS, WhatsApp or email service is connected yet, so nothing is delivered. While this is on, the code appears in the chat so you can try the flow. The message above is shown in the Activity trail.</span>
-        </div>
-        <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={cfg.testMode} onChange={e => set('testMode', e.target.checked)}/>
-      </label>
-
-      <label className="flex items-center justify-between p-2.5 rounded-xl border border-surface-border">
-        <div className="pr-3">
-          <span className="text-[12px] font-semibold text-slate-700 block">Allow skipping verification</span>
-          <span className="text-[9.5px] text-slate-400">Shows a "Skip verification" button. The chat moves on without a verified code, and the answer is recorded as skipped.</span>
-        </div>
-        <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={cfg.allowSkip} onChange={e => set('allowSkip', e.target.checked)}/>
-      </label>
-      <div className="space-y-1.5">
-        <label className="flex items-center justify-between p-2.5 rounded-xl border border-surface-border">
-          <div className="pr-3">
-            <span className="text-[12px] font-semibold text-slate-700 block">Allow resending the code</span>
-            <span className="text-[9.5px] text-slate-400">A "Resend code" button appears once the wait below is over. Each resend creates a new code.</span>
-          </div>
-          <input type="checkbox" className="w-4 h-4 rounded accent-primary flex-shrink-0" checked={cfg.showResend} onChange={e => set('showResend', e.target.checked)}/>
-        </label>
-        {cfg.showResend && (
-          <div className="space-y-1 pl-1"><label className="label">Resend available after</label>
-            <NativeSelect sm value={cfg.seconds} onChange={e => onChange({ ...cfg, seconds: +e.target.value, showTimer: true })}>
-              {(RESEND_WAITS.some(w => w.seconds === cfg.seconds) ? RESEND_WAITS : [...RESEND_WAITS, { seconds: cfg.seconds, label: `${cfg.seconds} seconds` }]).map(w => <option key={w.seconds} value={w.seconds}>{w.label}</option>)}
-            </NativeSelect>
-          </div>
-        )}
-      </div>
-    </>
-  )
-}
 /* Style picker for Single/Multiple Choice — CHOICE_STYLES is the single
    source of truth (also drives AnswerControls.jsx's rendering), so this
    picker can never drift out of sync with what a chosen style actually
@@ -1054,7 +976,7 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
                 <FormFieldsEditor fields={d.formFields || DEFAULT_FORM_FIELDS} onChange={v => set('formFields', v)}/>
               )}
               {def.questionType === 'otp' && (
-                <OtpConfigEditor config={d.otpConfig} onChange={v => set('otpConfig', v)} allNodes={allNodes} nodeId={node.id}/>
+                <OtpSettings config={d.otpConfig} onChange={v => set('otpConfig', v)} allNodes={allNodes} nodeId={node.id}/>
               )}
               {(def.questionType === 'single' || def.questionType === 'multi') && (
                 <>
@@ -1827,7 +1749,7 @@ export function useFlowSimulation(flow, allFlows) {
       push('bot', `Sorry, we couldn't find your ${ch.kind === 'email' ? 'email address' : 'phone number'} to send a code to.`)
       return { code, to: '' }
     }
-    const t = cfg.templates[cfg.channel]
+    const t = DEFAULT_OTP_TEMPLATES[cfg.channel]
     logActivity(`${ch.label} to ${to}${ch.id === 'email' ? ` · subject "${renderOtp(t.subject, code)}"` : ''}: ${renderOtp(t.body, code).replace(/\s*\n+\s*/g, ' ')}`)
     push('bot', `We've sent a ${OTP_LEN}-digit code by ${ch.label} to ${maskContact(to)}.${cfg.testMode ? ` (Test mode: your code is ${code}.)` : ''}`)
     return { code, to }
