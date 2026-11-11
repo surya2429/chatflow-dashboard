@@ -2,6 +2,12 @@
    The code is OTP_LEN digits. The "who" is a Phone or Email question the visitor answered earlier in the flow. */
 export const OTP_LEN = 4
 
+/* What the bot says when it asks for the code. Fixed: the flow author does not write a question for this step. */
+export const OTP_PROMPT = `Please enter the ${OTP_LEN}-digit verification code we just sent you.`
+
+/* The code shown in the settings' sample message. */
+export const OTP_SAMPLE_CODE = '4821'
+
 export const OTP_CHANNELS = [
   { id: 'sms',      label: 'SMS',      kind: 'phone' },
   { id: 'whatsapp', label: 'WhatsApp', kind: 'phone' },

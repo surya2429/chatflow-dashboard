@@ -23,7 +23,7 @@ import PhoneCountrySettings from '../components/webchat/PhoneCountrySettings'
 import CompanyEmailSetting from '../components/webchat/CompanyEmailSetting'
 import PropertyCardsEditor from '../components/webchat/PropertyCardsEditor'
 import OtpSettings from '../components/webchat/OtpSettings'
-import { DEFAULT_OTP_TEMPLATES, OTP_LEN, channelOf, maskContact, newOtpCode, otpCfg, pickContact, renderOtp } from '../components/webchat/otp'
+import { DEFAULT_OTP_TEMPLATES, OTP_LEN, OTP_PROMPT, channelOf, maskContact, newOtpCode, otpCfg, pickContact, renderOtp } from '../components/webchat/otp'
 import { dedupeNodeIds, nextNodeId } from '../lib/flowNodeIds'
 import { AnswerControl, DEFAULT_FORM_FIELDS, FORM_FIELD_TYPES, FORM_TYPES_WITH_OPTIONS, CHOICE_STYLES, CHOICE_DIRECTIONS, CHOICE_DEFAULT_DIRECTION } from '../components/webchat/AnswerControls'
 import { useConversations } from '../context/ConversationContext'
@@ -964,9 +964,11 @@ function NodeEditModal({ node, onChange, onDelete, onClose, allNodes, subflowOpt
                   <p className="text-[10px] text-slate-500 leading-snug">{def.desc}</p>
                 </div>
               )}
-              <div className="space-y-1"><label className="label">Question text</label>
-                <textarea className="textarea" rows={2} placeholder={`e.g. What's your ${def.label.toLowerCase()}?`} value={d.question || ''} onChange={e => set('question', e.target.value)}/>
-              </div>
+              {def.questionType !== 'otp' && (   // the OTP prompt is fixed (OTP_PROMPT)
+                <div className="space-y-1"><label className="label">Question text</label>
+                  <textarea className="textarea" rows={2} placeholder={`e.g. What's your ${def.label.toLowerCase()}?`} value={d.question || ''} onChange={e => set('question', e.target.value)}/>
+                </div>
+              )}
               <div className="space-y-1"><label className="label">Save answer as</label>
                 <input className="input" placeholder="e.g. email" value={d.saveAs || ''} onChange={e => set('saveAs', e.target.value)}/>
               </div>
@@ -1807,7 +1809,7 @@ export function useFlowSimulation(flow, allFlows) {
       return
     }
     if (node.type.startsWith('ask_')) {
-      const id = push('bot', node.data?.question || 'Please answer:')
+      const id = push('bot', node.data?.questionType === 'otp' ? OTP_PROMPT : node.data?.question || 'Please answer:')
       if (node.data?.questionType === 'otp') {
         const resendOtp = () => { const otp = deliverOtp(node); setAwaiting(a => a?.node === node ? { ...a, otp } : a) }
         setAwaiting({ type: 'ask', node, msgId: id, otp: deliverOtp(node), resendOtp })

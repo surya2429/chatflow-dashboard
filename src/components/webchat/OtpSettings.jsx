@@ -4,7 +4,7 @@
 import clsx from 'clsx'
 import { Mail, MessageCircle, MessageSquare } from 'lucide-react'
 import { NativeSelect } from '../Select'
-import { OTP_CHANNELS, OTP_LEN, RESEND_WAITS, channelOf, otpCfg } from './otp'
+import { DEFAULT_OTP_TEMPLATES, OTP_CHANNELS, OTP_LEN, OTP_PROMPT, OTP_SAMPLE_CODE, RESEND_WAITS, channelOf, otpCfg, renderOtp } from './otp'
 
 const CHANNEL_UI = {
   sms:      { icon: MessageSquare, hint: 'Text message to a phone number' },
@@ -18,6 +18,35 @@ function Switch({ on, onChange, label }) {
       className="relative flex-shrink-0 rounded-full transition-colors mt-0.5" style={{ width: 34, height: 18, background: on ? '#0066ff' : '#d1d5db' }}>
       <span className="absolute rounded-full bg-white shadow transition-all" style={{ top: 2, left: on ? 18 : 2, width: 14, height: 14 }}/>
     </button>
+  )
+}
+
+/* The message the visitor receives on the chosen channel, drawn the way that channel shows it. Read-only. */
+function SamplePreview({ channel }) {
+  const t = DEFAULT_OTP_TEMPLATES[channel]
+  const body = renderOtp(t.body, OTP_SAMPLE_CODE)
+  const label = channelOf(channel).label
+  return (
+    <div className="space-y-1.5">
+      <label className="label">Sample {label} message</label>
+      <div className="rounded-xl border border-surface-border bg-slate-50 p-3">
+        {channel === 'email' ? (
+          <div className="rounded-lg bg-white border border-surface-border p-3">
+            <p className="text-[10px] text-slate-400">Subject</p>
+            <p className="text-[12px] font-semibold text-slate-800">{renderOtp(t.subject, OTP_SAMPLE_CODE)}</p>
+            <p className="mt-2 text-[11.5px] text-slate-600 leading-relaxed whitespace-pre-line">{body}</p>
+          </div>
+        ) : (
+          <div className={clsx('max-w-[85%] rounded-2xl rounded-tl-sm px-3 py-2 text-[11.5px] leading-snug shadow-sm', channel === 'whatsapp' ? 'bg-[#dcf8c6] text-slate-800' : 'bg-white text-slate-700 border border-surface-border')}>
+            {channel === 'whatsapp'
+              ? body.split(/\*([^*]+)\*/).map((part, i) => i % 2 ? <b key={i}>{part}</b> : part)
+              : body}
+          </div>
+        )}
+        <p className="mt-2 text-[10px] text-slate-400">Sent as is. The code is made fresh each time; {OTP_SAMPLE_CODE} is only an example.</p>
+      </div>
+      <p className="text-[10px] text-slate-400">The chat then asks: “{OTP_PROMPT}”</p>
+    </div>
   )
 }
 
@@ -73,6 +102,8 @@ export default function OtpSettings({ config, onChange, allNodes, nodeId }) {
         {!questions.length && <p role="alert" className="text-[10px] text-amber-600">There is no {noun} question in this flow yet.</p>}
         {missingSource && <p role="alert" className="text-[10px] text-red-500">The question picked here was removed or is not a {noun} question. No code can be sent until you choose another.</p>}
       </div>
+
+      <SamplePreview channel={cfg.channel}/>
 
       <SwitchRow on={cfg.allowSkip} onChange={v => set('allowSkip', v)} title="Allow skipping verification"
         hint="Shows a “Skip verification” link. The chat moves on and the answer is recorded as skipped."/>
