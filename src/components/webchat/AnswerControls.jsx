@@ -20,6 +20,7 @@ import {
   AlignJustify, Grid2x2, Building2,
 } from 'lucide-react'
 import { cardsOf, highlightsOf, mediaOf, safeUrl } from './propertyCards'
+import { OTP_LEN } from './otp'
 
 /* ── shared style injection (custom keyframes Tailwind can't express) ───── */
 let stylesInjected = false
@@ -1169,8 +1170,9 @@ function PaymentAnswer({ accent, dark, onSubmit }) {
    countdown + resend for the cosmetic Appearance-tab preview (no node
    context there). Resending clears the entered digits and restarts the
    countdown, matching real OTP UX. */
-function OtpAnswer({ accent, dark, onSubmit, showTimer = true, showResend = true, seconds = 30 }) {
-  const LEN = 6
+function OtpAnswer({ accent, dark, onSubmit, showTimer = true, showResend = true, seconds = 30, expected, onResend }) {
+  const LEN = OTP_LEN
+  const [wrong, setWrong] = useState(false)
   const [digits, setDigits] = useState(Array(LEN).fill(''))
   const [left, setLeft] = useState(showTimer ? seconds : 0)
   const refs = useRef([])
@@ -1181,6 +1183,7 @@ function OtpAnswer({ accent, dark, onSubmit, showTimer = true, showResend = true
   }, [left])
   const setDigit = (i, v) => {
     const clean = v.replace(/\D/g, '').slice(-1)
+    setWrong(false)
     setDigits(p => { const n = [...p]; n[i] = clean; return n })
     if (clean && i < LEN - 1) refs.current[i + 1]?.focus()
   }
@@ -1188,9 +1191,16 @@ function OtpAnswer({ accent, dark, onSubmit, showTimer = true, showResend = true
     if (e.key === 'Backspace' && !digits[i] && i > 0) refs.current[i - 1]?.focus()
   }
   const resend = () => {
-    setDigits(Array(LEN).fill(''))
+    setDigits(Array(LEN).fill('')); setWrong(false)
     setLeft(showTimer ? seconds : 0)
+    onResend?.()
     refs.current[0]?.focus()
+  }
+  // with a real code to check against (a running flow), a wrong entry clears the boxes instead of moving on
+  const verify = () => {
+    const code = digits.join('')
+    if (expected && code !== expected) { setWrong(true); setDigits(Array(LEN).fill('')); refs.current[0]?.focus(); return }
+    onSubmit?.(code)
   }
   const complete = digits.every(d => d !== '')
   const mm = Math.floor(left / 60), ss = String(left % 60).padStart(2, '0')
@@ -1201,11 +1211,12 @@ function OtpAnswer({ accent, dark, onSubmit, showTimer = true, showResend = true
         {digits.map((d, i) => (
           <input key={i} ref={el => refs.current[i] = el} value={d} maxLength={1} inputMode="numeric"
             onChange={e => setDigit(i, e.target.value)} onKeyDown={e => onKeyDown(i, e)}
-            className="w-9 h-11 rounded-xl text-center text-[15px] font-bold outline-none transition-colors"
+            className="w-11 h-12 rounded-xl text-center text-[17px] font-bold outline-none transition-colors"
             style={{ background: dark ? '#111c30' : '#f4f6f9', border: `1.5px solid ${d ? accent : (dark ? '#22304a' : '#e3e8f0')}`, color: dark ? '#e2e8f0' : '#1e293b' }}/>
         ))}
       </div>
-      <button disabled={!complete} onClick={() => onSubmit?.(digits.join(''))}
+      {wrong && <p role="alert" className="text-center text-[10.5px] font-semibold text-red-500 mt-2">That code doesn't match. Please try again.</p>}
+      <button disabled={!complete} onClick={verify}
         className="w-full mt-3 py-2 rounded-xl text-[11.5px] font-bold text-white transition-opacity"
         style={{ background: accent, opacity: complete ? 1 : 0.4 }}>
         Verify code
@@ -2016,7 +2027,7 @@ function PrechatAnswer({ accent, dark, onSubmit, data = {} }) {
   )
 }
 
-export function AnswerControl({ questionType, accent = '#0066ff', dark = false, onSubmit, interactive = true, formFields, otpConfig, googleMapsApiKey, nodeData }) {
+export function AnswerControl({ questionType, accent = '#0066ff', dark = false, onSubmit, interactive = true, formFields, otpConfig, otp, googleMapsApiKey, nodeData }) {
   useAnswerControlStyles()
   const submit = interactive ? onSubmit : undefined
 
@@ -2061,7 +2072,8 @@ export function AnswerControl({ questionType, accent = '#0066ff', dark = false, 
       return <PaymentAnswer accent={accent} dark={dark} onSubmit={submit}/>
     case 'otp':
       return <OtpAnswer accent={accent} dark={dark} onSubmit={submit}
-        showTimer={otpConfig?.showTimer ?? true} showResend={otpConfig?.showResend ?? true} seconds={otpConfig?.seconds ?? 30}/>
+        showTimer={otpConfig?.showTimer ?? true} showResend={otpConfig?.showResend ?? true} seconds={otpConfig?.seconds ?? 30}
+        expected={otp?.code} onResend={otp?.resend}/>
     case 'statement':
       return <StatementAnswer accent={accent} dark={dark} onSubmit={submit} data={nodeData}/>
     case 'faq':

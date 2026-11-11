@@ -41,7 +41,7 @@ export const QUESTION_TYPES = [
   /* Special */
   { id:'location',  cat:'Special',     icon:MapPin,       name:'Location',         desc:'Address autocomplete or map pin drop',    color:'#EF4444' },
   { id:'payment',   cat:'Special',     icon:CreditCard,   name:'Payment',          desc:'Secure card/UPI payment collection',      color:'#EF4444' },
-  { id:'otp',       cat:'Special',     icon:Lock,         name:'OTP Verify',       desc:'Verify phone/email with a 6-digit OTP',  color:'#EF4444' },
+  { id:'otp',       cat:'Special',     icon:Lock,         name:'OTP Verify',       desc:'Verify phone/email with a 4-digit OTP',  color:'#EF4444' },
   { id:'prechat',   cat:'Special',     icon:UserRound,    name:'Pre-chat Form',    desc:'Name, email and phone in one step — mandatory or optional', color:'#EF4444' },
   { id:'consent',   cat:'Special',     icon:ShieldCheck,  name:'Consent',          desc:'Explicit opt-in that records what was agreed', color:'#EF4444' },
   { id:'verify_doc',cat:'Special',     icon:BadgeCheck,   name:'Verify Document',  desc:'Upload an ID document and have it checked', color:'#EF4444' },
