@@ -21,12 +21,12 @@ assert.match(normalizeRecipient('sms', '98765 43210', '+44').error, /Indian mobi
 assert.ok(normalizeRecipient('sms', 'abc').error)
 assert.equal(formatPhone('+919876543210'), '+91 98765 43210'); assert.equal(formatPhone('+14155550132'), '+14155550132')
 
-// WhatsApp: any country, the code comes from the country picked
-assert.equal(normalizeRecipient('whatsapp', '415 555 0132', '+1').value, '+14155550132')
-assert.equal(normalizeRecipient('whatsapp', '7911 123456', '+44').value, '+447911123456')
-assert.equal(normalizeRecipient('whatsapp', '98765 43210').value, '+919876543210', 'India by default')
-assert.equal(normalizeRecipient('whatsapp', '+971 50 123 4567', '+91').value, '+971501234567', 'a typed +code wins')
-assert.ok(normalizeRecipient('whatsapp', '12', '+1').error)
+// WhatsApp: Indian numbers only, same as SMS
+assert.equal(normalizeRecipient('whatsapp', '98765 43210').value, '+919876543210')
+assert.equal(normalizeRecipient('whatsapp', '+91 98765 43210').value, '+919876543210')
+assert.match(normalizeRecipient('whatsapp', '415 555 0132', '+1').error, /WhatsApp works for Indian/, 'a foreign number is refused')
+assert.match(normalizeRecipient('whatsapp', '+971 50 123 4567').error, /Indian mobile/)
+assert.match(normalizeRecipient('whatsapp', '12345').error, /Indian mobile/)
 
 // up to five, no duplicates, every kind on to begin with
 let list = []

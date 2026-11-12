@@ -95,7 +95,7 @@ export default function LeadNotificationSettings({ channel }) {
   const Icon = ICON[channel]
   const { activeBot } = useApp()
   const botName = activeBot?.name || 'Your chatbot'
-  // SMS is for India only, so its picker holds India alone; WhatsApp can reach any country.
+  // SMS and WhatsApp are for India only, so the picker holds India alone.
   const countries = meta.countries ? COUNTRIES.filter(c => meta.countries.includes(c.code)) : COUNTRIES
   const [country, setCountry] = useState('IN')
   const dial = (countries.find(c => c.code === country) || countries[0]).dial
@@ -141,8 +141,7 @@ export default function LeadNotificationSettings({ channel }) {
           </button>
         </div>
         {error && <p role="alert" className="text-[10.5px] text-red-500">{error}</p>}
-        {!error && channel === 'sms' && <p className="text-[10.5px] text-slate-400">SMS works for Indian mobile numbers only. Type the 10 digits.</p>}
-        {!error && channel === 'whatsapp' && <p className="text-[10.5px] text-slate-400">Pick the country, then type the number without the country code.</p>}
+        {!error && isPhone && <p className="text-[10.5px] text-slate-400">{meta.label} works for Indian mobile numbers only. Type the 10 digits.</p>}
       </form>
 
       {list.length === 0 ? (

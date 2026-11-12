@@ -2,7 +2,7 @@
    Each channel holds up to MAX_RECIPIENTS recipients; each recipient picks which kinds they receive.
    Every message names the chatbot and carries a timestamp. Lead messages carry the lead's details (mobile, email,
    location, source); only the email adds the chat transcript. The designed HTML email is built in emailTemplates.js
-   from the same data. SMS goes to Indian numbers only (+91); WhatsApp goes to any country. */
+   from the same data. SMS and WhatsApp both go to Indian numbers only (+91). */
 export const MAX_RECIPIENTS = 5
 
 /* What a recipient can be told about. `group` only decides where it sits in the settings screen. */
@@ -30,18 +30,18 @@ export const KIND_STYLE = {
   updates:     { emoji: '✨', kicker: "What's new" },
 }
 
-/* `dial`: the country code a number is typed under (SMS is India only; WhatsApp can be any country). */
+/* `dial`: the country code a number is typed under (SMS and WhatsApp are India only). */
 export const NOTIFICATION_CHANNELS = {
   email:    { label: 'Email',    noun: 'email address',   placeholder: 'name@company.com' },
   sms:      { label: 'SMS',      noun: 'mobile number',   placeholder: '98765 43210', countries: ['IN'] },
-  whatsapp: { label: 'WhatsApp', noun: 'WhatsApp number', placeholder: 'Phone number' },
+  whatsapp: { label: 'WhatsApp', noun: 'WhatsApp number', placeholder: '98765 43210', countries: ['IN'] },
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /** Cleans what was typed. Returns { value } or { error }.
     Numbers are typed without the country code (it comes from the country picked, `dial`, default +91) and stored as +digits.
-    A number typed with its own +code is taken as it is. SMS accepts Indian mobile numbers only. */
+    A number typed with its own +code is taken as it is. SMS and WhatsApp accept Indian mobile numbers only. */
 export function normalizeRecipient(channel, raw, dial = '+91') {
   const t = String(raw || '').trim()
   if (!t) return { error: `Enter an ${NOTIFICATION_CHANNELS[channel].noun}.` }
@@ -49,8 +49,7 @@ export function normalizeRecipient(channel, raw, dial = '+91') {
   const digits = t.replace(/[\s().-]/g, '')
   if (!/^\+?\d+$/.test(digits)) return { error: 'Use digits only.' }
   const full = digits.startsWith('+') ? digits : dial + digits.replace(/^0+/, '')
-  if (channel === 'sms') return /^\+91[6-9]\d{9}$/.test(full) ? { value: full } : { error: 'SMS works for Indian mobile numbers only: enter the 10 digits, for example 98765 43210.' }
-  return /^\+[1-9]\d{7,14}$/.test(full) ? { value: full } : { error: 'Enter a valid number for the country you picked.' }
+  return /^\+91[6-9]\d{9}$/.test(full) ? { value: full } : { error: `${NOTIFICATION_CHANNELS[channel].label} works for Indian mobile numbers only: enter the 10 digits, for example 98765 43210.` }
 }
 
 /** +919876543210 -> "+91 98765 43210"; other countries are left as stored. */
