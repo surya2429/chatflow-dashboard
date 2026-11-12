@@ -4,9 +4,10 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { Mail, MessageCircle, Plus, Smartphone, Trash2 } from 'lucide-react'
 import {
-  MAX_RECIPIENTS, NOTIFICATION_CHANNELS, NOTIFICATION_KINDS, addRecipient, buildLeadMessage,
+  KIND_GROUPS, MAX_RECIPIENTS, NOTIFICATION_CHANNELS, NOTIFICATION_KINDS, addRecipient, buildNotificationMessage, isOn,
   loadNotificationConfig, saveNotificationConfig,
 } from '../../lib/leadNotifications'
+import { NativeSelect } from '../Select'
 
 const ICON = { email: Mail, sms: Smartphone, whatsapp: MessageCircle }
 
@@ -22,17 +23,16 @@ function Switch({ on, onChange, label }) {
 /* The message a recipient gets, drawn the way the channel shows it. Read-only. */
 function MessagePreview({ channel }) {
   const [kind, setKind] = useState('lead')
-  const { subject, text } = buildLeadMessage({ kind, channel })
+  const { subject, text } = buildNotificationMessage({ kind, channel })
   const bold = s => s.split(/\*([^*]+)\*/).map((p, i) => i % 2 ? <b key={i}>{p}</b> : p)
   return (
     <div className="rounded-xl border border-surface-border p-3.5 space-y-2.5">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-[12px] font-semibold text-slate-700">What the message looks like</p>
-        <div className="inline-flex rounded-lg bg-slate-200/70 p-0.5">
-          {NOTIFICATION_KINDS.map(k => (
-            <button key={k.id} type="button" onClick={() => setKind(k.id)}
-              className={clsx('px-2.5 py-1 rounded-md text-[10.5px] font-semibold', kind === k.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500')}>{k.label}</button>
-          ))}
+        <div className="w-full sm:w-72">
+          <NativeSelect sm value={kind} onChange={e => setKind(e.target.value)} aria-label="Message to preview">
+            {NOTIFICATION_KINDS.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
+          </NativeSelect>
         </div>
       </div>
       <div className="rounded-lg bg-slate-50 p-3">
@@ -44,7 +44,9 @@ function MessagePreview({ channel }) {
         </div>
       </div>
       <p className="text-[10px] text-slate-400">
-        The lead's details come first, then the chat transcript.{channel === 'sms' && ' SMS is short, so a long chat is cut to its most recent messages.'} The example shows sample data.
+        {(kind === 'lead' || kind === 'revisit')
+          ? `The lead's details come first, then the chat transcript.${channel === 'sms' ? ' SMS is short, so a long chat is cut to its most recent messages.' : ''}`
+          : 'The figures are examples.'}
       </p>
     </div>
   )
@@ -65,7 +67,7 @@ export default function LeadNotificationSettings({ channel }) {
     if (r.error) return setError(r.error)
     commit(r.list); setDraft(''); setError('')
   }
-  const setKind = (id, kind, on) => commit(list.map(r => r.id === id ? { ...r, kinds: { ...r.kinds, [kind]: on } } : r))
+  const setRecipientKind = (id, kind, on) => commit(list.map(r => r.id === id ? { ...r, kinds: { ...r.kinds, [kind]: on } } : r))
   const full = list.length >= MAX_RECIPIENTS
 
   return (
@@ -108,18 +110,23 @@ export default function LeadNotificationSettings({ channel }) {
                 <button type="button" onClick={() => commit(list.filter(x => x.id !== r.id))} aria-label={`Remove ${r.to}`}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>
               </div>
-              <div className="mt-3 pt-3 border-t border-surface-border grid sm:grid-cols-2 gap-3">
-                {NOTIFICATION_KINDS.map(k => (
-                  <div key={k.id} className="flex items-start gap-2.5">
-                    <Switch on={!!r.kinds?.[k.id]} onChange={v => setKind(r.id, k.id, v)} label={`${k.label} for ${r.to}`}/>
-                    <div className="min-w-0">
-                      <p className="text-[12px] font-semibold text-slate-700 leading-tight">{k.label}</p>
-                      <p className="text-[10.5px] text-slate-400 leading-snug mt-0.5">{k.hint}</p>
-                    </div>
+              {KIND_GROUPS.map(g => (
+                <div key={g.id} className="mt-3 pt-3 border-t border-surface-border">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">{g.label}</p>
+                  <div className="grid sm:grid-cols-2 gap-x-4 gap-y-3">
+                    {NOTIFICATION_KINDS.filter(k => k.group === g.id).map(k => (
+                      <div key={k.id} className="flex items-start gap-2.5">
+                        <Switch on={isOn(r, k.id)} onChange={v => setRecipientKind(r.id, k.id, v)} label={`${k.label} for ${r.to}`}/>
+                        <div className="min-w-0">
+                          <p className="text-[12px] font-semibold text-slate-700 leading-tight">{k.label}</p>
+                          <p className="text-[10.5px] text-slate-400 leading-snug mt-0.5">{k.hint}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              {!Object.values(r.kinds || {}).some(Boolean) && <p className="mt-2.5 text-[10.5px] text-amber-600">Nothing is switched on, so this one receives nothing.</p>}
+                </div>
+              ))}
+              {!NOTIFICATION_KINDS.some(k => isOn(r, k.id)) && <p className="mt-2.5 text-[10.5px] text-amber-600">Nothing is switched on, so this one receives nothing.</p>}
             </div>
           ))}
         </div>

@@ -1,6 +1,6 @@
 // Run: node scripts/leadNotifications.check.mjs  (from backend/) — recipients (max 5 per channel) and the notification text.
 import assert from 'node:assert/strict'
-import { MAX_RECIPIENTS, addRecipient, buildLeadMessage, normalizeRecipient, recipientsFor, SAMPLE_LEAD } from '../../src/lib/leadNotifications.js'
+import { MAX_RECIPIENTS, NOTIFICATION_KINDS, addRecipient, buildLeadMessage, buildNotificationMessage, normalizeRecipient, recipientsFor, SAMPLE_LEAD } from '../../src/lib/leadNotifications.js'
 
 // addresses and numbers are checked
 assert.equal(normalizeRecipient('email', ' Boss@Company.COM ').value, 'boss@company.com')
@@ -16,7 +16,8 @@ for (let i = 1; i <= MAX_RECIPIENTS; i++) { const r = addRecipient(list, 'email'
 assert.match(addRecipient(list, 'email', 'p6@x.com').error, /up to 5/)
 assert.match(addRecipient(list.slice(0, 2), 'email', 'P1@x.com').error, /already/)
 assert.equal(new Set(list.map(r => r.id)).size, 5, 'unique ids')
-assert.deepEqual(list[0].kinds, { lead: true, revisit: true })
+assert.deepEqual(Object.keys(list[0].kinds), NOTIFICATION_KINDS.map(k => k.id)); assert.ok(Object.values(list[0].kinds).every(v => v === true))
+assert.equal(NOTIFICATION_KINDS.length, 7)
 
 // who gets what
 list[1].kinds.revisit = false
@@ -24,6 +25,9 @@ const cfg = { email: list }
 assert.equal(recipientsFor(cfg, 'email', 'lead').length, 5)
 assert.deepEqual(recipientsFor(cfg, 'email', 'revisit'), ['p1@x.com', 'p3@x.com', 'p4@x.com', 'p5@x.com'])
 assert.deepEqual(recipientsFor(cfg, 'sms', 'lead'), [])
+// a recipient saved before a kind existed still gets it; one who switched it off does not
+assert.equal(recipientsFor({ email: [{ to: 'old@x.com', kinds: { lead: true } }] }, 'email', 'weekly').length, 1)
+assert.equal(recipientsFor({ email: [{ to: 'old@x.com', kinds: { weekly: false } }] }, 'email', 'weekly').length, 0)
 
 // details come before the transcript, on every channel and kind
 for (const channel of ['email', 'sms', 'whatsapp']) for (const kind of ['lead', 'revisit']) {
@@ -43,5 +47,13 @@ const long = Array.from({ length: 80 }, (_, i) => ({ from: i % 2 ? 'user' : 'bot
 const sms = buildLeadMessage({ kind: 'lead', channel: 'sms', transcript: long }).text
 assert.ok(sms.length <= 480, `sms ${sms.length}`); assert.ok(sms.includes('message number 79') && !sms.includes('message number 0 '))
 assert.ok(buildLeadMessage({ kind: 'lead', channel: 'email', transcript: long }).text.includes('message number 0 '))
+// every kind has a message on every channel; SMS stays short
+for (const k of NOTIFICATION_KINDS) for (const channel of ['email', 'sms', 'whatsapp']) {
+  const m = buildNotificationMessage({ kind: k.id, channel })
+  assert.ok(m.text.length > 20 && !m.text.includes('undefined'), `${k.id}/${channel}`)
+  assert.equal(!!m.subject, channel === 'email')
+  if (channel === 'sms') assert.ok(m.text.length <= 480, `${k.id} sms ${m.text.length}`)
+}
+assert.match(buildNotificationMessage({ kind: 'billing', channel: 'whatsapp' }).text, /^\*Your SmatBot/)
 assert.ok(SAMPLE_LEAD.phone)
 console.log('lead notifications: ok')

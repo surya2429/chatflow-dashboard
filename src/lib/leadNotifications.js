@@ -3,9 +3,19 @@
    The message always opens with the lead's details (mobile, email, location, source), then the chat transcript. */
 export const MAX_RECIPIENTS = 5
 
+/* What a recipient can be told about. `group` only decides where it sits in the settings screen. */
 export const NOTIFICATION_KINDS = [
-  { id: 'lead',    label: 'Lead notification',          hint: 'When a visitor shares their details. Sent with the chat transcript.' },
-  { id: 'revisit', label: 'Lead revisit (hot lead)',    hint: 'When a lead you already have comes back to chat. Sent with the chat transcript.' },
+  { id: 'lead',        group: 'leads',   label: 'New lead is created in chatbot',        hint: "Sent with the lead's details and the chat transcript." },
+  { id: 'revisit',     group: 'leads',   label: 'Lead revisit (hot lead)',               hint: "A lead you already have comes back to chat. Sent with the lead's details and the chat transcript." },
+  { id: 'billing',     group: 'account', label: 'Billing and renewals',                  hint: 'Upcoming renewals and payments.' },
+  { id: 'consumption', group: 'account', label: 'Chat consumption threshold',            hint: 'When your chat usage is close to its limit.' },
+  { id: 'weekly',      group: 'account', label: 'Weekly statistics',                     hint: 'A summary of last week, every Monday.' },
+  { id: 'templates',   group: 'account', label: 'Template statistics',                   hint: 'How your message templates performed.' },
+  { id: 'updates',     group: 'account', label: 'New features and updates from SmatBot', hint: 'Product news and releases.' },
+]
+export const KIND_GROUPS = [
+  { id: 'leads',   label: 'Leads' },
+  { id: 'account', label: 'Account and reports' },
 ]
 
 export const NOTIFICATION_CHANNELS = {
@@ -37,7 +47,9 @@ export function addRecipient(list, channel, raw) {
 }
 
 /** Who should get `kind` on `channel`: what a sender reads when a lead event happens. */
-export const recipientsFor = (config, channel, kind) => (config?.[channel] || []).filter(r => r.kinds?.[kind]).map(r => r.to)
+// a kind missing from a saved recipient (added after they were) counts as on, like it does for a new one
+export const isOn = (recipient, kind) => recipient.kinds?.[kind] !== false
+export const recipientsFor = (config, channel, kind) => (config?.[channel] || []).filter(r => isOn(r, kind)).map(r => r.to)
 
 const KEY = 'cf_lead_notifications'
 // shortcut: saved in this browser only, so another browser or teammate won't see it; move to the server with the sender.
@@ -99,4 +111,21 @@ export function buildLeadMessage({ kind, channel, lead = SAMPLE_LEAD, transcript
   const room = LIMITS[channel] == null ? null : LIMITS[channel] - head.join('\n').length - 1
   const text = [...head, ...fitTranscript(lines, room)].join('\n')
   return channel === 'email' ? { subject: title, text } : { text }
+}
+
+/* The account and report notifications. Sample figures: they show the layout of each message. */
+const SAMPLE_REPORTS = {
+  billing:     { title: 'Your SmatBot Growth plan renews on 15 Dec 2026', lines: ['Plan: Growth (monthly)', 'Amount: ₹4,999 + GST', 'Renews on: 15 Dec 2026', 'Manage your plan under Settings > Billing & Plan.'] },
+  consumption: { title: 'You have used 80% of your chat limit', lines: ['Chats used: 8,000 of 10,000', 'Plan: Growth', 'Resets on: 1 Dec 2026', 'Add more chats or upgrade under Settings > Billing & Plan to avoid interruption.'] },
+  weekly:      { title: 'Your weekly SmatBot report: 3 to 9 Nov 2026', lines: ['Conversations: 412', 'New leads: 58', 'Hot lead revisits: 9', 'Average first response: 42 sec', 'Resolved: 87%'] },
+  templates:   { title: 'Template statistics: last 7 days', lines: ['Sent: 12,400', 'Delivered: 11,980 (96.6%)', 'Read: 8,310 (66.9%)', 'Replies: 1,042', 'Failed: 62', 'Top template: order_update (3,100 sent)'] },
+  updates:     { title: 'What is new at SmatBot', lines: ['Property Cards: a real estate question type with photos, videos and price.', 'OTP verification by SMS, WhatsApp or email.', 'Facebook Catalog: manage products and share them on WhatsApp.'] },
+}
+
+/** { subject?, text } for any notification kind, shown with sample data. */
+export function buildNotificationMessage({ kind, channel }) {
+  if (kind === 'lead' || kind === 'revisit') return buildLeadMessage({ kind, channel })
+  const m = SAMPLE_REPORTS[kind]
+  const text = [channel === 'whatsapp' ? `*${m.title}*` : m.title, '', ...m.lines].join('\n').slice(0, LIMITS[channel] ?? Infinity)
+  return channel === 'email' ? { subject: m.title, text } : { text }
 }
