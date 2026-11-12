@@ -9,12 +9,13 @@ import {
   Upload, Download, Search,
   Calendar, CheckCircle2, Activity, Send,
   UserPlus, Zap, Globe, GripVertical, Languages, Repeat2, ChevronDown,
-  Building2, Phone, Mail, AlertCircle, Search as SearchIcon, QrCode,
+  Building2, Phone, Mail, AlertCircle, Search as SearchIcon, QrCode, MessageCircle, Smartphone,
 } from 'lucide-react'
 import clsx from 'clsx'
 import Select, { NativeSelect } from '../components/Select'
 import BillingSection from '../components/billing/BillingSection'
 import WidgetQRSection from '../components/settings/WidgetQRSection'
+import LeadNotificationSettings from '../components/settings/LeadNotificationSettings'
 
 /* ─── Nav structure ───────────────────────────────────────────────────────── */
 const SECTIONS = [
@@ -22,6 +23,9 @@ const SECTIONS = [
   { id:'whatsapp',       label:'WhatsApp Profile',   icon:MessageSquare,group:'Account'      },
   { id:'business_hours', label:'Business Hours',     icon:Clock,        group:'Account'      },
   { id:'notifications',  label:'Notifications',      icon:Bell,         group:'Account'      },
+  { id:'notif_email',    label:'Email Notifications',    icon:Mail,          group:'Lead Alerts' },
+  { id:'notif_sms',      label:'SMS Notifications',      icon:Smartphone,    group:'Lead Alerts' },
+  { id:'notif_whatsapp', label:'WhatsApp Notifications', icon:MessageCircle, group:'Lead Alerts' },
   { id:'team',           label:'Team Members',       icon:Users,        group:'Team'         },
   { id:'departments',    label:'Departments',         icon:Building2,    group:'Team'         },
   { id:'roles',          label:'Roles & Permissions',icon:Shield,       group:'Team'         },
@@ -39,7 +43,7 @@ const SECTIONS = [
   { id:'wa_conversations',label:'Conversations',     icon:Repeat2,      group:'Bot'          },
   { id:'wa_automation',  label:'Automation',         icon:Zap,          group:'Bot'          },
 ]
-const GROUPS = ['Account','Team','Productivity','Channels','Developer','Billing','Security','Bot']
+const GROUPS = ['Account','Lead Alerts','Team','Productivity','Channels','Developer','Billing','Security','Bot']
 
 /* Sections that only make sense for one channel. The workspace-level settings
    (team, roles, billing, security…) are shared by every product. */
@@ -2684,7 +2688,11 @@ function DepartmentsSection() {
 
 const SECTION_COMPONENTS = {
   general: GeneralSection, whatsapp: WhatsAppSection, business_hours: BusinessHoursSection,
-  notifications: NotificationsSection, team: TeamSection, departments: DepartmentsSection, roles: RolesSection,
+  notifications: NotificationsSection,
+  notif_email: () => <LeadNotificationSettings channel="email"/>,
+  notif_sms: () => <LeadNotificationSettings channel="sms"/>,
+  notif_whatsapp: () => <LeadNotificationSettings channel="whatsapp"/>,
+  team: TeamSection, departments: DepartmentsSection, roles: RolesSection,
   sla: SLASection, canned: CannedSection, tags: TagsSection, custom_fields: CustomFieldsSection,
   auto_reply: AutoReplySection, wa_widget: WidgetQRSection, api: APISection, billing: BillingSection,
   security: SecuritySection, audit: AuditSection,
