@@ -31,7 +31,7 @@ export function useFloatingPos(triggerRef, open, close, need = 300) {
 }
 
 /* A small searchable dropdown — single choice, or multi with chips + "Select all / Clear". */
-export function CountryPicker({ multi, value, onChange, options, placeholder }) {
+export function CountryPicker({ multi, value, onChange, options, placeholder, compact }) {   // compact: the closed picker shows just the flag and dial code
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const ref = useRef(null)
@@ -66,7 +66,7 @@ export function CountryPicker({ multi, value, onChange, options, placeholder }) 
                 )
               })
         ) : (
-          <span className="truncate">{one ? `${one.flag} ${one.name} - ${one.code}` : placeholder}</span>
+          <span className="truncate">{one ? (compact ? `${one.flag} ${one.dial}` : `${one.flag} ${one.name} - ${one.code}`) : placeholder}</span>
         )}
         <ChevronDown size={14} className={clsx('absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 transition-transform', open && 'rotate-180')}/>
       </div>

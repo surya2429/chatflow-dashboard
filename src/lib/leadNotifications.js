@@ -1,7 +1,8 @@
 /* Notifications: who is told what, by email, SMS or WhatsApp, and what the message says.
    Each channel holds up to MAX_RECIPIENTS recipients; each recipient picks which kinds they receive.
-   Every message carries a timestamp. Lead messages open with the lead's details (mobile, email, location, source);
-   only the email adds the chat transcript. The designed HTML email is built in emailTemplates.js from the same data. */
+   Every message names the chatbot and carries a timestamp. Lead messages carry the lead's details (mobile, email,
+   location, source); only the email adds the chat transcript. The designed HTML email is built in emailTemplates.js
+   from the same data. SMS goes to Indian numbers only (+91); WhatsApp goes to any country. */
 export const MAX_RECIPIENTS = 5
 
 /* What a recipient can be told about. `group` only decides where it sits in the settings screen. */
@@ -18,29 +19,47 @@ export const KIND_GROUPS = [
   { id: 'leads',   label: 'Leads' },
   { id: 'account', label: 'Account and reports' },
 ]
+/* The label and emoji each kind wears in the messages. */
+export const KIND_STYLE = {
+  lead:        { emoji: '🔔', kicker: 'New lead' },
+  revisit:     { emoji: '🔥', kicker: 'Hot lead is back' },
+  billing:     { emoji: '💳', kicker: 'Billing and renewals' },
+  consumption: { emoji: '📊', kicker: 'Chat usage' },
+  weekly:      { emoji: '📈', kicker: 'Weekly report' },
+  templates:   { emoji: '📨', kicker: 'Template statistics' },
+  updates:     { emoji: '✨', kicker: "What's new" },
+}
 
+/* `dial`: the country code a number is typed under (SMS is India only; WhatsApp can be any country). */
 export const NOTIFICATION_CHANNELS = {
-  email:    { label: 'Email',    noun: 'email address', placeholder: 'name@company.com' },
-  sms:      { label: 'SMS',      noun: 'mobile number', placeholder: '+91 98765 43210' },
-  whatsapp: { label: 'WhatsApp', noun: 'WhatsApp number', placeholder: '+91 98765 43210' },
+  email:    { label: 'Email',    noun: 'email address',   placeholder: 'name@company.com' },
+  sms:      { label: 'SMS',      noun: 'mobile number',   placeholder: '98765 43210', countries: ['IN'] },
+  whatsapp: { label: 'WhatsApp', noun: 'WhatsApp number', placeholder: 'Phone number' },
 }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** Cleans what was typed. Returns { value } or { error }. Numbers need a country code and are stored as +digits. */
-export function normalizeRecipient(channel, raw) {
+/** Cleans what was typed. Returns { value } or { error }.
+    Numbers are typed without the country code (it comes from the country picked, `dial`, default +91) and stored as +digits.
+    A number typed with its own +code is taken as it is. SMS accepts Indian mobile numbers only. */
+export function normalizeRecipient(channel, raw, dial = '+91') {
   const t = String(raw || '').trim()
   if (!t) return { error: `Enter an ${NOTIFICATION_CHANNELS[channel].noun}.` }
   if (channel === 'email') return EMAIL.test(t) ? { value: t.toLowerCase() } : { error: 'Enter a valid email address.' }
   const digits = t.replace(/[\s().-]/g, '')
-  if (!digits.startsWith('+')) return { error: 'Start with the country code, for example +91 98765 43210.' }
-  return /^\+[1-9]\d{7,14}$/.test(digits) ? { value: digits } : { error: 'Enter a valid number with its country code.' }
+  if (!/^\+?\d+$/.test(digits)) return { error: 'Use digits only.' }
+  const full = digits.startsWith('+') ? digits : dial + digits.replace(/^0+/, '')
+  if (channel === 'sms') return /^\+91[6-9]\d{9}$/.test(full) ? { value: full } : { error: 'SMS works for Indian mobile numbers only: enter the 10 digits, for example 98765 43210.' }
+  return /^\+[1-9]\d{7,14}$/.test(full) ? { value: full } : { error: 'Enter a valid number for the country you picked.' }
 }
 
+/** +919876543210 -> "+91 98765 43210"; other countries are left as stored. */
+export const formatPhone = v => /^\+91\d{10}$/.test(v) ? `+91 ${v.slice(3, 8)} ${v.slice(8)}` : v
+
 /** Adds a recipient with every kind switched on. Returns { list, added } or { error }. */
-export function addRecipient(list, channel, raw) {
+export function addRecipient(list, channel, raw, dial) {
   if (list.length >= MAX_RECIPIENTS) return { error: `You can add up to ${MAX_RECIPIENTS}.` }
-  const r = normalizeRecipient(channel, raw)
+  const r = normalizeRecipient(channel, raw, dial)
   if (r.error) return r
   if (list.some(x => x.to === r.value)) return { error: 'That one is already in the list.' }
   const kinds = Object.fromEntries(NOTIFICATION_KINDS.map(k => [k.id, true]))
@@ -74,6 +93,7 @@ export const formatDay = (d, timeZone = TZ) => new Intl.DateTimeFormat('en-GB', 
 export const formatStamp = (d, timeZone = TZ) => `${formatDay(d, timeZone)}, ${formatTime(d, timeZone)}${timeZone === TZ ? ' IST' : ''}`
 
 /* ── sample data (what the previews show) ────────────────────────────────── */
+export const SAMPLE_BOT = 'Support Bot'
 export const SAMPLE_AT = new Date('2026-11-12T10:12:00Z')
 export const SAMPLE_LEAD = {
   name: 'Asha Rao', phone: '+91 98765 43210', email: 'asha@example.com', location: 'Mumbai, India', source: 'Website chat · Pricing page', visits: 3,
@@ -88,36 +108,37 @@ export const SAMPLE_TRANSCRIPT = [
 ]
 
 /* The account and report notifications. Sample figures: they show the layout of each message.
-   `rows` and `stats` are facts shown in every channel; `intro`, `meter`, `items` and `cta` dress up the email. */
+   `stats` are [label, value, note] facts shown in every channel; `rows` are plain label/value facts;
+   `intro`, `meter`, `items` and `cta` dress up the email. */
 export const REPORTS = {
   billing: {
-    title: 'Your SmatBot Growth plan renews on 15 Dec 2026', kicker: 'Billing and renewals',
-    intro: 'Your plan renews automatically in 33 days. Nothing to do if your payment details are up to date.',
-    rows: [['Plan', 'Growth (monthly)'], ['Amount', '₹4,999 + GST'], ['Renews on', '15 Dec 2026']],
+    title: 'Your plan renews on 15 Dec 2026',
+    intro: 'Your SmatBot plan renews automatically in 33 days. There is nothing to do if your payment details are up to date.',
+    stats: [['Plan', 'Growth', 'Billed monthly'], ['Amount', '₹4,999', '+ GST'], ['Renews on', '15 Dec 2026', 'in 33 days']],
     cta: { label: 'Manage billing', path: '/settings?section=billing' },
   },
   consumption: {
-    title: 'You have used 80% of your chat limit', kicker: 'Chat usage',
+    title: 'You have used 80% of your chat limit',
     intro: 'Add more chats or upgrade your plan before you reach the limit, so conversations are never interrupted.',
     meter: { label: 'Chats used', used: 8000, limit: 10000 },
-    rows: [['Plan', 'Growth'], ['Resets on', '1 Dec 2026']],
+    stats: [['Plan', 'Growth', ''], ['Resets on', '1 Dec 2026', 'in 19 days']],
     cta: { label: 'Add chats or upgrade', path: '/settings?section=billing' },
   },
   weekly: {
-    title: 'Your weekly SmatBot report: 3 to 9 Nov 2026', kicker: 'Weekly statistics',
-    intro: 'Here is how last week went across your chatbot.',
+    title: 'Your week: 3 to 9 Nov 2026',
+    intro: 'Here is how last week went across your chatbot, compared with the week before.',
     stats: [['Conversations', '412', '+12%'], ['New leads', '58', '+8%'], ['Hot lead revisits', '9', '+3'], ['Resolved', '87%', '+2 pts'], ['First response', '42 sec', '-6 sec']],
     cta: { label: 'Open analytics', path: '/analytics' },
   },
   templates: {
-    title: 'Template statistics: last 7 days', kicker: 'Template statistics',
+    title: 'Template statistics: last 7 days',
     intro: 'How your WhatsApp message templates performed this week.',
     stats: [['Sent', '12,400', ''], ['Delivered', '11,980', '96.6%'], ['Read', '8,310', '66.9%'], ['Replies', '1,042', '8.4%'], ['Failed', '62', '0.5%']],
     rows: [['Top template', 'order_update (3,100 sent)']],
     cta: { label: 'View templates', path: '/templates' },
   },
   updates: {
-    title: 'What is new at SmatBot', kicker: 'New features and updates',
+    title: 'What is new at SmatBot',
     intro: 'A few things we shipped recently.',
     items: [
       ['Property Cards', 'A real estate question type with photos, videos and prices.'],
@@ -131,6 +152,10 @@ export const REPORTS = {
 const dash = v => (String(v ?? '').trim() || 'Not shared')
 export const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th')
 export const leadTitle = (kind, lead) => kind === 'revisit' ? `Hot lead: ${lead.name || 'A visitor'} is back on your website chat` : `New lead: ${lead.name || 'A visitor'}`
+/** The headline of any notification. */
+export const titleOf = (kind, lead = SAMPLE_LEAD) => kind === 'lead' || kind === 'revisit' ? leadTitle(kind, lead) : REPORTS[kind].title
+/** The email subject: the chatbot's name first, so it can be told apart in the inbox. */
+export const subjectOf = (kind, botName = SAMPLE_BOT, lead = SAMPLE_LEAD) => `[${botName}] ${titleOf(kind, lead)}`
 
 /** The lead's details, in the order they are shown. */
 export const leadRows = (kind, lead) => [
@@ -138,27 +163,44 @@ export const leadRows = (kind, lead) => [
   ...(kind === 'revisit' && lead.visits > 1 ? [['Visit', `${ordinal(lead.visits)} visit`]] : []),
 ]
 
-/** The facts of a report as "Label: value" lines. */
-const reportFacts = m => [
-  ...(m.rows || []).map(([k, v]) => `${k}: ${v}`),
-  ...(m.stats || []).map(([k, v, d]) => `${k}: ${v}${d ? ` (${d})` : ''}`),
-  ...(m.meter ? [`${m.meter.label}: ${m.meter.used.toLocaleString('en-US')} of ${m.meter.limit.toLocaleString('en-US')} (${Math.round(m.meter.used / m.meter.limit * 100)}%)`] : []),
-  ...(m.items || []).map(([k, v]) => `${k}: ${v}`),
+/** A report's facts as [label, value] pairs: figures with their note in brackets, then the usage meter, then the items. */
+export const reportFacts = m => [
+  ...(m.stats || []).map(([k, v, d]) => [k, d ? `${v} (${d})` : v]),
+  ...(m.rows || []),
+  ...(m.meter ? [[m.meter.label, `${m.meter.used.toLocaleString('en-US')} of ${m.meter.limit.toLocaleString('en-US')} (${Math.round(m.meter.used / m.meter.limit * 100)}%)`]] : []),
+  ...(m.items || []),
 ]
 
-/** { subject?, text } for one notification, as plain text. Only the email carries the chat transcript.
-    `at` is when it happened (a Date); the sample time is used when none is given. */
-export function buildNotificationMessage({ kind, channel, lead = SAMPLE_LEAD, transcript = SAMPLE_TRANSCRIPT, at = SAMPLE_AT }) {
-  const bold = t => channel === 'whatsapp' ? `*${t}*` : t
-  const isLead = kind === 'lead' || kind === 'revisit'
-  const m = REPORTS[kind]
-  const title = isLead ? leadTitle(kind, lead) : m.title
-  const body = isLead ? leadRows(kind, lead).map(([k, v]) => `${k}: ${v}`) : reportFacts(m)
-  const parts = [bold(title), `${isLead ? 'Time' : 'Sent'}: ${formatStamp(at)}`, '', ...body]
-  if (isLead && channel === 'email') {
-    const who = lead.name || 'Visitor'
-    parts.push('', bold('Chat transcript'), ...transcript.map(t => `${t.from === 'bot' ? 'Bot' : who}: ${String(t.text ?? '').replace(/\s+/g, ' ').trim()}`))
+const oneLine = t => String(t ?? '').replace(/\s+/g, ' ').trim()
+
+function whatsapp({ kind, lead, botName, stamp }) {
+  const { emoji, kicker } = KIND_STYLE[kind]
+  const head = `${emoji} *${kicker}* · ${botName}`
+  if (kind === 'lead' || kind === 'revisit') {
+    const r = Object.fromEntries(leadRows(kind, lead))
+    return [head, '', `👤 *${r.Name}*`, `📱 ${r.Mobile}`, `✉️ ${r.Email}`, `📍 ${r.Location}`, `🔗 ${r.Source}`, ...(r.Visit ? [`🔁 ${r.Visit}`] : []), '', `🕒 ${stamp}`].join('\n')
   }
-  const text = parts.join('\n')
-  return channel === 'email' ? { subject: title, text } : { text: channel === 'sms' ? text.slice(0, 480) : text }
+  const m = REPORTS[kind]
+  return [head, '', `*${m.title}*`, '', ...reportFacts(m).map(([k, v]) => `• ${k}: ${v}`), '', `🕒 ${stamp}`].join('\n')
+}
+
+// SMS stays plain: no emoji and no symbols outside the basic SMS alphabet, so it is not split into more parts.
+const smsSafe = t => t.replace(/₹/g, 'Rs ').replace(/·/g, '-')
+function sms({ kind, lead, botName, stamp }) {
+  const isLead = kind === 'lead' || kind === 'revisit'
+  const facts = isLead ? leadRows(kind, lead).filter(([k]) => k !== 'Name') : reportFacts(REPORTS[kind])
+  return smsSafe([`[${botName}] ${titleOf(kind, lead)}`, ...facts.map(([k, v]) => `${k}: ${v}`), `Time: ${stamp}`].join('\n')).slice(0, 480)
+}
+
+/** { subject?, text } for one notification, as plain text. Only the email carries the chat transcript.
+    `at` is when it happened (a Date); `botName` is the chatbot it is about. Sample data is used when none is given. */
+export function buildNotificationMessage({ kind, channel, botName = SAMPLE_BOT, lead = SAMPLE_LEAD, transcript = SAMPLE_TRANSCRIPT, at = SAMPLE_AT }) {
+  const stamp = formatStamp(at)
+  if (channel === 'whatsapp') return { text: whatsapp({ kind, lead, botName, stamp }) }
+  if (channel === 'sms') return { text: sms({ kind, lead, botName, stamp }) }
+  const isLead = kind === 'lead' || kind === 'revisit'
+  const body = (isLead ? leadRows(kind, lead) : reportFacts(REPORTS[kind])).map(([k, v]) => `${k}: ${v}`)
+  const parts = [titleOf(kind, lead), `Chatbot: ${botName}`, `${isLead ? 'Time' : 'Sent'}: ${stamp}`, '', ...body]
+  if (isLead) parts.push('', 'Chat transcript', ...transcript.map(t => `${t.from === 'bot' ? botName : lead.name || 'Visitor'}: ${oneLine(t.text)}`))
+  return { subject: subjectOf(kind, botName, lead), text: parts.join('\n') }
 }

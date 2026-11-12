@@ -5,11 +5,14 @@ import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronDown, Mail, MessageCircle, Monitor, Plus, Smartphone, Trash2 } from 'lucide-react'
 import {
-  KIND_GROUPS, MAX_RECIPIENTS, NOTIFICATION_CHANNELS, NOTIFICATION_KINDS, addRecipient, buildNotificationMessage, isOn,
+  KIND_GROUPS, MAX_RECIPIENTS, NOTIFICATION_CHANNELS, NOTIFICATION_KINDS, addRecipient, buildNotificationMessage, formatPhone, isOn,
   loadNotificationConfig, saveNotificationConfig,
 } from '../../lib/leadNotifications'
 import { buildEmailHtml } from '../../lib/emailTemplates'
 import { NativeSelect } from '../Select'
+import { CountryPicker } from '../webchat/PhoneCountrySettings'
+import { COUNTRIES } from '../webchat/AnswerControls'
+import { useApp } from '../../context/AppContext'
 
 const ICON = { email: Mail, sms: Smartphone, whatsapp: MessageCircle }
 
@@ -39,13 +42,13 @@ function Collapsible({ open, onToggle, header, actions, children }) {
 }
 
 /* The message a recipient gets. The email is the real designed email in a sandboxed frame; SMS and WhatsApp are text. */
-function MessagePreview({ channel }) {
+function MessagePreview({ channel, botName }) {
   const [open, setOpen] = useState(false)
   const [kind, setKind] = useState('lead')
   const [mobile, setMobile] = useState(false)
   const isLead = kind === 'lead' || kind === 'revisit'
-  const email = useMemo(() => channel === 'email' ? buildEmailHtml({ kind, baseUrl: window.location.origin }) : null, [channel, kind])
-  const sms = channel === 'email' ? null : buildNotificationMessage({ kind, channel })
+  const email = useMemo(() => channel === 'email' ? buildEmailHtml({ kind, botName, baseUrl: window.location.origin }) : null, [channel, kind, botName])
+  const sms = channel === 'email' ? null : buildNotificationMessage({ kind, channel, botName })
   const bold = s => s.split(/\*([^*]+)\*/).map((p, i) => i % 2 ? <b key={i}>{p}</b> : p)
   return (
     <Collapsible open={open} onToggle={() => setOpen(o => !o)}
@@ -90,6 +93,13 @@ function MessagePreview({ channel }) {
 export default function LeadNotificationSettings({ channel }) {
   const meta = NOTIFICATION_CHANNELS[channel]
   const Icon = ICON[channel]
+  const { activeBot } = useApp()
+  const botName = activeBot?.name || 'Your chatbot'
+  // SMS is for India only, so its picker holds India alone; WhatsApp can reach any country.
+  const countries = meta.countries ? COUNTRIES.filter(c => meta.countries.includes(c.code)) : COUNTRIES
+  const [country, setCountry] = useState('IN')
+  const dial = (countries.find(c => c.code === country) || countries[0]).dial
+  const isPhone = channel !== 'email'
   const [config, setConfig] = useState(loadNotificationConfig)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
@@ -100,7 +110,7 @@ export default function LeadNotificationSettings({ channel }) {
 
   const add = e => {
     e.preventDefault()
-    const r = addRecipient(list, channel, draft)
+    const r = addRecipient(list, channel, draft, dial)
     if (r.error) return setError(r.error)
     commit(r.list); setOpen(s => new Set(s).add(r.added.id)); setDraft(''); setError('')
   }
@@ -121,8 +131,9 @@ export default function LeadNotificationSettings({ channel }) {
           <span className="text-[10.5px] text-slate-400">{list.length} of {MAX_RECIPIENTS} added</span>
         </div>
         <div className="flex gap-2">
+          {isPhone && <div className="w-[116px] flex-shrink-0"><CountryPicker compact value={country} onChange={setCountry} options={countries} placeholder="Country"/></div>}
           <input id={`add-${channel}`} value={draft} disabled={full} onChange={e => { setDraft(e.target.value); setError('') }}
-            type={channel === 'email' ? 'email' : 'tel'} placeholder={full ? `You have added ${MAX_RECIPIENTS}. Remove one to add another.` : meta.placeholder}
+            type={isPhone ? 'tel' : 'email'} placeholder={full ? `You have added ${MAX_RECIPIENTS}. Remove one to add another.` : meta.placeholder}
             className="input flex-1 disabled:bg-slate-50"/>
           <button type="submit" disabled={full || !draft.trim()}
             className="flex items-center gap-1.5 px-3 h-9 rounded-lg bg-primary text-white text-[11.5px] font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors">
@@ -130,6 +141,8 @@ export default function LeadNotificationSettings({ channel }) {
           </button>
         </div>
         {error && <p role="alert" className="text-[10.5px] text-red-500">{error}</p>}
+        {!error && channel === 'sms' && <p className="text-[10.5px] text-slate-400">SMS works for Indian mobile numbers only. Type the 10 digits.</p>}
+        {!error && channel === 'whatsapp' && <p className="text-[10.5px] text-slate-400">Pick the country, then type the number without the country code.</p>}
       </form>
 
       {list.length === 0 ? (
@@ -145,7 +158,7 @@ export default function LeadNotificationSettings({ channel }) {
               <Collapsible key={r.id} open={open.has(r.id)} onToggle={() => toggle(r.id)}
                 header={<>
                   <span className="w-7 h-7 rounded-lg bg-primary-50 text-primary flex items-center justify-center flex-shrink-0"><Icon size={13}/></span>
-                  <span className="flex-1 min-w-0 truncate text-[12.5px] font-semibold text-slate-800">{r.to}</span>
+                  <span className="flex-1 min-w-0 truncate text-[12.5px] font-semibold text-slate-800">{isPhone ? formatPhone(r.to) : r.to}</span>
                   <span className={clsx('flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold', on ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-600')}>
                     {on ? `${on} of ${NOTIFICATION_KINDS.length} on` : 'Nothing on'}
                   </span>
@@ -178,9 +191,9 @@ export default function LeadNotificationSettings({ channel }) {
         </div>
       )}
 
-      <MessagePreview channel={channel}/>
+      <MessagePreview channel={channel} botName={botName}/>
       <p className="text-[10.5px] text-slate-400 leading-snug">
-        Your choices are saved, but {meta.label} messages are not being sent yet: no {channel === 'email' ? 'email' : channel === 'sms' ? 'SMS' : 'WhatsApp'} sending service is connected to these events.
+        Your choices are saved, but {meta.label} messages are not being sent yet: no {channel === 'email' ? 'email' : channel === 'sms' ? 'SMS' : 'WhatsApp'} sending service is connected to these events.{channel === 'sms' && ' In India, SMS text must also be registered (DLT) with your SMS provider before it can be sent.'}
       </p>
     </div>
   )
