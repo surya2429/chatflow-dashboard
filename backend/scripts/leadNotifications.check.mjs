@@ -1,7 +1,7 @@
 // Run: node scripts/leadNotifications.check.mjs  (from backend/) — recipients (max 5 per channel), the notification text and the HTML email.
 import assert from 'node:assert/strict'
 import {
-  MAX_RECIPIENTS, NOTIFICATION_KINDS, addRecipient, buildNotificationMessage, formatPhone, formatStamp, normalizeRecipient, recipientsFor, SAMPLE_AT,
+  MAX_RECIPIENTS, NOTIFICATION_KINDS, addRecipient, buildNotificationMessage, formatPhone, formatStamp, normalizeRecipient, recipientsFor, SAMPLE_AT, SAMPLE_TOKEN, transcriptUrl,
 } from '../../src/lib/leadNotifications.js'
 import { buildEmailHtml } from '../../src/lib/emailTemplates.js'
 
@@ -99,6 +99,22 @@ assert.ok(buildEmailHtml({ kind: 'revisit' }).html.includes('3rd visit.') && !le
 const usage = buildEmailHtml({ kind: 'consumption' }).html
 assert.ok(usage.includes('80%') && usage.includes('width="80%"'), 'usage bar')
 assert.ok(buildEmailHtml({ kind: 'billing' }).html.includes('₹4,999'))
+
+// the conversation link: its own page, no login; the email shows it as the main button, the plain text gives it too
+const link = transcriptUrl('https://app.test', 'Ab3_-xyz')
+assert.equal(link, 'https://app.test/transcript/Ab3_-xyz'); assert.equal(transcriptUrl('https://app.test', SAMPLE_TOKEN), 'https://app.test/transcript/sample')
+assert.equal(transcriptUrl('https://app.test', 'a/b?c'), 'https://app.test/transcript/a%2Fb%3Fc', 'a token cannot change the path')
+const withLink = buildEmailHtml({ kind: 'lead', baseUrl: 'https://app.test', transcriptLink: link }).html
+assert.ok(withLink.includes(`href="${link}"`) && withLink.includes('View conversation') && withLink.includes('without a login'))
+assert.ok(!withLink.includes('Open conversation') && withLink.includes('https://app.test/webchat/inbox'), 'the dashboard is a small link, not the button')
+const noLink = buildEmailHtml({ kind: 'lead', baseUrl: 'https://app.test' }).html
+assert.ok(!noLink.includes('View conversation') && noLink.includes('Open conversation'), 'without a link the email is as before')
+assert.ok(buildEmailHtml({ kind: 'revisit', baseUrl: 'https://app.test', transcriptLink: link }).html.includes('View conversation'))
+assert.ok(!buildEmailHtml({ kind: 'weekly', baseUrl: 'https://app.test', transcriptLink: link }).html.includes('/transcript/'), 'reports have no conversation')
+assert.ok(buildEmailHtml({ kind: 'lead', transcriptLink: 'x" onmouseover="alert(1)' }).html.includes('x&quot; onmouseover=&quot;'), 'link is escaped')
+assert.ok(buildNotificationMessage({ kind: 'lead', channel: 'email', transcriptLink: link }).text.includes(`without logging in: ${link}`))
+for (const channel of ['sms', 'whatsapp']) assert.ok(!buildNotificationMessage({ kind: 'lead', channel, transcriptLink: link }).text.includes('/transcript/'), `${channel} has no transcript`)
+assert.ok(!buildNotificationMessage({ kind: 'weekly', channel: 'email', transcriptLink: link }).text.includes('/transcript/'))
 
 // what a visitor typed can't inject markup or a link
 const evil = buildEmailHtml({

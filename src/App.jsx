@@ -46,6 +46,7 @@ import WebChatCallTester from './pages/WebChatCallTester'
 import WebChatLandingPage from './pages/WebChatLandingPage'
 import WebChatFlowLivePreview from './pages/WebChatFlowLivePreview'
 import WebChatEmbed from './pages/WebChatEmbed'
+import TranscriptView from './pages/TranscriptView'
 import StaffLogin from './pages/StaffLogin'
 import { ADMIN_URL } from './lib/billingApi'
 
@@ -91,6 +92,8 @@ function AppRoutes() {
           transparent background: it is composited over a stranger's website, so
           anything it paints outside the widget itself would show up there. */}
       <Route path="/webchat-embed" element={<WebChatEmbed />} />
+      {/* The conversation an email notification links to: read-only, no login, found by an unguessable token. */}
+      <Route path="/transcript/:token" element={<TranscriptView />} />
       {/* Matches the Instagram Business Login redirect_uri exactly — must work whether or not the app session is authenticated */}
       <Route path="/instagramBusinessLoginSetup" element={<InstagramOAuthCallback />} />
       <Route

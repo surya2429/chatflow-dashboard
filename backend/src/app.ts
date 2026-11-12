@@ -9,6 +9,7 @@ import { billingRouter } from './routes/billing.routes.js'
 import { whatsappReportsRouter } from './routes/whatsappReports.routes.js'
 import { messageLinksRouter } from './routes/messageLinks.routes.js'
 import { leadsRouter } from './routes/leads.routes.js'
+import { transcriptsRouter } from './routes/transcripts.routes.js'
 import { aiRouter } from './routes/ai.routes.js'
 import { ctwaRouter } from './routes/ctwa.routes.js'
 import { catalogRouter } from './routes/catalog.routes.js'
@@ -65,6 +66,7 @@ export function createApp(): Express {
   app.use('/api', whatsappReportsRouter)
   app.use('/api', messageLinksRouter)
   app.use('/api', leadsRouter)
+  app.use('/api', transcriptsRouter)
   app.use('/api', aiRouter)
   app.use('/api', ctwaRouter)
   app.use('/api', catalogRouter)

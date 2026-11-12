@@ -85,7 +85,7 @@ function shell({ kind, theme, botName, headline, stamp, preheader, body, to, bas
 </td></tr></table></body></html>`
 }
 
-function leadEmail({ kind, botName, lead, transcript, at, baseUrl, to }) {
+function leadEmail({ kind, botName, lead, transcript, at, baseUrl, to, transcriptLink }) {
   const theme = THEMES[kind]
   const hot = kind === 'revisit'
   const rows = Object.fromEntries(leadRows(kind, lead))
@@ -102,12 +102,17 @@ function leadEmail({ kind, botName, lead, transcript, at, baseUrl, to }) {
     { label: 'Source', value: rows.Source },
   ])
   const first = String(lead.name || '').split(' ')[0]
-  const actions = `<div style="padding-top:18px">${phone
-    ? button(`tel:${digitsOf(lead.phone)}`, `Call ${first || 'lead'}`, theme.color) + button(`https://wa.me/${digitsOf(lead.phone).replace(/^\+/, '')}`, 'WhatsApp', theme.color, false) + button(`${baseUrl}/webchat/inbox`, 'Open conversation', theme.color, false)
-    : button(`${baseUrl}/webchat/inbox`, 'Open conversation', theme.color)}</div>`
+  // with a transcript link the conversation opens without logging in; without one, the button goes to the dashboard inbox
+  const view = transcriptLink ? button(transcriptLink, 'View conversation', theme.color) : ''
+  const call = phone ? button(`tel:${digitsOf(lead.phone)}`, `Call ${first || 'lead'}`, theme.color, !transcriptLink) + button(`https://wa.me/${digitsOf(lead.phone).replace(/^\+/, '')}`, 'WhatsApp', theme.color, false) : ''
+  const inbox = transcriptLink ? '' : button(`${baseUrl}/webchat/inbox`, 'Open conversation', theme.color, !phone)
+  const actions = `<div style="padding-top:18px">${view}${call}${inbox}</div>`
+  const linkNote = transcriptLink
+    ? `<p style="margin:14px 0 0;font:400 12px/1.6 ${FONT};color:${MUTED}">The conversation link opens without a login, so anyone you forward this email to can read it. You can also <a href="${esc(baseUrl)}/webchat/inbox" style="color:${MUTED};text-decoration:underline">open it in your dashboard</a>.</p>`
+    : ''
   const convo = transcript.length ? heading('Conversation', `${transcript.length} message${transcript.length > 1 ? 's' : ''}`) + chat(transcript, botName, lead.name || 'Visitor', theme.color) : ''
   const preheader = [lead.phone, lead.location, lead.source].filter(Boolean).join('  ·  ')
-  return { subject: subjectOf(kind, botName, lead), preheader, html: shell({ kind, theme, botName, headline, stamp: formatStamp(at), preheader, body: banner + who + details + actions + convo, to, baseUrl }) }
+  return { subject: subjectOf(kind, botName, lead), preheader, html: shell({ kind, theme, botName, headline, stamp: formatStamp(at), preheader, body: banner + who + details + actions + convo + linkNote, to, baseUrl }) }
 }
 
 function reportEmail({ kind, botName, at, baseUrl, to }) {
@@ -125,6 +130,6 @@ function reportEmail({ kind, botName, at, baseUrl, to }) {
 
 /** { subject, preheader, html } for the designed email of any notification kind.
     `botName` is the chatbot it is about; `baseUrl` is the dashboard address the buttons open; `to` is who it is addressed to. */
-export function buildEmailHtml({ kind, botName = SAMPLE_BOT, lead = SAMPLE_LEAD, transcript = SAMPLE_TRANSCRIPT, at = SAMPLE_AT, baseUrl = '', to = 'you@company.com' }) {
-  return kind === 'lead' || kind === 'revisit' ? leadEmail({ kind, botName, lead, transcript, at, baseUrl, to }) : reportEmail({ kind, botName, at, baseUrl, to })
+export function buildEmailHtml({ kind, botName = SAMPLE_BOT, lead = SAMPLE_LEAD, transcript = SAMPLE_TRANSCRIPT, at = SAMPLE_AT, baseUrl = '', to = 'you@company.com', transcriptLink = '' }) {
+  return kind === 'lead' || kind === 'revisit' ? leadEmail({ kind, botName, lead, transcript, at, baseUrl, to, transcriptLink }) : reportEmail({ kind, botName, at, baseUrl, to })
 }

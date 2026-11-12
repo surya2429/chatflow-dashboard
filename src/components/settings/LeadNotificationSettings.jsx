@@ -5,8 +5,8 @@ import { useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { ChevronDown, Mail, MessageCircle, Monitor, Plus, Smartphone, Trash2 } from 'lucide-react'
 import {
-  KIND_GROUPS, MAX_RECIPIENTS, NOTIFICATION_CHANNELS, NOTIFICATION_KINDS, addRecipient, buildNotificationMessage, formatPhone, isOn,
-  loadNotificationConfig, saveNotificationConfig,
+  KIND_GROUPS, MAX_RECIPIENTS, NOTIFICATION_CHANNELS, NOTIFICATION_KINDS, SAMPLE_TOKEN, addRecipient, buildNotificationMessage, formatPhone, isOn,
+  loadNotificationConfig, saveNotificationConfig, transcriptUrl,
 } from '../../lib/leadNotifications'
 import { buildEmailHtml } from '../../lib/emailTemplates'
 import { NativeSelect } from '../Select'
@@ -47,8 +47,9 @@ function MessagePreview({ channel, botName }) {
   const [kind, setKind] = useState('lead')
   const [mobile, setMobile] = useState(false)
   const isLead = kind === 'lead' || kind === 'revisit'
-  const email = useMemo(() => channel === 'email' ? buildEmailHtml({ kind, botName, baseUrl: window.location.origin }) : null, [channel, kind, botName])
-  const sms = channel === 'email' ? null : buildNotificationMessage({ kind, channel, botName })
+  const transcriptLink = transcriptUrl(window.location.origin, SAMPLE_TOKEN)   // the preview's link opens a made-up conversation
+  const email = useMemo(() => channel === 'email' ? buildEmailHtml({ kind, botName, baseUrl: window.location.origin, transcriptLink }) : null, [channel, kind, botName, transcriptLink])
+  const sms = channel === 'email' ? null : buildNotificationMessage({ kind, channel, botName, transcriptLink })
   const bold = s => s.split(/\*([^*]+)\*/).map((p, i) => i % 2 ? <b key={i}>{p}</b> : p)
   return (
     <Collapsible open={open} onToggle={() => setOpen(o => !o)}

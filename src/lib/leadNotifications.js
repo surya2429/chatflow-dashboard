@@ -93,6 +93,10 @@ export const formatStamp = (d, timeZone = TZ) => `${formatDay(d, timeZone)}, ${f
 
 /* ── sample data (what the previews show) ────────────────────────────────── */
 export const SAMPLE_BOT = 'Support Bot'
+/* The page an email links to so the conversation can be read without logging in. The token comes from the server
+   (backend/src/transcripts); `sample` shows a made-up conversation, for the preview. */
+export const SAMPLE_TOKEN = 'sample'
+export const transcriptUrl = (origin, token) => `${origin}/transcript/${encodeURIComponent(token)}`
 export const SAMPLE_AT = new Date('2026-11-12T10:12:00Z')
 export const SAMPLE_LEAD = {
   name: 'Asha Rao', phone: '+91 98765 43210', email: 'asha@example.com', location: 'Mumbai, India', source: 'Website chat · Pricing page', visits: 3,
@@ -193,13 +197,14 @@ function sms({ kind, lead, botName, stamp }) {
 
 /** { subject?, text } for one notification, as plain text. Only the email carries the chat transcript.
     `at` is when it happened (a Date); `botName` is the chatbot it is about. Sample data is used when none is given. */
-export function buildNotificationMessage({ kind, channel, botName = SAMPLE_BOT, lead = SAMPLE_LEAD, transcript = SAMPLE_TRANSCRIPT, at = SAMPLE_AT }) {
+export function buildNotificationMessage({ kind, channel, botName = SAMPLE_BOT, lead = SAMPLE_LEAD, transcript = SAMPLE_TRANSCRIPT, at = SAMPLE_AT, transcriptLink = '' }) {
   const stamp = formatStamp(at)
   if (channel === 'whatsapp') return { text: whatsapp({ kind, lead, botName, stamp }) }
   if (channel === 'sms') return { text: sms({ kind, lead, botName, stamp }) }
   const isLead = kind === 'lead' || kind === 'revisit'
   const body = (isLead ? leadRows(kind, lead) : reportFacts(REPORTS[kind])).map(([k, v]) => `${k}: ${v}`)
   const parts = [titleOf(kind, lead), `Chatbot: ${botName}`, `${isLead ? 'Time' : 'Sent'}: ${stamp}`, '', ...body]
+  if (isLead && transcriptLink) parts.push('', `Read the full conversation without logging in: ${transcriptLink}`)
   if (isLead) parts.push('', 'Chat transcript', ...transcript.map(t => `${t.from === 'bot' ? botName : lead.name || 'Visitor'}: ${oneLine(t.text)}`))
   return { subject: subjectOf(kind, botName, lead), text: parts.join('\n') }
 }
